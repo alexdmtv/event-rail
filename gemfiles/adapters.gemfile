@@ -1,0 +1,8 @@
+source "https://rubygems.org"
+
+gem "activejob", "~> 8.1.0"
+gem "minitest", "~> 5.25"
+gem "shoryuken", ">= 6", "< 8"
+gem "sidekiq", ">= 7", "< 9"
+
+gemspec path: "../"

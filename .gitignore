@@ -1,0 +1,13 @@
+/.agents/
+/.bundle/
+/.claude/
+/Gemfile.lock
+/doc/
+/gemfiles/*.lock
+/log/*.log
+/openspec/
+/pkg/
+/tmp/
+/test/dummy/log/*.log
+/test/dummy/storage/
+/test/dummy/tmp/

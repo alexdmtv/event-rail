@@ -1,0 +1,75 @@
+#!/usr/bin/env ruby
+
+require "fileutils"
+require "open3"
+require "rubygems/package"
+require "tmpdir"
+
+archive = ARGV.fetch(0)
+contents = Gem::Package.new(archive).contents.sort
+
+required = %w[
+  CHANGELOG.md
+  CONTRIBUTING.md
+  MIT-LICENSE
+  README.md
+  SECURITY.md
+  lib/event_rail.rb
+  lib/event_rail/version.rb
+]
+missing = required - contents
+abort "package is missing: #{missing.join(", ")}" unless missing.empty?
+
+forbidden_prefixes = %w[
+  .github/
+  gemfiles/
+  openspec/
+  sig/
+  spikes/
+  test/
+]
+forbidden = contents.select do |path|
+  forbidden_prefixes.any? { |prefix| path.start_with?(prefix) }
+end
+abort "package contains development files: #{forbidden.join(", ")}" unless forbidden.empty?
+
+Dir.mktmpdir("event-rail-package") do |directory|
+  gem_home = File.join(directory, "gems")
+  install_output, install_error, install_status = Open3.capture3(
+    Gem.ruby,
+    "-S",
+    "gem",
+    "install",
+    File.expand_path(archive),
+    "--install-dir",
+    gem_home,
+    "--ignore-dependencies",
+    "--no-document"
+  )
+  abort install_error + install_output unless install_status.success?
+
+  environment = {
+    "BUNDLE_GEMFILE" => nil,
+    "GEM_HOME" => gem_home,
+    "GEM_PATH" => ([ gem_home ] + Gem.path).join(File::PATH_SEPARATOR),
+    "RUBYLIB" => nil,
+    "RUBYOPT" => nil
+  }
+  require_output, require_error, require_status = Open3.capture3(
+    environment,
+    Gem.ruby,
+    "-e",
+    <<~'RUBY',
+      require "event_rail"
+      specification = Gem.loaded_specs.fetch("event_rail")
+      installed_path = File.realpath(specification.full_gem_path)
+      isolated_home = File.realpath(ENV.fetch("GEM_HOME"))
+      abort "loaded EventRail outside isolated install: #{installed_path}" unless installed_path.start_with?(isolated_home)
+      puts EventRail::VERSION
+    RUBY
+    chdir: directory
+  )
+  abort require_error + require_output unless require_status.success?
+
+  puts "verified #{File.basename(archive)} (#{contents.length} files, EventRail #{require_output.strip})"
+end
