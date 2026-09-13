@@ -1,7 +1,14 @@
 module EventRail
   class Event < Internal::AttributeRecord
     VALUE_NOT_GIVEN = Object.new.freeze
-    INTERNAL_TOKEN = Object.new.freeze
+
+    # Metadata an application may supply, but only as an explicit keyword: reaching
+    # it through attribute data is how forged lineage would arrive from a params hash.
+    KEYWORD_METADATA_NAMES = %w[extensions occurred_at].freeze
+
+    # Metadata an application may never supply. These are derived during publication
+    # or arrive through validated reconstruction.
+    DERIVED_METADATA_NAMES = %w[causation_id correlation_id id source].freeze
 
     RESERVED_ATTRIBUTE_NAMES = %w[
       attributes
@@ -79,11 +86,10 @@ module EventRail
         end
 
         identity_by.each do |attribute_name|
-          definition = event_rail_attribute_definitions[attribute_name]
-          unless definition
+          unless attribute_names.include?(attribute_name)
             raise InvalidContract, "#{self} identity attribute #{attribute_name.inspect} is not declared"
           end
-          if definition.array || %i[raw data].include?(definition.kind)
+          unless attribute_types[attribute_name].is_a?(Internal::Types::Scalar)
             raise InvalidContract, "#{self} identity attribute #{attribute_name.inspect} must be scalar"
           end
         end
@@ -107,10 +113,7 @@ module EventRail
 
         known_names = attribute_names
         declared, unknown = data.partition { |name, _value| known_names.include?(name) }.map(&:to_h)
-        new(
-          declared,
-          __event_rail_internal__: [ INTERNAL_TOKEN, metadata, unknown ]
-        )
+        __event_rail_build__(declared, unknown: unknown, state: { :@metadata => metadata })
       end
 
       def reserved_attribute_names
@@ -120,22 +123,12 @@ module EventRail
 
     attr_reader :metadata
 
-    def initialize(attributes = nil, occurred_at: nil, extensions: {}, __event_rail_internal__: nil, **payload)
+    def initialize(attributes = nil, occurred_at: nil, extensions: {}, **payload)
       self.class.validate_definition!
 
-      if __event_rail_internal__
-        token, trusted_metadata, unknown = __event_rail_internal__
-        unless token.equal?(INTERNAL_TOKEN)
-          raise InvalidEvent, "invalid trusted event reconstruction"
-        end
-
-        @metadata = trusted_metadata
-        internal_unknown = Internal::AttributeRecord.send(:internal_unknown, unknown)
-        super(attributes, __event_rail_internal__: internal_unknown, **payload)
-      else
-        @metadata = Metadata.proposed(occurred_at: occurred_at, extensions: extensions)
-        super(attributes, **payload)
-      end
+      # Trusted reconstruction installs complete metadata before initialize runs.
+      @metadata ||= Metadata.proposed(occurred_at: occurred_at, extensions: extensions)
+      super(attributes, **payload)
     end
 
     def event_type
@@ -174,6 +167,13 @@ module EventRail
       metadata.complete?
     end
 
+    # Contract and metadata only: domain payload and extensions stay out of
+    # diagnostics, including Active Job argument logging.
+    def inspect
+      "#<#{self.class.name || self.class.inspect} type=#{event_type.inspect} version=#{version.inspect} " \
+        "id=#{id.inspect} source=#{source.inspect} occurred_at=#{occurred_at.inspect}>"
+    end
+
     def __stamp__(id:, source: nil, occurred_at: nil, correlation_id:, causation_id: nil, extensions: nil)
       resolved_source = source || self.class.default_source
       raise InvalidMetadata, "source is required to stamp #{self.class}" unless resolved_source
@@ -187,12 +187,34 @@ module EventRail
         extensions: extensions || metadata.extensions
       )
 
-      self.class.__reconstruct__(data: attributes, metadata: stamped_metadata)
+      # A metadata-only copy. Reconstructing through the validating constructor
+      # would re-cast and re-validate payload this instance already canonicalized,
+      # and would rebuild every nested data object, for no change to the payload.
+      self.class.send(:__event_rail_copy__, self, state: { :@metadata => stamped_metadata })
     end
 
     private
       def record_error_class
         InvalidEvent
+      end
+
+      def unknown_attributes_message(unknown)
+        names = unknown.keys
+        keyword_only = names & KEYWORD_METADATA_NAMES
+        derived = names & DERIVED_METADATA_NAMES
+        return super if keyword_only.empty? && derived.empty?
+
+        parts = []
+        unless keyword_only.empty?
+          parts << "#{keyword_only.sort.join(", ")} must be supplied as a keyword argument, not as attribute data"
+        end
+        unless derived.empty?
+          parts << "#{derived.sort.join(", ")} cannot be set locally; event metadata is derived during " \
+            "publication or supplied through validated reconstruction"
+        end
+        remaining = names - keyword_only - derived
+        parts << "unknown attributes: #{remaining.sort.join(", ")}" unless remaining.empty?
+        parts.join("; ")
       end
 
       def record_validation_message

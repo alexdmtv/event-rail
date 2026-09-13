@@ -110,6 +110,49 @@ class DeclarationsTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects attribute names already implemented on the class" do
+    %i[freeze frozen? class hash method display send tap object_id dup clone inspect to_s].each do |name|
+      assert_raises(EventRail::DeclarationError, "expected #{name.inspect} to be rejected") do
+        build_event_class("tests.shadow.#{name}", 1) { attribute name, :string }
+      end
+    end
+  end
+
+  test "keeps ordinary domain attribute names available" do
+    event_class = build_event_class("tests.domain_names", 1) do
+      attribute :name, :string
+      attribute :status, :string
+      attribute :state, :string
+      attribute :reference, :string
+      attribute :amount, :decimal
+      attribute :quantity, :integer
+    end
+    event = event_class.new(
+      name: "n", status: "s", state: "x", reference: "r", amount: "1.50", quantity: 2
+    )
+
+    assert_equal "n", event.name
+    assert_equal BigDecimal("1.50"), event.amount
+    assert_predicate event, :frozen?
+  end
+
+  test "allows redeclaring an existing attribute" do
+    event_class = build_event_class("tests.redeclared", 1) do
+      attribute :amount, :string
+      attribute :amount, :integer
+    end
+
+    assert_equal 42, event_class.new(amount: "42").amount
+  end
+
+  test "does not expose view and form conversion helpers" do
+    event = build_event_class("tests.no_conversion", 1).new
+
+    %i[to_model to_key to_partial_path persisted? slice values_at].each do |method_name|
+      refute_respond_to event, method_name
+    end
+  end
+
   private
     def build_event_class(type, version, &definition)
       Class.new(EventRail::Event) do

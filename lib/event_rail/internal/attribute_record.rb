@@ -4,19 +4,22 @@ require "active_model/validations"
 module EventRail
   module Internal
     class AttributeRecord
-      include ActiveModel::Model
+      # Deliberately not ActiveModel::Model: that bundle also brings Conversion and
+      # Access, whose to_model, to_key, to_param, to_partial_path, persisted?, slice
+      # and values_at are view and form concerns. They are meaningless on an
+      # immutable historical fact and would become public API at 1.0.
       include ActiveModel::Attributes
+      include ActiveModel::AttributeAssignment
+      include ActiveModel::Validations
 
       DEFAULT_NOT_GIVEN = Object.new.freeze
-      INTERNAL_TOKEN = Object.new.freeze
 
       class << self
         def attribute(name, cast_type = nil, default: DEFAULT_NOT_GIVEN, array: false, **options)
           attribute_name = name.to_s
           validate_attribute_name!(attribute_name)
 
-          type, definition = Types.resolve(cast_type, array: array, options: options)
-          own_attribute_definitions[attribute_name] = definition
+          type = Types.resolve(cast_type, array: array, options: options)
 
           if default.equal?(DEFAULT_NOT_GIVEN)
             super(attribute_name, type)
@@ -29,49 +32,71 @@ module EventRail
           end
         end
 
-        def event_rail_attribute_definitions
-          inherited = if superclass.respond_to?(:event_rail_attribute_definitions)
-            superclass.event_rail_attribute_definitions
-          else
-            {}
-          end
-
-          inherited.merge(own_attribute_definitions).freeze
-        end
-
         def reserved_attribute_names
           %w[attributes errors valid?].freeze
         end
 
         private
-        def own_attribute_definitions
-          @event_rail_attribute_definitions ||= {}
-        end
-
         def validate_attribute_name!(name)
-          return unless reserved_attribute_names.include?(name)
+          if reserved_attribute_names.include?(name)
+            raise DeclarationError, "#{self} cannot declare reserved attribute #{name.inspect}"
+          end
 
-          raise DeclarationError, "#{self} cannot declare reserved attribute #{name.inspect}"
+          # Redeclaring an existing attribute is legitimate; its readers are ours.
+          return if attribute_types.key?(name)
+
+          shadowed = [ name, "#{name}=" ].find do |candidate|
+            method_defined?(candidate) || private_method_defined?(candidate)
+          end
+          return unless shadowed
+
+          raise DeclarationError,
+            "#{self} cannot declare attribute #{name.inspect} because #{shadowed.inspect} is already defined"
         end
 
-        def internal_unknown(unknown)
-          [ INTERNAL_TOKEN, unknown ]
+        # Untrusted input: casts, validates, canonicalizes and freezes. State the
+        # caller already derived, such as reconstructed metadata, is installed
+        # before initialize runs, so no sentinel rides on the public signature.
+        def __event_rail_build__(declared, unknown: {}, state: {})
+          record = allocate
+          state.each { |ivar, value| record.instance_variable_set(ivar, value) }
+          record.instance_variable_set(
+            :@unknown_attributes, PortableValue.raw(unknown, path: "unknown attributes")
+          )
+          record.send(:initialize, declared)
+          record
+        end
+
+        # Trusted in-process copy: the source is an instance of this class whose
+        # payload is already cast, validated, canonicalized and deeply frozen.
+        # Varying state the payload does not depend on cannot invalidate it, so
+        # nothing needs recomputing.
+        def __event_rail_copy__(source, state: {})
+          copy = allocate
+          source.instance_variables.each do |ivar|
+            copy.instance_variable_set(ivar, source.instance_variable_get(ivar))
+          end
+          state.each { |ivar, value| copy.instance_variable_set(ivar, value) }
+          copy.errors
+          copy.freeze
         end
       end
 
-      def initialize(attributes = nil, __event_rail_internal__: nil, **keyword_attributes)
+      def initialize(attributes = nil, **keyword_attributes)
         input = normalize_input(attributes, keyword_attributes)
-        unknown = extract_internal_unknown(__event_rail_internal__)
         declared, local_unknown = partition_attributes(input)
 
         unless local_unknown.empty?
-          raise record_error_class, "unknown attributes: #{local_unknown.keys.sort.join(", ")}"
+          raise record_error_class, unknown_attributes_message(local_unknown)
         end
 
-        super(declared)
+        # ActiveModel::Attributes#initialize takes no arguments; assignment is
+        # AttributeAssignment's job, which ActiveModel::API used to chain for us.
+        super()
+        assign_attributes(declared) unless declared.empty?
         self.class.attribute_names.each { |name| public_send(name) }
 
-        @unknown_attributes = PortableValue.raw(unknown, path: "unknown attributes")
+        @unknown_attributes ||= PortableValue.raw({}, path: "unknown attributes")
         validate_record!
         @canonical_attributes = build_canonical_attributes
         @attributes.freeze
@@ -86,6 +111,33 @@ module EventRail
         return @canonical_attributes if defined?(@canonical_attributes)
 
         super
+      end
+
+      # An immutable value has no meaningful copy, and Active Model's own
+      # initialize_dup deep-dups into an unfrozen attribute set while clearing
+      # errors, which would otherwise hand back a mutable record whose readers
+      # disagree with its payload view.
+      def dup
+        frozen? ? self : super
+      end
+
+      def clone(freeze: nil)
+        frozen? ? self : super
+      end
+
+      # Validations already ran once, during construction. Active Model would
+      # re-run them here, which raises on a frozen record on Rails 7.2 and can
+      # report a published fact as invalid on later versions when a validation
+      # depends on external state.
+      def valid?(context = nil)
+        frozen? ? true : super
+      end
+
+      # Object#inspect prints every instance variable, and Active Job logs each
+      # argument's inspect by default, so an unmanaged representation publishes
+      # domain payload into ordinary application logs.
+      def inspect
+        "#<#{self.class.name || self.class.inspect}>"
       end
 
       private
@@ -116,15 +168,8 @@ module EventRail
         end
       end
 
-      def extract_internal_unknown(internal)
-        return {} if internal.nil?
-
-        token, unknown = internal
-        unless token.equal?(INTERNAL_TOKEN) && unknown.is_a?(Hash)
-          raise record_error_class, "invalid internal reconstruction state"
-        end
-
-        unknown
+      def unknown_attributes_message(unknown)
+        "unknown attributes: #{unknown.keys.sort.join(", ")}"
       end
 
       def partition_attributes(input)
@@ -140,8 +185,9 @@ module EventRail
       end
 
       def build_canonical_attributes
+        types = self.class.attribute_types
         declared = self.class.attribute_names.to_h do |name|
-          [ name.dup.freeze, PortableValue.export(public_send(name), path: name) ]
+          [ -name, types[name].to_portable(public_send(name)) ]
         end
 
         declared.merge(@unknown_attributes).freeze

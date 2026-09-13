@@ -14,6 +14,48 @@ module MetadataFixtures
   end
 end
 
+module StampFixtures
+  class << self
+    attr_accessor :validation_runs, :items_built
+
+    def reset
+      self.validation_runs = 0
+      self.items_built = 0
+    end
+  end
+  reset
+
+  class LineItem < EventRail::Data
+    attribute :sku, :string
+    attribute :quantity, :integer
+
+    validate { StampFixtures.validation_runs += 1 }
+
+    def self.new(...)
+      StampFixtures.items_built += 1
+      super
+    end
+  end
+
+  class Order < EventRail::Event
+    event_type "tests.stamp_order"
+    version 1
+    default_source "tests"
+
+    attribute :order_id, :string
+    attribute :line_items, LineItem, array: true
+
+    validate { StampFixtures.validation_runs += 1 }
+
+    attr_reader :installed_by_initializer
+
+    def initialize(...)
+      @installed_by_initializer = "installed"
+      super
+    end
+  end
+end
+
 class MetadataAndReconstructionTest < ActiveSupport::TestCase
   test "local construction accepts occurrence time and extensions without forged lineage" do
     event = MetadataFixtures::AccountOpened.new(
@@ -165,6 +207,87 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
         MetadataFixtures::AccountOpened.new(account_id: "1", field => "delivery")
       end
     end
+  end
+
+  test "stamping copies canonical state instead of rebuilding it" do
+    StampFixtures.reset
+    proposal = StampFixtures::Order.new(
+      order_id: "o-1",
+      line_items: [ { sku: "a", quantity: 1 }, { sku: "b", quantity: 2 } ]
+    )
+
+    assert_equal 3, StampFixtures.validation_runs
+    assert_equal 2, StampFixtures.items_built
+
+    StampFixtures.reset
+    stamped = proposal.__stamp__(id: "evt-1", correlation_id: "corr-1", occurred_at: Time.utc(2026, 9, 1))
+
+    assert_equal 0, StampFixtures.validation_runs, "stamping must not re-run application validations"
+    assert_equal 0, StampFixtures.items_built, "stamping must not rebuild nested data"
+    assert_equal proposal.attributes, stamped.attributes
+    assert_predicate stamped, :frozen?
+    assert_predicate stamped, :stamped?
+    assert_nil proposal.id
+    assert_equal "evt-1", stamped.id
+    assert_instance_of StampFixtures::LineItem, stamped.line_items.first
+  end
+
+  test "stamping preserves state an application initializer installed" do
+    StampFixtures.reset
+    proposal = StampFixtures::Order.new(order_id: "o-1")
+    stamped = proposal.__stamp__(id: "evt-1", correlation_id: "corr-1", occurred_at: Time.utc(2026, 9, 1))
+
+    assert_equal "installed", stamped.installed_by_initializer
+  end
+
+  test "reconstruction from portable input still casts and validates" do
+    StampFixtures.reset
+    reconstructed = StampFixtures::Order.__reconstruct__(
+      data: { "order_id" => "o-9", "line_items" => [ { "sku" => "a", "quantity" => "4" } ] },
+      metadata: complete_metadata
+    )
+
+    assert_equal 2, StampFixtures.validation_runs, "wire input must be validated"
+    assert_equal 1, StampFixtures.items_built, "wire input must be rebuilt as typed data"
+    assert_equal 4, reconstructed.line_items.first.quantity
+
+    assert_raises(EventRail::CastingError) do
+      StampFixtures::Order.__reconstruct__(
+        data: { "order_id" => "o-9", "line_items" => [ { "sku" => "a", "quantity" => "abc" } ] },
+        metadata: complete_metadata
+      )
+    end
+  end
+
+  test "the internal construction channel is not reachable through new" do
+    error = assert_raises(EventRail::InvalidEvent) do
+      MetadataFixtures::AccountOpened.new(
+        account_id: "1", __event_rail_internal__: [ Object.new, nil, {} ]
+      )
+    end
+
+    assert_includes error.message, "__event_rail_internal__"
+    refute EventRail::Event.const_defined?(:INTERNAL_TOKEN, false)
+  end
+
+  test "names metadata supplied as attribute data instead of reporting it unknown" do
+    keyword_error = assert_raises(EventRail::InvalidEvent) do
+      MetadataFixtures::AccountOpened.new({ "account_id" => "1", "occurred_at" => Time.now.utc })
+    end
+    assert_includes keyword_error.message, "occurred_at"
+    assert_includes keyword_error.message, "keyword argument"
+
+    derived_error = assert_raises(EventRail::InvalidEvent) do
+      MetadataFixtures::AccountOpened.new(account_id: "1", id: "forged", source: "forged")
+    end
+    assert_includes derived_error.message, "cannot be set locally"
+    assert_includes derived_error.message, "validated reconstruction"
+
+    mixed_error = assert_raises(EventRail::InvalidEvent) do
+      MetadataFixtures::AccountOpened.new(account_id: "1", id: "forged", provider_job_id: "delivery")
+    end
+    assert_includes mixed_error.message, "cannot be set locally"
+    assert_includes mixed_error.message, "unknown attributes: provider_job_id"
   end
 
   private

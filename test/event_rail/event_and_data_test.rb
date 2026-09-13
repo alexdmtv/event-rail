@@ -30,6 +30,34 @@ module EventAndDataFixtures
       "gid://example/Record/1"
     end
   end
+
+  class Measurement < EventRail::Event
+    event_type "tests.measurement"
+    version 1
+    default_source "tests"
+
+    attribute :count, :integer
+    attribute :ratio, :float
+    attribute :amount, :decimal
+    attribute :flag, :boolean
+    attribute :recorded_at, :datetime
+    attribute :recorded_on, :date
+  end
+
+  class Counted < EventRail::Event
+    event_type "tests.counted"
+    version 1
+    default_source "tests"
+
+    attribute :order_id, :string
+
+    class << self
+      attr_accessor :validation_runs
+    end
+    self.validation_runs = 0
+
+    validate { self.class.validation_runs += 1 }
+  end
 end
 
 class EventAndDataTest < ActiveSupport::TestCase
@@ -113,5 +141,82 @@ class EventAndDataTest < ActiveSupport::TestCase
     assert_raises(EventRail::CastingError) do
       EventAndDataFixtures::OrderPlaced.new(order_id: "1", line_items: { product_id: "sku" })
     end
+  end
+
+  test "rejects scalar casts that would discard information" do
+    [
+      [ :count, "12abc" ], [ :count, "abc" ], [ :count, "" ], [ :count, 1.9 ], [ :count, true ],
+      [ :ratio, "1.5x" ],
+      [ :amount, "abc" ],
+      [ :flag, "maybe" ], [ :flag, "yes" ], [ :flag, 7 ],
+      [ :recorded_at, "garbage" ],
+      [ :recorded_on, "garbage" ]
+    ].each do |attribute_name, value|
+      assert_raises(
+        EventRail::CastingError,
+        "expected #{attribute_name}=#{value.inspect} to be rejected"
+      ) { EventAndDataFixtures::Measurement.new(attribute_name => value) }
+    end
+  end
+
+  test "accepts lossless scalar input in local and portable forms" do
+    event = EventAndDataFixtures::Measurement.new(
+      count: "12",
+      ratio: "1.5",
+      amount: "12.50",
+      flag: "false",
+      recorded_at: "2026-09-01T10:00:00Z",
+      recorded_on: "2026-09-01"
+    )
+
+    assert_equal 12, event.count
+    assert_in_delta 1.5, event.ratio
+    assert_equal BigDecimal("12.50"), event.amount
+    assert_equal false, event.flag
+    assert_equal Time.utc(2026, 9, 1, 10), event.recorded_at
+    assert_equal Date.new(2026, 9, 1), event.recorded_on
+    assert_equal 2, EventAndDataFixtures::Measurement.new(count: 2.0).count
+  end
+
+  test "copies of an event remain immutable" do
+    event = EventAndDataFixtures::OrderPlaced.new(order_id: "1", properties: { "a" => "b" })
+
+    [ event.dup, event.clone, event.clone(freeze: false) ].each do |copy|
+      assert_predicate copy, :frozen?
+      assert_equal event.attributes, copy.attributes
+      assert_equal event.order_id, copy.attributes.fetch("order_id")
+      assert_raises(FrozenError) { copy.instance_variable_set(:@order_id, "mutated") }
+    end
+  end
+
+  test "a validity query does not re-run application validations" do
+    EventAndDataFixtures::Counted.validation_runs = 0
+    event = EventAndDataFixtures::Counted.new(order_id: "1")
+
+    assert_equal 1, EventAndDataFixtures::Counted.validation_runs
+    assert_predicate event, :valid?
+    assert_empty event.errors
+    assert_equal 1, EventAndDataFixtures::Counted.validation_runs
+  end
+
+  test "diagnostic output identifies the contract without exposing payload" do
+    event = EventAndDataFixtures::OrderPlaced.new(
+      order_id: "secret-order",
+      properties: { "pan" => "secret-pan" },
+      line_items: [ { product_id: "secret-sku", quantity: 1 } ],
+      extensions: { "actor" => "secret-actor" }
+    )
+    stamped = event.__stamp__(id: "evt-1", correlation_id: "corr-1", occurred_at: Time.now.utc)
+
+    [ event.inspect, stamped.inspect, event.line_items.first.inspect ].each do |representation|
+      refute_includes representation, "secret-order"
+      refute_includes representation, "secret-pan"
+      refute_includes representation, "secret-sku"
+      refute_includes representation, "secret-actor"
+    end
+
+    assert_includes stamped.inspect, "orders.order_placed"
+    assert_includes stamped.inspect, "evt-1"
+    assert_includes stamped.inspect, "acme.orders"
   end
 end
