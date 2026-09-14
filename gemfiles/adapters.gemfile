@@ -19,7 +19,6 @@ gem "json", "~> 2.7"
 # instrumentation library at boot just because it is in the bundle. Solid Queue's engine
 # needs Active Record, which the fixture deliberately does not have, and the conformance
 # tests require what they exercise explicitly.
-gem "shoryuken", ">= 6", "< 8", require: false
 gem "sidekiq", ">= 7", "< 9", require: false
 gem "solid_queue", ">= 1.1", "< 3", require: false
 

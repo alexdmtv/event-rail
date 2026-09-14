@@ -90,6 +90,40 @@ Casting refuses to discard information rather than substituting a plausible valu
 
 Constructed events, nested data, metadata, and every contained value are recursively immutable. Two events of one class with equal payload and equal metadata are equal values, which is what lets `assert_enqueued_with(args: [event])` match a published event.
 
+### Custom attribute types
+
+A custom Active Model type may be used as an attribute type. Rails' `serialize` is documented as producing a value "usable by the database", and a database driver accepts a `Date` or a `BigDecimal` object -- a queue does not, and Active Job does not recurse into a serializer's output, so such a value would reach the adapter raw. Including `EventRail::PortableType` narrows the promise to a JSON primitive, array, or string-keyed hash, and `portable_examples` makes the promise checkable:
+
+```ruby
+module Docs
+  Weight = Struct.new(:grams)
+
+  class WeightType < ActiveModel::Type::Value
+    include EventRail::PortableType
+
+    def cast(value) = value.is_a?(Weight) || value.nil? ? value : Weight.new(Integer(value))
+    def serialize(value) = value&.grams
+    def deserialize(value) = value && Weight.new(value)
+    def portable_examples = [ Weight.new(0), Weight.new(2500) ]
+  end
+
+  class ParcelShipped < EventRail::Event
+    event_type "docs.parcel_shipped"
+    version 1
+    default_source "acme.shipping"
+    identity_by :parcel_id
+
+    attribute :parcel_id, :string
+    attribute :weight, WeightType.new
+  end
+end
+
+Docs::ParcelShipped.new(parcel_id: "P-1", weight: 2500).data
+# => { "parcel_id" => "P-1", "weight" => 2500 }
+```
+
+Every example is round-tripped through JSON when the attribute is declared, so a type that cannot hold up fails at class definition rather than at the first enqueue. A type whose cast value is already a portable scalar -- a plain `:string` subclass, say -- needs none of this.
+
 ## Publishing
 
 ```ruby
@@ -115,6 +149,8 @@ publication.skipped_subscribers  # subscribers whose own enqueue callback declin
 Subscribers are discovered from the conventional `app/events` and `app/jobs` roots of the host application and every engine, during Rails preparation. There is no registration API, no initializer, and no registry to query.
 
 `subscribes_to` is exact and not inherited: a subclass of a subscriber is a different job and receives nothing. A subscriber must define its own `perform` taking exactly one required positional event parameter, must not have subclasses, and must include `EventRail::JobContext`. Each of those is checked during preparation, so a mistake fails the boot that introduced it rather than the first publication.
+
+A subscriber declared outside those roots must be loaded before preparation finishes, or declaring it raises: EventRail refuses to run with a subscriber it cannot see at boot. A subscriber required from an initializer works, but initializers run before the main autoloader exists, so such a file has to bring its own event class and job base rather than referencing autoloaded constants. Declaring a subscriber after preparation -- from a test file, or from a lazily autoloaded path outside `app/events` and `app/jobs` -- raises for the same reason, so a test that needs a throwaway subscriber should define it in a file under a conventional root of the test application instead.
 
 ### At-least-once delivery, and what that means for subscribers
 
