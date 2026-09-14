@@ -9,22 +9,31 @@ module EventRail
       RAW_SCALARS = [ NilClass, TrueClass, FalseClass, String, Integer, Float ].freeze
       TYPED_SCALARS = [ BigDecimal, Date, DateTime, Time ].freeze
 
-      def raw(value, path: "value")
+      def raw(value, path: "value", depth: 0)
         reject_record!(value, path: path)
 
         case value
         when *RAW_SCALARS
           freeze_scalar(value, path: path)
         when Array
-          value.each_with_index.map { |item, index| raw(item, path: "#{path}[#{index}]") }.freeze
+          check_depth!(depth, path: path)
+          value.each_with_index.map do |item, index|
+            raw(item, path: "#{path}[#{index}]", depth: depth + 1)
+          end.freeze
         when Hash
+          check_depth!(depth, path: path)
           value.each_with_object({}) do |(key, item), result|
             unless key.is_a?(String)
               raise CastingError, "#{path} must use string hash keys; got #{key.inspect}"
             end
+            if key.start_with?(Limits::ACTIVE_JOB_RESERVED_KEY_PREFIX)
+              raise CastingError,
+                "#{path} key #{key.inspect} uses the #{Limits::ACTIVE_JOB_RESERVED_KEY_PREFIX.inspect} " \
+                "prefix Active Job reserves in its argument encoding"
+            end
 
             frozen_key = key.dup.freeze
-            result[frozen_key] = raw(item, path: "#{path}.#{key}")
+            result[frozen_key] = raw(item, path: "#{path}.#{key}", depth: depth + 1)
           end.freeze
         else
           raise CastingError, "#{path} contains unsupported #{value.class}"
@@ -44,22 +53,18 @@ module EventRail
         end
       end
 
-      def export(value, path: "value")
+      # A written value has crossed no boundary yet, so this is a structural check
+      # of what a JSON encoder can carry rather than a trust decision.
+      def json_primitive?(value)
         case value
-        when EventRail::Data
-          value.attributes
+        when *RAW_SCALARS
+          !value.is_a?(Float) || value.finite?
         when Array
-          value.each_with_index.map { |item, index| export(item, path: "#{path}[#{index}]") }.freeze
+          value.all? { |item| json_primitive?(item) }
         when Hash
-          value.each_with_object({}) do |(key, item), result|
-            unless key.is_a?(String)
-              raise CastingError, "#{path} must use string hash keys; got #{key.inspect}"
-            end
-
-            result[key.dup.freeze] = export(item, path: "#{path}.#{key}")
-          end.freeze
+          value.all? { |key, item| key.is_a?(String) && json_primitive?(item) }
         else
-          typed(value, path: path)
+          false
         end
       end
 
@@ -82,6 +87,13 @@ module EventRail
 
         raise CastingError, "#{path} cannot contain records or GlobalID values"
       end
+
+      def check_depth!(depth, path:)
+        return if depth < Limits::MAX_RAW_DEPTH
+
+        raise CastingError, "#{path} exceeds the maximum nesting depth of #{Limits::MAX_RAW_DEPTH}"
+      end
+      private_class_method :check_depth!
 
       def freeze_scalar(value, path:)
         if value.is_a?(Numeric) && value.respond_to?(:finite?) && !value.finite?

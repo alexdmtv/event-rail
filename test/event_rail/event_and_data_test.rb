@@ -61,11 +61,11 @@ module EventAndDataFixtures
 end
 
 class EventAndDataTest < ActiveSupport::TestCase
-  test "casts scalar and typed nested values into immutable canonical attributes" do
+  test "casts scalar and typed nested values into an immutable attributes view" do
     event = EventAndDataFixtures::OrderPlaced.new(
-      order_id: 123,
-      line_items: [ { product_id: 456, quantity: "2" } ],
-      tags: [ :priority ],
+      order_id: "123",
+      line_items: [ { product_id: "456", quantity: "2" } ],
+      tags: [ "priority" ],
       total: "12.50",
       delivery_on: "2026-09-01"
     )
@@ -79,10 +79,13 @@ class EventAndDataTest < ActiveSupport::TestCase
     assert_equal [ "priority" ], event.tags
     assert_equal BigDecimal("12.50"), event.total
     assert_equal Date.new(2026, 9, 1), event.delivery_on
+
+    # Active Model's own meaning: cast values of the declared types, so a nested
+    # record stays a record and a decimal stays a decimal.
     assert_equal(
       {
         "order_id" => "123",
-        "line_items" => [ { "product_id" => "456", "quantity" => 2 } ],
+        "line_items" => [ item ],
         "properties" => nil,
         "tags" => [ "priority" ],
         "total" => BigDecimal("12.50"),
@@ -90,9 +93,28 @@ class EventAndDataTest < ActiveSupport::TestCase
       },
       event.attributes
     )
+
+    # The written projection of the same payload carries JSON primitives only.
+    assert_equal(
+      {
+        "order_id" => "123",
+        "line_items" => [ { "product_id" => "456", "quantity" => 2 } ],
+        "properties" => nil,
+        "tags" => [ "priority" ],
+        "total" => "12.5",
+        "delivery_on" => "2026-09-01"
+      },
+      event.data
+    )
+
     assert_predicate event, :frozen?
     assert_predicate item, :frozen?
-    assert_predicate event.attributes, :frozen?
+    assert_predicate event.data, :frozen?
+
+    # The attributes view is a dump, so mutating it cannot reach the event.
+    view = event.attributes
+    view["order_id"] = "tampered"
+    assert_equal "123", event.order_id
   end
 
   test "deep copies and freezes raw JSON-like data" do
@@ -206,7 +228,7 @@ class EventAndDataTest < ActiveSupport::TestCase
       line_items: [ { product_id: "secret-sku", quantity: 1 } ],
       extensions: { "actor" => "secret-actor" }
     )
-    stamped = event.__stamp__(id: "evt-1", correlation_id: "corr-1", occurred_at: Time.now.utc)
+    stamped = event.send(:__stamp__, id: "evt-1", correlation_id: "corr-1", occurred_at: Time.now.utc)
 
     [ event.inspect, stamped.inspect, event.line_items.first.inspect ].each do |representation|
       refute_includes representation, "secret-order"

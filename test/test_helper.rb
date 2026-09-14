@@ -4,6 +4,12 @@ ENV["RAILS_ENV"] = "test"
 require_relative "../test/dummy/config/environment"
 require "rails/test_help"
 
+# A Rails deprecation the library itself triggers is a defect on the compatibility
+# floor, not a warning to scroll past: it becomes a removal on the next major. The
+# Rails 7.2 `to_time` deprecation is the concrete case, and it only shows up on that
+# appraisal, so the gate has to be on for every run rather than checked by eye.
+ActiveSupport.deprecator.behavior = :raise
+
 class ActiveSupport::TestCase
   include ActiveJob::TestHelper
 

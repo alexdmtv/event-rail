@@ -15,6 +15,7 @@ module EventRail
       contract
       correlation_id
       causation_id
+      data
       default_source
       errors
       event_type
@@ -102,23 +103,27 @@ module EventRail
         [ event_type, version ].freeze
       end
 
-      def __reconstruct__(data:, metadata:)
-        validate_definition!
-        unless data.is_a?(Hash) && data.keys.all? { |key| key.is_a?(String) }
-          raise InvalidEvent, "trusted event data must be a string-keyed hash"
-        end
-        unless metadata.is_a?(Metadata) && metadata.complete?
-          raise InvalidMetadata, "trusted reconstruction requires complete metadata"
-        end
-
-        known_names = attribute_names
-        declared, unknown = data.partition { |name, _value| known_names.include?(name) }.map(&:to_h)
-        __event_rail_build__(declared, unknown: unknown, state: { :@metadata => metadata })
-      end
-
       def reserved_attribute_names
         (super + RESERVED_ATTRIBUTE_NAMES).uniq.freeze
       end
+
+      def record_error_class
+        InvalidEvent
+      end
+
+      private
+        # Not public API: reconstruction of a trusted representation belongs to the
+        # private queue serializer and to validated envelope reconstruction, which
+        # supply metadata they have already checked. An application that could call
+        # this could install any lineage it liked.
+        def __reconstruct__(data:, metadata:)
+          validate_definition!
+          unless metadata.is_a?(Metadata) && metadata.complete?
+            raise InvalidMetadata, "trusted reconstruction requires complete metadata"
+          end
+
+          __event_rail_reconstruct__(data, state: { :@metadata => metadata })
+        end
     end
 
     attr_reader :metadata
@@ -129,6 +134,8 @@ module EventRail
       # Trusted reconstruction installs complete metadata before initialize runs.
       @metadata ||= Metadata.proposed(occurred_at: occurred_at, extensions: extensions)
       super(attributes, **payload)
+
+      validate_local_identity! unless @metadata.complete?
     end
 
     def event_type
@@ -167,6 +174,18 @@ module EventRail
       metadata.complete?
     end
 
+    # Metadata participates, so a proposal and the stamped event copied from it are
+    # different values: one is a fact with an identity and the other is a request to
+    # record one.
+    def ==(other)
+      super && other.metadata == metadata
+    end
+    alias_method :eql?, :==
+
+    def hash
+      [ self.class, data, metadata ].hash
+    end
+
     # Contract and metadata only: domain payload and extensions stay out of
     # diagnostics, including Active Job argument logging.
     def inspect
@@ -174,28 +193,39 @@ module EventRail
         "id=#{id.inspect} source=#{source.inspect} occurred_at=#{occurred_at.inspect}>"
     end
 
-    def __stamp__(id:, source: nil, occurred_at: nil, correlation_id:, causation_id: nil, extensions: nil)
-      resolved_source = source || self.class.default_source
-      raise InvalidMetadata, "source is required to stamp #{self.class}" unless resolved_source
-
-      stamped_metadata = Metadata.complete(
-        id: id,
-        source: resolved_source,
-        occurred_at: occurred_at || metadata.occurred_at,
-        correlation_id: correlation_id,
-        causation_id: causation_id,
-        extensions: extensions || metadata.extensions
-      )
-
-      # A metadata-only copy. Reconstructing through the validating constructor
-      # would re-cast and re-validate payload this instance already canonicalized,
-      # and would rebuild every nested data object, for no change to the payload.
-      self.class.send(:__event_rail_copy__, self, state: { :@metadata => stamped_metadata })
-    end
-
     private
-      def record_error_class
-        InvalidEvent
+      # Not public API: stamping installs the identity and lineage that make an event
+      # a published fact, and publication is the only thing entitled to do that.
+      def __stamp__(id:, source: nil, occurred_at: nil, correlation_id:, causation_id: nil, extensions: nil)
+        resolved_source = source || self.class.default_source
+        raise InvalidMetadata, "source is required to stamp #{self.class}" unless resolved_source
+
+        stamped_metadata = Metadata.complete(
+          id: id,
+          source: resolved_source,
+          occurred_at: occurred_at || metadata.occurred_at,
+          correlation_id: correlation_id,
+          causation_id: causation_id,
+          extensions: extensions || metadata.extensions
+        )
+
+        # A metadata-only copy. Reconstructing through the validating constructor
+        # would re-cast and re-validate payload this instance already canonicalized,
+        # and would rebuild every nested data object, for no change to the payload.
+        self.class.send(:__event_rail_copy__, self, state: { :@metadata => stamped_metadata })
+      end
+
+      # A declared identity attribute that is nil cannot produce a canonical value, so
+      # the event can never be published. The local constructor is the strict door and
+      # the only place whose backtrace points at the code that left the field empty.
+      # Trusted reconstruction stays permissive: an external event of this contract may
+      # legitimately omit a field, and it arrives with an identity already assigned.
+      def validate_local_identity!
+        missing = self.class.identity_by.select { |name| public_send(name).nil? }
+        return if missing.empty?
+
+        raise InvalidEvent,
+          "#{self.class} declares #{missing.sort.join(", ")} as logical identity, so it cannot be nil"
       end
 
       def unknown_attributes_message(unknown)
@@ -215,10 +245,6 @@ module EventRail
         remaining = names - keyword_only - derived
         parts << "unknown attributes: #{remaining.sort.join(", ")}" unless remaining.empty?
         parts.join("; ")
-      end
-
-      def record_validation_message
-        "#{self.class} is invalid: #{errors.full_messages.join(", ")}"
       end
   end
 end

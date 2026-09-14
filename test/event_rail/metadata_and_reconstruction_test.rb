@@ -31,7 +31,9 @@ module StampFixtures
 
     validate { StampFixtures.validation_runs += 1 }
 
-    def self.new(...)
+    # Counted on initialize rather than on new, so it measures construction through
+    # every entry point including trusted reconstruction, which allocates directly.
+    def initialize(...)
       StampFixtures.items_built += 1
       super
     end
@@ -87,7 +89,7 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
       extensions: { "actor" => "customer" }
     )
 
-    stamped = proposal.__stamp__(
+    stamped = proposal.send(:__stamp__,
       id: "evt-123",
       correlation_id: "corr-123",
       causation_id: "cause-123"
@@ -107,7 +109,7 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
 
   test "trusted reconstruction preserves opaque unknown portable fields" do
     metadata = complete_metadata
-    reconstructed = MetadataFixtures::AccountOpened.__reconstruct__(
+    reconstructed = MetadataFixtures::AccountOpened.send(:__reconstruct__,
       data: {
         "account_id" => "account-1",
         "owner_name" => "Ada",
@@ -118,10 +120,11 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
 
     assert_equal "account-1", reconstructed.account_id
     refute_respond_to reconstructed, :future_field
-    assert_equal({ "flags" => [ true, "new" ] }, reconstructed.attributes.fetch("future_field"))
-    assert_raises(FrozenError) { reconstructed.attributes.fetch("future_field").fetch("flags") << false }
+    refute_includes reconstructed.attributes.keys, "future_field"
+    assert_equal({ "flags" => [ true, "new" ] }, reconstructed.data.fetch("future_field"))
+    assert_raises(FrozenError) { reconstructed.data.fetch("future_field").fetch("flags") << false }
 
-    restamped = reconstructed.__stamp__(
+    restamped = reconstructed.send(:__stamp__,
       id: reconstructed.id,
       source: reconstructed.source,
       occurred_at: reconstructed.occurred_at,
@@ -129,18 +132,18 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
       causation_id: reconstructed.causation_id,
       extensions: reconstructed.extensions
     )
-    assert_equal reconstructed.attributes, restamped.attributes
+    assert_equal reconstructed.data, restamped.data
   end
 
   test "trusted reconstruction rejects malformed or unsupported unknown data" do
     assert_raises(EventRail::InvalidEvent) do
-      MetadataFixtures::AccountOpened.__reconstruct__(
+      MetadataFixtures::AccountOpened.send(:__reconstruct__,
         data: { account_id: "symbol-key" },
         metadata: complete_metadata
       )
     end
     assert_raises(EventRail::CastingError) do
-      MetadataFixtures::AccountOpened.__reconstruct__(
+      MetadataFixtures::AccountOpened.send(:__reconstruct__,
         data: { "account_id" => "1", "future" => :symbol_value },
         metadata: complete_metadata
       )
@@ -220,7 +223,7 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
     assert_equal 2, StampFixtures.items_built
 
     StampFixtures.reset
-    stamped = proposal.__stamp__(id: "evt-1", correlation_id: "corr-1", occurred_at: Time.utc(2026, 9, 1))
+    stamped = proposal.send(:__stamp__, id: "evt-1", correlation_id: "corr-1", occurred_at: Time.utc(2026, 9, 1))
 
     assert_equal 0, StampFixtures.validation_runs, "stamping must not re-run application validations"
     assert_equal 0, StampFixtures.items_built, "stamping must not rebuild nested data"
@@ -235,14 +238,14 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
   test "stamping preserves state an application initializer installed" do
     StampFixtures.reset
     proposal = StampFixtures::Order.new(order_id: "o-1")
-    stamped = proposal.__stamp__(id: "evt-1", correlation_id: "corr-1", occurred_at: Time.utc(2026, 9, 1))
+    stamped = proposal.send(:__stamp__, id: "evt-1", correlation_id: "corr-1", occurred_at: Time.utc(2026, 9, 1))
 
     assert_equal "installed", stamped.installed_by_initializer
   end
 
   test "reconstruction from portable input still casts and validates" do
     StampFixtures.reset
-    reconstructed = StampFixtures::Order.__reconstruct__(
+    reconstructed = StampFixtures::Order.send(:__reconstruct__,
       data: { "order_id" => "o-9", "line_items" => [ { "sku" => "a", "quantity" => "4" } ] },
       metadata: complete_metadata
     )
@@ -252,7 +255,7 @@ class MetadataAndReconstructionTest < ActiveSupport::TestCase
     assert_equal 4, reconstructed.line_items.first.quantity
 
     assert_raises(EventRail::CastingError) do
-      StampFixtures::Order.__reconstruct__(
+      StampFixtures::Order.send(:__reconstruct__,
         data: { "order_id" => "o-9", "line_items" => [ { "sku" => "a", "quantity" => "abc" } ] },
         metadata: complete_metadata
       )

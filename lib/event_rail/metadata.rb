@@ -67,6 +67,21 @@ module EventRail
       @complete
     end
 
+    # Value equality, so two events carrying the same fact and the same lineage
+    # compare equal across a serialization boundary.
+    COMPARED_FIELDS = [ :id, :source, :occurred_at, :correlation_id, :causation_id, :extensions ].freeze
+
+    def ==(other)
+      other.instance_of?(self.class) &&
+        other.complete? == complete? &&
+        COMPARED_FIELDS.all? { |field| other.public_send(field) == public_send(field) }
+    end
+    alias_method :eql?, :==
+
+    def hash
+      ([ self.class, @complete ] + COMPARED_FIELDS.map { |field| public_send(field) }).hash
+    end
+
     private
       def duplicate_and_freeze(value)
         value&.dup&.freeze

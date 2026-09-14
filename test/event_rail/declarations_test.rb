@@ -73,7 +73,7 @@ class DeclarationsTest < ActiveSupport::TestCase
       attribute :id_value, :string
     end
     event = event_class.new(id_value: "1")
-    stamped = event.__stamp__(id: "external-id", correlation_id: "root", occurred_at: Time.now.utc)
+    stamped = event.send(:__stamp__, id: "external-id", correlation_id: "root", occurred_at: Time.now.utc)
 
     assert_equal "orders team / primary", stamped.source
   end
@@ -106,7 +106,7 @@ class DeclarationsTest < ActiveSupport::TestCase
     event = event_class.new
 
     assert_raises(EventRail::InvalidMetadata) do
-      event.__stamp__(id: "id", correlation_id: "correlation", occurred_at: Time.now.utc)
+      event.send(:__stamp__, id: "id", correlation_id: "correlation", occurred_at: Time.now.utc)
     end
   end
 
