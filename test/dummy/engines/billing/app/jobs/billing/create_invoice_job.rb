@@ -1,7 +1,9 @@
 module Billing
   class CreateInvoiceJob < ApplicationJob
-    def perform(order_id)
-      order_id
+    subscribes_to Orders::OrderPlaced
+
+    def perform(event)
+      event
     end
   end
 end

@@ -81,6 +81,14 @@ module EventRail
         @identity_attributes = names.map(&:freeze).freeze
       end
 
+      # A class that declares either half of the contract is meant to be published and
+      # must declare both. One that declares neither is an application's own abstract
+      # base -- `class ApplicationEvent < EventRail::Event` -- and is not a registrable
+      # contract, so discovery skips it rather than failing preparation over it.
+      def concrete?
+        !event_type.nil? || !version.nil?
+      end
+
       def validate_definition!
         unless event_type && version
           raise InvalidContract, "#{self} must explicitly declare event_type and version"

@@ -10,7 +10,7 @@ module EventAndDataFixtures
   end
 
   class OrderPlaced < EventRail::Event
-    event_type "orders.order_placed"
+    event_type "tests.event_and_data_order_placed"
     version 1
     default_source "acme.orders"
     identity_by :order_id
@@ -237,7 +237,7 @@ class EventAndDataTest < ActiveSupport::TestCase
       refute_includes representation, "secret-actor"
     end
 
-    assert_includes stamped.inspect, "orders.order_placed"
+    assert_includes stamped.inspect, "tests.event_and_data_order_placed"
     assert_includes stamped.inspect, "evt-1"
     assert_includes stamped.inspect, "acme.orders"
   end

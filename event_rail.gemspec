@@ -32,4 +32,8 @@ Gem::Specification.new do |spec|
   spec.add_dependency "activemodel", ">= 7.2", "< 9"
   spec.add_dependency "activesupport", ">= 7.2", "< 9"
   spec.add_dependency "railties", ">= 7.2", "< 9"
+  # Subscriber discovery eager-loads the conventional app/events and app/jobs roots
+  # through Zeitwerk::Loader#eager_load_dir, which arrived in 2.6.2. Railties allows
+  # ~> 2.6, so the floor has to be stated here rather than inherited.
+  spec.add_dependency "zeitwerk", ">= 2.6.2", "< 4"
 end

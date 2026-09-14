@@ -18,5 +18,13 @@ module Dummy
     config.load_defaults Rails::VERSION::STRING.to_f
     config.active_job.queue_adapter = ENV.fetch("ACTIVE_JOB_QUEUE_ADAPTER", "test").to_sym
     config.generators.system_tests = nil
+
+    # app/services holds a subscriber declared outside the conventional app/events and
+    # app/jobs roots on purpose: preparation must not discover it, and loading it later
+    # must raise. Eager loading it at boot would raise during boot instead, which is the
+    # correct production behavior but would hide what this fixture is for.
+    config.to_prepare do
+      Rails.autoloaders.main.do_not_eager_load(Rails.root.join("app/services").to_s)
+    end
   end
 end

@@ -2,7 +2,7 @@ require "test_helper"
 
 module MetadataFixtures
   class AccountOpened < EventRail::Event
-    event_type "accounts.account_opened"
+    event_type "tests.account_opened"
     version 1
     default_source "acme.accounts"
     identity_by :account_id

@@ -21,8 +21,19 @@ require "event_rail/internal/execution"
 require "event_rail/current"
 require "event_rail/internal/context"
 require "event_rail/job_context"
+require "event_rail/internal/subscriber_execution"
+require "event_rail/subscriptions"
+require "event_rail/internal/registry"
 require "event_rail/internal/publication"
 require "event_rail/railtie"
+
+# The subscription macro is class-level only: it changes nothing about serialization
+# or execution for a job that never calls it. Registering the hook here rather than in
+# an initializer means it is in place before Active Job loads, in a Rails application
+# and in a plain Ruby process alike.
+ActiveSupport.on_load(:active_job) do
+  extend EventRail::Subscriptions
+end
 
 module EventRail
   private_constant :Internal

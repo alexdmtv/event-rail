@@ -3,6 +3,7 @@ ENV["RAILS_ENV"] = "test"
 
 require_relative "../test/dummy/config/environment"
 require "rails/test_help"
+require "minitest/mock"
 
 # A Rails deprecation the library itself triggers is a defect on the compatibility
 # floor, not a warning to scroll past: it becomes a removal on the next major. The
