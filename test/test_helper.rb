@@ -10,6 +10,11 @@ require "rails/test_help"
 # appraisal, so the gate has to be on for every run rather than checked by eye.
 ActiveSupport.deprecator.behavior = :raise
 
+# The internal namespace is a private constant, which is the right default for
+# application code and the wrong one for the tests that have to reach the encoder,
+# the execution stack, and the publication path directly.
+EventRailInternal = EventRail.const_get(:Internal)
+
 class ActiveSupport::TestCase
   include ActiveJob::TestHelper
 

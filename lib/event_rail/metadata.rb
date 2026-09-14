@@ -88,37 +88,7 @@ module EventRail
       end
 
       def validate_extensions(value)
-        unless value.is_a?(Hash)
-          raise InvalidMetadata, "extensions must be a hash of string keys and values"
-        end
-        if value.length > Limits::MAX_EXTENSION_ENTRIES
-          raise InvalidMetadata, "extensions exceed #{Limits::MAX_EXTENSION_ENTRIES} entries"
-        end
-
-        total_bytes = 0
-        result = value.each_with_object({}) do |(key, item), output|
-          unless key.is_a?(String) && item.is_a?(String)
-            raise InvalidMetadata, "extension keys and values must be strings"
-          end
-          if Limits::RESERVED_EXTENSION_KEYS.include?(key) || key.start_with?("eventrail.")
-            raise InvalidMetadata, "extension key #{key.inspect} is reserved"
-          end
-          if key.empty? || !key.valid_encoding? || key.bytesize > Limits::MAX_EXTENSION_KEY_BYTES
-            raise InvalidMetadata, "extension key #{key.inspect} is invalid or too long"
-          end
-          if !item.valid_encoding? || item.bytesize > Limits::MAX_EXTENSION_VALUE_BYTES
-            raise InvalidMetadata, "extension value for #{key.inspect} is invalid or too long"
-          end
-
-          total_bytes += key.bytesize + item.bytesize
-          output[key.dup.freeze] = item.dup.freeze
-        end
-
-        if total_bytes > Limits::MAX_EXTENSIONS_BYTES
-          raise InvalidMetadata, "extensions exceed #{Limits::MAX_EXTENSIONS_BYTES} encoded bytes"
-        end
-
-        result.freeze
+        Internal::Extensions.validate!(value, error: InvalidMetadata)
       end
   end
 end
