@@ -5,7 +5,7 @@ module EventRail
     # Turns a proposal into a stamped fact: resolves source, selects logical identity,
     # derives a retry-stable ID, fixes occurrence time, and installs lineage. Fanout
     # is a separate concern layered on top of this.
-    module Publication
+    module Stamping
       module_function
 
       Prepared = Struct.new(:event, :execution, :logical_key, :relayed, keyword_init: true) do

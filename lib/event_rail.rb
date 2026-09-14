@@ -21,10 +21,17 @@ require "event_rail/internal/execution"
 require "event_rail/current"
 require "event_rail/internal/context"
 require "event_rail/job_context"
+require "event_rail/internal/notifications"
 require "event_rail/internal/subscriber_execution"
 require "event_rail/subscriptions"
 require "event_rail/internal/registry"
-require "event_rail/internal/publication"
+require "event_rail/internal/stamping"
+require "event_rail/contract"
+require "event_rail/envelope"
+require "event_rail/internal/event_serializer"
+require "event_rail/internal/transaction"
+require "event_rail/publication"
+require "event_rail/publish"
 require "event_rail/railtie"
 
 # The subscription macro is class-level only: it changes nothing about serialization
@@ -33,6 +40,11 @@ require "event_rail/railtie"
 # and in a plain Ruby process alike.
 ActiveSupport.on_load(:active_job) do
   extend EventRail::Subscriptions
+
+  # Registering here rather than in an initializer keeps the serializer available to a
+  # plain Ruby process too, and it is registered exactly once because the load hook runs
+  # once.
+  ActiveJob::Serializers.add_serializers(EventRail.const_get(:Internal)::EventSerializer)
 end
 
 module EventRail

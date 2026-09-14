@@ -28,7 +28,7 @@ module PublicationFixtures
 end
 
 class PublicationStateTest < ActiveSupport::TestCase
-  Publication = EventRailInternal::Publication
+  Publication = EventRailInternal::Stamping
   Execution = EventRailInternal::Execution
 
   setup { EventRail::Current.reset }

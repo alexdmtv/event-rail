@@ -15,6 +15,7 @@ ActiveSupport.deprecator.behavior = :raise
 # application code and the wrong one for the tests that have to reach the encoder,
 # the execution stack, and the publication path directly.
 EventRailInternal = EventRail.const_get(:Internal)
+Registry = EventRailInternal::Registry
 
 class ActiveSupport::TestCase
   include ActiveJob::TestHelper

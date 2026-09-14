@@ -1,7 +1,5 @@
 require "test_helper"
 
-Registry = EventRailInternal::Registry
-
 # Subscriber fixtures are declared after the host application has already been
 # prepared, which is exactly the case the registry refuses by default. `reopen` is the
 # same door preparation itself uses.
@@ -165,14 +163,15 @@ class RegistryTest < ActiveSupport::TestCase
   # --- 5.1 the pending list, the snapshot, and readiness -----------------------
 
   test "publication before the first snapshot raises a distinct not-ready error" do
-    previous = Registry.snapshot
+    # The real pending list, not a hardcoded one: every other test file declares its own
+    # subscriber fixtures into it, and restoring a guess would silently unregister them.
+    pending = Registry.instance_variable_get(:@pending).dup
     Registry.reset!
 
     assert_raises(EventRail::NotReadyError) { Registry.snapshot }
     refute_predicate Registry, :prepared?
   ensure
-    Registry.instance_variable_set(:@snapshot, previous)
-    Registry.instance_variable_set(:@pending, restored_pending)
+    Registry.instance_variable_set(:@pending, pending)
     Registry.prepare
   end
 
@@ -383,16 +382,5 @@ class RegistryTest < ActiveSupport::TestCase
 
     def perform_subscriber(event)
       RegistryFixtures::OnPlaced.new(event).perform_now
-    end
-
-    def restored_pending
-      [
-        RegistryFixtures::OnPlaced,
-        RegistryFixtures::OnBoth,
-        RegistryFixtures::ConcreteChild,
-        Host::AuditApplicationStartedJob,
-        Orders::RecordOrderMetricsJob,
-        Billing::CreateInvoiceJob
-      ]
     end
 end

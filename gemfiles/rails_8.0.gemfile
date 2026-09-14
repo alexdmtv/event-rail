@@ -2,10 +2,13 @@
 
 source "https://rubygems.org"
 
-gem "appraisal", "~> 2.5"
+gem "appraisal", "~> 2.5", require: false
 gem "bundler", "2.6.9"
 gem "minitest", "~> 5.25"
 gem "rake", "~> 13.2"
+gem "activerecord", ">= 7.2", "< 9"
+gem "sqlite3", ">= 2.1"
+gem "ruby-lsp-rails", require: false, group: :development
 gem "rubocop-rails-omakase", "~> 1.1", require: false
 gem "activejob", "~> 8.0.0"
 gem "activemodel", "~> 8.0.0"
