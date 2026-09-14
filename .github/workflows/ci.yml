@@ -55,7 +55,9 @@ jobs:
           ruby-version: "3.4"
           bundler: "2.6.9"
           bundler-cache: true
-      - run: bundle exec ruby -Ilib conformance/adapter_test.rb
+      # The whole suite, on the adapter bundle: the conformance tests run the Sidekiq,
+      # Solid Queue, and OpenTelemetry legs only when those gems are present.
+      - run: bundle exec rake test
 
   package:
     runs-on: ubuntu-latest

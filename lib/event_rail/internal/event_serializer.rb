@@ -46,6 +46,17 @@ module EventRail
         EventRail::Event
       end
 
+      # Read through methods rather than the constants directly, so a staged release can
+      # subclass this to widen what it reads before anything writes the newer form. The
+      # staging fixtures rely on that, and so would a real format migration.
+      def format_version
+        FORMAT_VERSION
+      end
+
+      def supported_format_versions
+        SUPPORTED_FORMAT_VERSIONS
+      end
+
       def serialize(event)
         unless event.stamped?
           raise InvalidEvent,
@@ -54,7 +65,7 @@ module EventRail
         end
 
         super(
-          FORMAT_KEY => FORMAT_VERSION,
+          FORMAT_KEY => format_version,
           TYPE_KEY => event.event_type,
           VERSION_KEY => event.version,
           METADATA_KEY => {
@@ -70,10 +81,10 @@ module EventRail
       end
 
       def deserialize(hash)
-        format_version = hash[FORMAT_KEY]
-        unless SUPPORTED_FORMAT_VERSIONS.include?(format_version)
+        written_format = hash[FORMAT_KEY]
+        unless supported_format_versions.include?(written_format)
           raise UnsupportedFormatError.new(
-            format_version: format_version, supported_format_versions: SUPPORTED_FORMAT_VERSIONS
+            format_version: written_format, supported_format_versions: supported_format_versions
           )
         end
 
@@ -81,7 +92,7 @@ module EventRail
         version = hash[VERSION_KEY]
         event_class = resolve!(event_type, version)
 
-        payload = Notifications.payload_for_representation(hash).merge(format_version: format_version)
+        payload = Notifications.payload_for_representation(hash).merge(format_version: written_format)
 
         ActiveSupport::Notifications.instrument("deserialize.event_rail", payload) do
           event_class.send(:__reconstruct__, data: read_data(hash), metadata: read_metadata(hash))
