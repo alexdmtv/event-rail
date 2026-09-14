@@ -19,6 +19,8 @@ require "event_rail/internal/contract_index"
 require "event_rail/internal/identity"
 require "event_rail/internal/execution"
 require "event_rail/current"
+require "event_rail/internal/context"
+require "event_rail/job_context"
 require "event_rail/internal/publication"
 require "event_rail/railtie"
 

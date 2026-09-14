@@ -13,6 +13,15 @@ module EventRail
         normalize(value, field: field, error: InvalidMetadata)
       end
 
+      UTC_MICROSECOND_FORMAT = "%Y-%m-%dT%H:%M:%S.%6NZ".freeze
+
+      # The one written spelling of an instant, shared by the portable projection, the
+      # job context entry, and the identity encoder, so the same moment never appears
+      # in two forms.
+      def written(value)
+        value.utc.strftime(UTC_MICROSECOND_FORMAT).freeze
+      end
+
       def normalize(value, field: "timestamp", error: InvalidMetadata)
         return if value.nil?
 

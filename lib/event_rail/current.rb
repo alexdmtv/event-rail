@@ -49,19 +49,19 @@ module EventRail
         inherited[:extensions], extensions, error: InvalidContext
       )
 
-      # A nested scope keeps its parent's causation: the message that caused this flow
-      # does not change because the application opened an inner block.
-      Current.message_id = resolved_message_id
-      Current.correlation_id = resolved_correlation_id
-      Current.causation_id = inherited[:causation_id]
-      Current.originated_at = resolved_originated_at
-      Current.extensions = resolved_extensions
-
       execution = Internal::Execution.new(scope: resolved_message_id, started_at: resolved_originated_at)
 
-      Internal::Execution.wrap(execution) { yield }
-    ensure
-      inherited.each { |name, value| Current.public_send(:"#{name}=", value) } if inherited
+      # A nested scope keeps its parent's causation: the message that caused this flow
+      # does not change because the application opened an inner block.
+      Internal::Context.establish(
+        message_id: resolved_message_id,
+        correlation_id: resolved_correlation_id,
+        causation_id: inherited[:causation_id],
+        originated_at: resolved_originated_at,
+        extensions: resolved_extensions
+      ) do
+        Internal::Execution.wrap(execution) { yield }
+      end
     end
 
     private

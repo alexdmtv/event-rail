@@ -42,8 +42,6 @@ module EventRail
         end
       end
 
-      UTC_MICROSECOND_FORMAT = "%Y-%m-%dT%H:%M:%S.%6NZ".freeze
-
       SCALAR_CODECS = {
         string: ScalarCodec.new(
           classes: [ String ],
@@ -77,7 +75,7 @@ module EventRail
         ),
         datetime: ScalarCodec.new(
           classes: [ Time ],
-          write: ->(value) { value.utc.strftime(UTC_MICROSECOND_FORMAT).freeze },
+          write: ->(value) { Timestamp.written(value) },
           read: ->(value) { value }
         )
       }.freeze

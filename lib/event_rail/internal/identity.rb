@@ -26,8 +26,6 @@ module EventRail
       # nothing to distinguish it from.
       SINGLETON = :__event_rail_singleton__
 
-      UTC_MICROSECOND_FORMAT = "%Y-%m-%dT%H:%M:%S.%6NZ".freeze
-
       def derive(source:, job_class:, scope:, event_type:, version:, logical_identity:)
         Digest::UUID.uuid_v5(
           NAMESPACE,
@@ -56,7 +54,7 @@ module EventRail
         when Float
           reject!(value, "a finite number") unless value.finite?
           [ "f", format("%.17g", value) ]
-        when Time then [ "T", value.utc.strftime(UTC_MICROSECOND_FORMAT) ]
+        when Time then [ "T", Timestamp.written(value) ]
         when DateTime
           reject!(value, "a Time rather than a DateTime")
         when Date then [ "D", value.iso8601 ]
