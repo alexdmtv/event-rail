@@ -11,7 +11,8 @@ source "https://rubygems.org"
 # Solid Queue leg of this bundle needs a combination that works.
 gem "activejob", "~> 8.1.0"
 gem "activerecord", "~> 8.1.0"
-gem "minitest", "~> 5.25"
+gem "minitest", "~> 6.0"
+gem "minitest-mock", "~> 5.27"
 gem "sqlite3", ">= 2.1"
 gem "json", "~> 2.7"
 
