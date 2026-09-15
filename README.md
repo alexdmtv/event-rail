@@ -1,5 +1,7 @@
 # EventRail
 
+[![CI](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml/badge.svg)](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml)
+
 EventRail is an early-stage Rails library for immutable domain events and durable fanout through ordinary Active Job subscribers. It builds on Rails conventions instead of introducing a transport, command bus, dependency-injection container, or replacement job runtime.
 
 EventRail is not ready for production use yet. The public API is still being implemented and validated.

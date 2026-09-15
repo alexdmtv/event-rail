@@ -1,11 +1,25 @@
 name: CI
 
 on:
+  # Pushes to main and every pull request. An unfiltered `push:` would run the whole
+  # matrix twice for a pull request opened from a branch in this repository.
   push:
+    branches: [ main ]
   pull_request:
+  # A gem whose job is tracking Rails semantics should hear about a Rails patch release
+  # that breaks it before the next commit happens to notice. Off the hour, because
+  # scheduled runs at :00 queue behind everyone else's.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push to a pull request makes the older run irrelevant; a run on main does not.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:

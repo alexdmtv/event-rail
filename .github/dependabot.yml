@@ -4,7 +4,16 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # One pull request per ecosystem per week rather than one per gem: the development
+    # bundle is large and individual bumps carry no information on their own.
+    groups:
+      development-dependencies:
+        patterns: [ "*" ]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: [ "*" ]
