@@ -49,6 +49,11 @@ jobs:
       matrix:
         ruby: ["3.3", "3.4", "4.0"]
         rails: ["7.2", "8.0", "8.1"]
+    env:
+      # The Gemfile pins bundler exactly, and Ruby 4.0 ships Bundler 4 as its default, so
+      # a bare `bundle` would refuse the pin. setup-ruby sets this for its own commands;
+      # the steps below need it too.
+      BUNDLER_VERSION: "2.6.9"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
