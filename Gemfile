@@ -5,6 +5,12 @@ gemspec
 
 gem "appraisal", "~> 2.5", require: false
 gem "bundler", "2.6.9"
+# Held below 6.0 by the Rails 7.2 compatibility floor, not by choice. minitest 6 changed
+# the arity of `Runnable.run`, and railties 7.2's `LineFiltering#run` override still takes
+# the old one -- `wrong number of arguments (given 3, expected 1..2)` before a single test
+# runs. Rails 8.0 and 8.1 are fine with it. Revisit when the floor moves to 8.0; minitest 6
+# also drops `minitest/mock`, which test_helper.rb requires, so the same change needs
+# `minitest-mock` added.
 gem "minitest", "~> 5.25"
 gem "rake", "~> 13.2"
 

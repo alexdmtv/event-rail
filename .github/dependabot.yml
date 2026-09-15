@@ -9,6 +9,11 @@ updates:
     groups:
       development-dependencies:
         patterns: [ "*" ]
+    ignore:
+      # See the Gemfile: minitest 6 cannot run on the Rails 7.2 floor. Proposing it again
+      # every week costs a full matrix run to rediscover that.
+      - dependency-name: minitest
+        versions: [ ">= 6" ]
 
   # adapters.gemfile is hand-written and pins gems the root bundle does not carry. The
   # per-Rails gemfiles are generated and untracked, so nothing else here is visible.
