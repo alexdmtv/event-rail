@@ -216,7 +216,45 @@ A nested scope inherits lineage and may add extensions or repeat identical value
 
 Context extensions are durable baggage: opted-in child jobs carry them, and published events merge them with event-local extensions, rejecting conflicting values. They are not the place for domain data — that belongs in declared attributes.
 
-Lineage is isolated per unit of concurrent execution through `ActiveSupport::IsolatedExecutionState`, which defaults to thread isolation. **A host running fiber-per-request must set `config.active_support.isolation_level = :fiber`**, or lineage will be shared between concurrent requests. EventRail documents that requirement rather than claiming an isolation it cannot provide.
+### Reading context
+
+A job that includes `EventRail::JobContext` runs with context already installed, and reads it from `EventRail::Current`:
+
+```ruby
+class ReconcileOrderJob < ApplicationJob
+  def perform
+    EventRail::Current.message_id     # this job's logical message
+    EventRail::Current.correlation_id # constant across the whole causal tree
+    EventRail::Current.causation_id   # what caused this job
+    EventRail::Current.originated_at  # when the flow started, a UTC Time
+    EventRail::Current.extensions     # frozen string-keyed baggage
+  end
+end
+```
+
+Those five readers are the whole surface. Outside a job they return `nil`, except `extensions`, which is always a frozen hash.
+
+A subscriber is the case where they are usually unnecessary. Its logical message is the event it is handling rather than the job delivering it, so `Current.message_id` **is** `event.id`, and correlation, causation, and extensions all come from the event that is already the method argument:
+
+```ruby
+class SendReceiptJob < ApplicationJob
+  subscribes_to Docs::OrderPlaced
+
+  def perform(event)
+    event.id             # == EventRail::Current.message_id
+    event.correlation_id # == EventRail::Current.correlation_id
+    event.extensions     # == EventRail::Current.extensions
+  end
+end
+```
+
+Reach for `Current` in a subscriber only to hand lineage to something that does not take the event -- a log line, an outbound request header, an APM tag.
+
+Lineage is isolated per unit of concurrent execution through `ActiveSupport::IsolatedExecutionState`, which defaults to thread isolation. **A host running fibers -- a fiber-per-request server, or a worker that runs jobs on fibers -- must set `config.active_support.isolation_level = :fiber`**, or lineage will be shared between concurrent fibers. That setting is Rails-wide rather than EventRail's, and it governs both `EventRail::Current` and EventRail's own publication state. EventRail documents the requirement rather than claiming an isolation it cannot provide.
+
+Leaving it wrong fails loudly rather than silently: under thread isolation two concurrent fibers each establishing context raise `InvalidContext`, because the second inherits the first's identifiers and replacing them is refused. The rule that stops lineage being rewritten mid-flow doubles as a misconfiguration detector.
+
+Under fiber isolation a fiber spawned by application code starts with no context at all, which is the isolation working as asked. Code that fans out over its own fibers and publishes from them should re-establish context inside each fiber rather than rely on inheriting it. A job running on a fiber-based worker needs none of that: its context arrives in the job's own serialized data, not from an ambient parent.
 
 OpenTelemetry is not required. When standard Active Job instrumentation is installed, its own carrier and ambient span continue to work; EventRail never copies trace context or baggage into durable event metadata.
 
