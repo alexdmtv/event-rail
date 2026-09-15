@@ -10,6 +10,16 @@ updates:
       development-dependencies:
         patterns: [ "*" ]
 
+  # adapters.gemfile is hand-written and pins gems the root bundle does not carry. The
+  # per-Rails gemfiles are generated and untracked, so nothing else here is visible.
+  - package-ecosystem: bundler
+    directory: "/gemfiles"
+    schedule:
+      interval: weekly
+    groups:
+      adapter-dependencies:
+        patterns: [ "*" ]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

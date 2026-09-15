@@ -3,6 +3,10 @@
 /.claude/
 /Gemfile.lock
 /doc/
+# Appraisal generates these from the root Gemfile. Committing them duplicates the
+# dependency set, and a bump to the root Gemfile then leaves the matrix testing the
+# stale copy while reporting green. adapters.gemfile is hand-written and stays tracked.
+/gemfiles/rails_*.gemfile
 /gemfiles/*.lock
 /log/*.log
 /openspec/
