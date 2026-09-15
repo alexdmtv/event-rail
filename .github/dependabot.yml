@@ -15,15 +15,12 @@ updates:
       - dependency-name: minitest
         versions: [ ">= 6" ]
 
-  # adapters.gemfile is hand-written and pins gems the root bundle does not carry. The
-  # per-Rails gemfiles are generated and untracked, so nothing else here is visible.
-  - package-ecosystem: bundler
-    directory: "/gemfiles"
-    schedule:
-      interval: weekly
-    groups:
-      adapter-dependencies:
-        patterns: [ "*" ]
+  # gemfiles/ is deliberately unmanaged. Dependabot's bundler ecosystem only recognises a
+  # file named Gemfile or gems.rb, and that directory holds adapters.gemfile, so an entry
+  # for it fails every run with "No files found in /gemfiles". Leaving it out is also the
+  # correct policy: that bundle pins json below 3.0 because json 3 breaks Active Record's
+  # JSON column encoding and with it Solid Queue, which is exactly the bump that must not
+  # arrive automatically. Its adapter versions are reviewed by hand when the matrix moves.
 
   - package-ecosystem: github-actions
     directory: "/"
