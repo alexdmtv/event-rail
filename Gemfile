@@ -5,7 +5,7 @@ gemspec
 
 gem "appraisal", "~> 2.5", require: false
 gem "bundler", "2.6.9"
-gem "minitest", "~> 5.25"
+gem "minitest", "~> 6.0"
 gem "rake", "~> 13.2"
 
 # Task 6.6 detects an open application database transaction without depending on
