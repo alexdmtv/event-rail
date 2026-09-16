@@ -1,0 +1,40 @@
+name: Release
+
+# Publishing is driven by a version tag, so the decision to release is the decision to
+# push the tag. The workflow filename is part of the trusted publisher configured on
+# RubyGems.org: renaming this file breaks publishing until that is updated too.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Matches the environment named in the RubyGems trusted publisher. Add required
+    # reviewers to it on GitHub and a tag will wait for an explicit approval before
+    # anything reaches RubyGems.
+    environment: release
+    permissions:
+      # Mints the short-lived OIDC token RubyGems verifies. No API key exists anywhere:
+      # RubyGems checks that the token came from this repository running this workflow.
+      id-token: write
+      # `rake release` pushes the version tag, and provenance attestation is written.
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@bec3f19a76460dbe12f60def7d1a77585f07516c # v1
+        with:
+          ruby-version: "3.4"
+          bundler: "2.6.9"
+          bundler-cache: true
+      # The same gates CI applies, re-run against the exact commit being published. CI
+      # having passed on this commit is not quite the same claim: a tag can be pushed at
+      # any ref, including one CI never saw.
+      - run: bin/rubocop
+      - run: bundle exec rake test
+      - run: bundle exec rake build
+      - run: bundle exec ruby bin/verify-package pkg/event_rail-*.gem
+      - uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b # v1.4.1

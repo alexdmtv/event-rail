@@ -13,6 +13,8 @@ here unless a release changes how they behave.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-15
+
 ### Added
 
 - `EventRail::Event` and `EventRail::Data`: immutable, recursively frozen Active Model
@@ -41,4 +43,5 @@ here unless a release changes how they behave.
 - A typed error hierarchy rooted at `EventRail::Error`, distinguishing declaration,
   casting, context, serialization, and publication failures.
 
-[Unreleased]: https://github.com/alexdmtv/event-rail/commits/main
+[Unreleased]: https://github.com/alexdmtv/event-rail/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/alexdmtv/event-rail/releases/tag/v0.1.0
