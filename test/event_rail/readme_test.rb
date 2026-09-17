@@ -17,7 +17,11 @@ class ReadmeTest < ActiveSupport::TestCase
     runnable, skipped = partition_examples
 
     assert_operator runnable.length, :>=, 6, "the README should carry real, runnable examples"
-    assert_operator skipped.length, :<=, 5, "only genuinely unrunnable snippets should be marked"
+    # Raised from 5 with the test-helper section, whose examples are file-context by nature:
+    # a `test/test_helper.rb`, a `config/application.rb` line, and a `test ... do` body that
+    # needs the test case's own instance methods. The cap exists to stop marking a snippet
+    # that could have run, not to cap how much of the README is a file rather than a script.
+    assert_operator skipped.length, :<=, 7, "only genuinely unrunnable snippets should be marked"
 
     Registry.reopen do
       runnable.each_with_index do |example, index|

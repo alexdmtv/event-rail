@@ -166,7 +166,11 @@ Two things to know before reaching for it. A configured root is eager-loaded dur
 
 A subscriber must also be reachable by name, because Active Job enqueues a job by name. Declaring a subscription on a class that has none raises immediately, so `Foo.const_set(:Bar, Class.new(ApplicationJob) { subscribes_to Baz })` is not supported -- name the class first. The check is on the name the class carries, not on whether a constant resolves to it, so a class with a name nothing resolves to is still dropped from the registry without comment; that is a deliberate limit, not an oversight.
 
-A subscriber declared outside those roots must be loaded before preparation finishes, or declaring it raises: EventRail refuses to run with a subscriber it cannot see at boot. A subscriber required from an initializer works, but initializers run before the main autoloader exists, so such a file has to bring its own event class and job base rather than referencing autoloaded constants. Declaring a subscriber after preparation -- from a test file, or from a lazily autoloaded path outside `app/events` and `app/jobs` -- raises for the same reason, so a test that needs a throwaway subscriber should define it in a file under a conventional root of the test application instead.
+One rule covers both halves of discovery: **an event contract or a subscription declared after preparation has sealed the registry raises**, naming the file and line and the two ways to fix it. EventRail refuses to run with a subscriber that would receive nothing, or with an event class a worker could not reconstruct from the queue.
+
+Adding the directory to `config.eager_load_paths` is never enough on its own, and the reason is Rails' own ordering: prepare callbacks run *before* `eager_load!`, so a reloadable class outside a discovery root cannot be loaded in time in any environment. Either move the file under a discovery root, or [add its root](#where-discovery-looks).
+
+Two exceptions. Code that is not reloadable at all -- a gem, or a file plainly required from an initializer -- ran its declaration before preparation, so it is already registered; such a file has to bring its own event class and job base, because initializers run before the main autoloader exists. And a test suite loads after preparation by definition, which is what [`EventRail::TestHelper`](#tests-that-need-their-own-fixtures) is for.
 
 ### At-least-once delivery, and what that means for subscribers
 
@@ -307,7 +311,63 @@ assert_enqueued_with(job: Docs::OnOrderPlacedJob, args: [ publication.event ])
 perform_enqueued_jobs
 ```
 
-`assert_enqueued_with(args:)` works because events are value objects. For observability assertions, subscribe to the notifications below. EventRail ships no assertion library, observer, or contract-test helper.
+`assert_enqueued_with(args:)` works because events are value objects. For observability assertions, subscribe to the notifications below. EventRail ships no assertion library, observer, or contract-test helper -- Active Job's helpers are the whole assertion surface.
+
+### Tests that need their own fixtures
+
+A test file loads after preparation, so declaring a throwaway event or subscriber in one would raise. `EventRail::TestHelper` is the door for it, and it is opt-in:
+
+```ruby
+# doc:illustrative
+# test/test_helper.rb
+require "event_rail/test_helper"
+
+class ActiveSupport::TestCase
+  include EventRail::TestHelper
+end
+```
+
+Declare fixtures at file scope, in a window:
+
+```ruby
+EventRail::TestHelper.declare do
+  module OrderTests
+    class Placed < EventRail::Event
+      event_type "docs.order_tests_placed"
+      version 1
+      default_source "tests"
+
+      attribute :order_id, :string
+    end
+
+    class AuditJob < ApplicationJob
+      subscribes_to Placed
+
+      def perform(event) = Rails.logger.info(event.order_id)
+    end
+  end
+end
+```
+
+**A subscriber declared in a window receives nothing until you activate it.** That is deliberate: a fixture that went live on declaration would fan out in every later test in the process, including tests that never mention it. Activate it for one block:
+
+```ruby
+# doc:illustrative
+test "publication fans out to the audit job" do
+  with_subscribers(OrderTests::AuditJob) do
+    publication = EventRail.publish(OrderTests::Placed.new(order_id: "o-1"))
+
+    assert_enqueued_with(job: OrderTests::AuditJob, args: [ publication.event ])
+    perform_enqueued_jobs
+  end
+end
+```
+
+The previous registry is restored when the block exits, including when it raises, and nested activations are additive. Activation applies the same validation preparation does, so an abstract fixture fails there rather than at delivery.
+
+Event contracts behave differently from subscribers on purpose: they are registered when the window closes and stay registered, because `assert_enqueued_with` deserializes the job it is comparing and so needs the contract outside any block. A class cannot be unloaded, which has one consequence worth knowing -- **give each fixture a unique `event_type`, and declare it once, at file scope.** Two live classes claiming one type and version fail every later rebuild for the rest of the process, and a declaration inside a test method reopens the same constant and runs the writer again on a sealed registry.
+
+Activation replaces a process-wide registry, so it is not safe under `parallelize(with: :threads)`. Process-based parallelisation, the Rails default, is unaffected.
 
 ## Notifications
 
