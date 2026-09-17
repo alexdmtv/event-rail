@@ -39,6 +39,19 @@ module EventRail
         own << event_class
       end
 
+      # Checked here rather than during preparation, and after the arguments above rather
+      # than before them. Active Job cannot enqueue a job it cannot name, so an anonymous
+      # subscriber is never a working configuration -- but preparation is the wrong place to
+      # say so: the macro has already recorded the class by then, and rejecting it there
+      # would make every later rebuild in the process fail, including in unrelated tests.
+      # After the argument checks, because a bad argument on an anonymous class deserves the
+      # specific error rather than this one.
+      if name.nil?
+        raise DeclarationError,
+          "#{inspect} declared a subscription but has no name, and Active Job cannot enqueue a job it cannot " \
+          "name; assign the class to a constant"
+      end
+
       Internal::Registry.declare(self)
       include Internal::SubscriberExecution unless include?(Internal::SubscriberExecution)
 
