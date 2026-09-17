@@ -52,7 +52,7 @@ module EventRail
           "name; assign the class to a constant"
       end
 
-      Internal::Registry.declare(self)
+      Internal::Registry.declare(self, caller_locations(1, 1).first)
       include Internal::SubscriberExecution unless include?(Internal::SubscriberExecution)
 
       event_rail_subscriptions

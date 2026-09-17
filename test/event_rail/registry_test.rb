@@ -217,8 +217,14 @@ class RegistryTest < ActiveSupport::TestCase
       end
     end
 
+    assert_match(/RegistryFixtures::TooLate/, error.message)
+    assert_match(/registry_test\.rb:\d+/, error.message, "the message must name the declaration's own file and line")
     assert_match(/app\/events/, error.message)
-    assert_match(/autoload-once/, error.message)
+    assert_match(/discovery runs before eager_load!/, error.message)
+    assert_match(/config\.event_rail\.roots/, error.message)
+    assert_match(/EventRail::TestHelper\.declare/, error.message)
+    refute_match(/autoload-once/, error.message,
+      "that advice only ever worked for non-reloadable code, and never for a reloadable subscriber")
   end
 
   test "a subscription on a class with no name is rejected at the declaration" do
