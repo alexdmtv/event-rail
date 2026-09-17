@@ -20,7 +20,7 @@ EventRail depends on Active Support, Active Model, Active Job, Railties, and Zei
 gem "event_rail"
 ```
 
-Then run `bundle install`. There is no initializer to generate and nothing to configure: EventRail initializes itself through a Railtie, and every safety limit is a fixed documented constant.
+Then run `bundle install`. There is no initializer to generate and nothing you have to configure: EventRail initializes itself through a Railtie, every safety limit is a fixed documented constant, and the one option it does expose -- [where it looks for events and subscribers](#where-discovery-looks) -- has a default that most applications never change.
 
 ## Job integration
 
@@ -149,6 +149,18 @@ publication.skipped_subscribers  # subscribers whose own enqueue callback declin
 ```
 
 Subscribers are discovered from the conventional `app/events` and `app/jobs` roots of the host application and every engine, during Rails preparation. There is no registration API, no initializer, and no registry to query.
+
+### Where discovery looks
+
+```ruby
+# doc:illustrative
+# config/application.rb
+config.event_rail.roots << "app/subscribers"   # default: %w[app/events app/jobs]
+```
+
+Each entry is matched as a path suffix against the autoload roots Rails already has, so one entry covers the host application, every engine, and a packwerk-style `packs/billing/app/jobs` without naming any of them. Appending is additive: the defaults stay in effect.
+
+Two things to know before reaching for it. A configured root is eager-loaded during preparation in **every** environment, so naming something broad like `app/models` loads that directory for the application and every engine on each boot and each reload -- moving the file is usually the better fix. And a root you name that is not an autoload root of the application or any engine fails preparation with `EventRail::ConfigurationError`, so a typo is a boot error rather than a directory that silently discovers nothing. A *default* root the application has not created is simply skipped, so a fresh application with no `app/events` directory boots normally.
 
 `subscribes_to` is exact and not inherited: a subclass of a subscriber is a different job and receives nothing. A subscriber must define its own `perform` taking exactly one required positional event parameter, must not have subclasses, and must include `EventRail::JobContext`. Each of those is checked during preparation, so a mistake fails the boot that introduced it rather than the first publication.
 

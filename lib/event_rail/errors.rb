@@ -13,6 +13,12 @@ module EventRail
   class DeclarationError < Error
   end
 
+  # An application's own configuration is wrong: a discovery root that is not an autoload
+  # root of the application or any engine. Distinct from a declaration fault, which is about
+  # a class body, and raised at preparation so it fails the boot that introduced it.
+  class ConfigurationError < Error
+  end
+
   # A value cannot become the declared type without discarding information, or is not
   # portable at all.
   class CastingError < Error

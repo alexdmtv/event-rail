@@ -187,7 +187,17 @@ class PublicSurfaceTest < ActiveSupport::TestCase
     assert_includes readme, "include EventRail::JobContext"
     refute_includes readme, "EventRail.configure"
     refute_includes readme, "rails generate event_rail"
-    refute_includes readme, "config.event_rail"
+  end
+
+  # `config.event_rail.roots` is the one configuration option, and it is documented. There is
+  # still no `EventRail.configure`, no generated initializer, and no install generator: the
+  # option is a filter over roots Zeitwerk already has, in the same family as
+  # `config.autoload_once_paths`, not a second place to configure loading.
+  test "the only configuration is the discovery roots" do
+    readme = File.read(File.expand_path("../../README.md", __dir__))
+
+    assert_includes readme, "config.event_rail.roots"
+    assert_equal [ :roots ], Rails.application.config.event_rail.keys
   end
 
   # --- 8.6 every failure comes from one hierarchy -------------------------------
@@ -201,7 +211,8 @@ class PublicSurfaceTest < ActiveSupport::TestCase
 
   test "the hierarchy covers every documented failure" do
     expected = %w[
-      CastingError DeclarationError DuplicateContractError DuplicatePublicationError EnqueueError
+      CastingError ConfigurationError DeclarationError DuplicateContractError DuplicatePublicationError
+      EnqueueError
       InvalidContext InvalidContract InvalidData InvalidEnvelope InvalidEvent InvalidMetadata
       NotReadyError PublicationError RetryPayloadMismatchError SerializationError
       TransactionalPublicationError UnexpectedEventError UnknownEventTypeError UnsupportedEventVersionError

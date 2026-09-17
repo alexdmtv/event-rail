@@ -24,7 +24,29 @@ module Dummy
     # must raise. Eager loading it at boot would raise during boot instead, which is the
     # correct production behavior but would hide what this fixture is for.
     config.to_prepare do
-      Rails.autoloaders.main.do_not_eager_load(Rails.root.join("app/services").to_s)
+      loader = Rails.autoloaders.main
+      loader.do_not_eager_load(Rails.root.join("app/services").to_s)
+
+      # app/subscribers is an autoload root like any other app/* directory, so a production
+      # boot would eager-load it after the registry is sealed and its subscriber would raise.
+      # When the root IS configured, EventRail loads it itself during preparation instead.
+      unless ENV["DUMMY_EXTRA_ROOT"] == "true"
+        loader.dirs.each do |dir|
+          loader.do_not_eager_load(dir) if dir.end_with?("/app/subscribers")
+        end
+      end
+    end
+
+    # app/subscribers is outside every default root in both the host application and the
+    # orders engine. Adding one suffix must cover both, which is what the configurable-roots
+    # tests assert. Gated, because every other test expects the default roots.
+    if ENV["DUMMY_EXTRA_ROOT"] == "true"
+      config.event_rail.roots << "app/subscribers"
+    end
+
+    # A bad root, to prove a typo fails preparation rather than discovering nothing.
+    if ENV["DUMMY_BAD_ROOT"] == "true"
+      config.event_rail.roots << "app/subscriberz"
     end
 
     # A prepare callback registered directly on the reloader runs before EventRail's, which
