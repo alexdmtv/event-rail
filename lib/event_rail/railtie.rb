@@ -6,6 +6,12 @@ module EventRail
     # eager_load!, so no reloadable constant outside a conventional root can already be
     # loaded here -- which is exactly why one declared there raises later instead of
     # silently receiving nothing.
+    # The directories discovery scans, matched as a path suffix against the main
+    # autoloader's roots. An application appends to it; the default is a mutable copy, so
+    # `config.event_rail.roots << "app/subscribers"` works.
+    config.event_rail = ActiveSupport::OrderedOptions.new
+    config.event_rail.roots = Internal::Registry::DEFAULT_ROOTS.dup
+
     config.to_prepare do
       # Unqualified, so lexical lookup reaches the private Internal namespace that a
       # qualified EventRail::Internal reference would be refused.

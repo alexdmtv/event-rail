@@ -12,7 +12,14 @@ module EventRail
     # to have no subscribers: the first is a boot-order bug and raises, the second is a
     # legitimate zero-delivery publication.
     class Registry
-      CONVENTIONAL_ROOTS = %w[app/events app/jobs].freeze
+      # The conventional discovery roots. Matched as a path suffix against the main
+      # autoloader's roots, which is what makes one entry cover the host application, every
+      # engine, and packwerk-style `packs/*/app/jobs` without naming any of them.
+      #
+      # An application may append through `config.event_rail.roots`. The default is copied
+      # rather than shared, so `<<` works and cannot mutate this constant.
+      DEFAULT_ROOTS = %w[app/events app/jobs].freeze
+      CONVENTIONAL_ROOTS = DEFAULT_ROOTS
 
       Snapshot = Struct.new(:subscribers, :contracts, keyword_init: true) do
         def subscribers_for(event_class)
@@ -256,8 +263,11 @@ module EventRail
             loader = Rails.autoloaders.main
             return unless loader.respond_to?(:eager_load_dir)
 
+            roots = configured_roots
+            validate_roots!(roots, loader)
+
             loader.dirs.each do |dir|
-              next unless CONVENTIONAL_ROOTS.any? { |root| dir.end_with?("/#{root}") }
+              next unless roots.any? { |root| dir.end_with?("/#{root}") }
               next unless Dir.exist?(dir)
 
               begin
@@ -267,6 +277,34 @@ module EventRail
                 # not a reason to fail preparation.
                 nil
               end
+            end
+          end
+
+          # Copied on every read, so the registry never holds a reference the application can
+          # mutate afterwards and repeated reloads cannot accumulate entries.
+          def configured_roots
+            configured =
+              if defined?(Rails) && Rails.respond_to?(:application) && Rails.application
+                Rails.application.config.event_rail&.roots
+              end
+
+            (configured || DEFAULT_ROOTS).dup
+          end
+
+          # Only entries beyond the default are checked. Rails registers an `app/*` directory
+          # with the main loader only when it exists, so a freshly generated application that
+          # has not created `app/events` yet has no such root -- validating the defaults would
+          # fail its boot before it had written a single event. A missing default is a
+          # convention not yet used; a missing entry the application typed is a mistake.
+          def validate_roots!(roots, loader)
+            dirs = loader.dirs.map(&:to_s)
+
+            (roots - DEFAULT_ROOTS).each do |root|
+              next if dirs.any? { |dir| dir.end_with?("/#{root}") }
+
+              raise ConfigurationError,
+                "config.event_rail.roots names #{root.inspect}, which is not an autoload root of the application " \
+                "or any engine"
             end
           end
 

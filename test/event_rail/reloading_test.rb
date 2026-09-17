@@ -185,6 +185,65 @@ class ReloadingTest < ActiveSupport::TestCase
       "the reload flag must not leave sealing disabled"
   end
 
+  # --- configurable discovery roots ---------------------------------------------
+
+  test "a configured root is discovered in the application and in an engine" do
+    result = boot("test", <<~RUBY, env: { "DUMMY_EXTRA_ROOT" => "true" })
+      snapshot = EventRail.const_get(:Internal)::Registry.snapshot
+      emit(
+        "application_started" => snapshot.subscribers_for(Host::ApplicationStarted).map(&:name).sort,
+        "order_placed" => snapshot.subscribers_for(Orders::OrderPlaced).map(&:name).sort,
+        "roots" => Rails.application.config.event_rail.roots
+      )
+    RUBY
+
+    assert_equal %w[app/events app/jobs app/subscribers], result.fetch("roots"),
+      "appending must be additive"
+    assert_includes result.fetch("application_started"), "HostExtraSubscriber",
+      "the host application's app/subscribers must be discovered"
+    assert_includes result.fetch("order_placed"), "Orders::EngineExtraSubscriber",
+      "one suffix must cover the engine's directory without naming it"
+  end
+
+  test "a root outside the default is not discovered without configuration" do
+    result = boot("test", <<~RUBY)
+      snapshot = EventRail.const_get(:Internal)::Registry.snapshot
+      emit("application_started" => snapshot.subscribers_for(Host::ApplicationStarted).map(&:name).sort)
+    RUBY
+
+    refute_includes result.fetch("application_started"), "HostExtraSubscriber"
+  end
+
+  test "a configured root that is not an autoload root fails preparation" do
+    _stdout, stderr, status = Open3.capture3(
+      { "RAILS_ENV" => "test", "SECRET_KEY_BASE" => "x" * 64, "DUMMY_BAD_ROOT" => "true" },
+      "bundle", "exec", "ruby", "-e",
+      %(require #{File.join(DUMMY_ROOT, "config/environment").inspect}),
+      chdir: File.expand_path("../..", __dir__)
+    )
+
+    refute_predicate status, :success?, "a typo must fail the boot rather than discover nothing"
+    assert_match(/EventRail::ConfigurationError/, stderr)
+    assert_match(/app\/subscriberz/, stderr)
+  end
+
+  test "a default root the application does not have is skipped" do
+    # `app/mailers` stands in for the real case: a freshly generated application has no
+    # app/events directory, so it is not an autoload root at all. Validating the defaults
+    # would fail its boot before it had written a single event.
+    result = boot("test", <<~RUBY)
+      dirs = Rails.autoloaders.main.dirs.map(&:to_s)
+      emit(
+        "has_mailers_root" => dirs.any? { |dir| dir.end_with?("/app/mailers") },
+        "prepared" => EventRail.const_get(:Internal)::Registry.prepared?
+      )
+    RUBY
+
+    refute result.fetch("has_mailers_root"),
+      "Rails registers an app/* directory only when it exists, which is why defaults are not validated"
+    assert result.fetch("prepared"), "a missing default root must not fail preparation"
+  end
+
   # Readiness before the first prepare is a boot-wide state too: in this process the host
   # application is already initialized, and `Registry.reset!` cannot stand in for it,
   # because a declaration required from an initializer runs its macro once and no rebuild
