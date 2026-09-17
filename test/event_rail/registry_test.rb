@@ -78,6 +78,21 @@ Registry.reopen do
     class NoOwnPerform < Base
     end
 
+    # A dedicated parent for the has-subclasses rejection. `WithSubclass` cannot be used:
+    # it must stay free of declarations, because another test asserts that a parent does not
+    # inherit its subclass's subscription.
+    class SubclassedParent < Base
+      def perform(event)
+        event
+      end
+    end
+
+    class SubclassedChild < SubclassedParent
+      def perform(event)
+        event
+      end
+    end
+
     class SplatPerform < Base
       def perform(*events)
         events
@@ -95,6 +110,20 @@ end
 # The subclass has to be declared as a subscriber for the inheritance test, and the
 # parent must not be, so this pair is set up outside the shared fixture block.
 Registry.reopen { RegistryFixtures::ConcreteChild.subscribes_to RegistryFixtures::Shipped }
+
+# The abstract fixtures declare their subscriptions through the public test door, so they
+# stay dormant. `assert_preparation_rejects` then activates one for a block, which runs the
+# same validation preparation runs and restores the registry on the way out -- which is why
+# this file no longer has to reach into `@pending` to undo a declaration.
+EventRail::TestHelper.declare do
+  [
+    RegistryFixtures::NoOwnPerform,
+    RegistryFixtures::SubclassedParent,
+    RegistryFixtures::SplatPerform,
+    RegistryFixtures::KeywordPerform,
+    RegistryFixtures::WithoutJobContext
+  ].each { |job_class| job_class.subscribes_to RegistryFixtures::Placed }
+end
 
 class RegistryTest < ActiveSupport::TestCase
   setup do
@@ -162,18 +191,10 @@ class RegistryTest < ActiveSupport::TestCase
 
   # --- 5.1 the pending list, the snapshot, and readiness -----------------------
 
-  test "publication before the first snapshot raises a distinct not-ready error" do
-    # The real pending list, not a hardcoded one: every other test file declares its own
-    # subscriber fixtures into it, and restoring a guess would silently unregister them.
-    pending = Registry.instance_variable_get(:@pending).dup
-    Registry.reset!
-
-    assert_raises(EventRail::NotReadyError) { Registry.snapshot }
-    refute_predicate Registry, :prepared?
-  ensure
-    Registry.instance_variable_set(:@pending, pending)
-    Registry.prepare
-  end
+  # The unprepared registry is observed in `reloading_test.rb`, in a child process that stops
+  # short of `initialize!`. `reset!` cannot stand in for it here: a declaration required from
+  # an initializer runs its macro once, and no rebuild re-runs it, so emptying the pending
+  # list in this process would silently unregister every other file's fixtures.
 
   test "a declaration from non-reloadable code survives repeated rebuilds" do
     3.times { Registry.prepare }
@@ -278,7 +299,7 @@ class RegistryTest < ActiveSupport::TestCase
 
   test "preparation rejects an abstract subscriber" do
     assert_preparation_rejects RegistryFixtures::NoOwnPerform, /does not define its own perform/
-    assert_preparation_rejects RegistryFixtures::WithSubclass, /has subclasses/
+    assert_preparation_rejects RegistryFixtures::SubclassedParent, /has subclasses/
   end
 
   test "preparation rejects a splat or keyword perform signature" do
@@ -355,14 +376,9 @@ class RegistryTest < ActiveSupport::TestCase
 
   private
     def assert_preparation_rejects(job_class, message)
-      Registry.reopen { job_class.subscribes_to RegistryFixtures::Placed }
-      error = assert_raises(EventRail::DeclarationError) { Registry.prepare }
+      error = assert_raises(EventRail::DeclarationError) { with_subscribers(job_class) { } }
 
       assert_match message, error.message
-    ensure
-      job_class.instance_variable_set(:@event_rail_subscriptions, [])
-      Registry.instance_variable_get(:@pending).delete(job_class)
-      Registry.prepare
     end
 
     def stamped_event(event_class: RegistryFixtures::Placed)

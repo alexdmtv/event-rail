@@ -252,7 +252,11 @@ module EventRail
             contracts = build_contracts
             subscribers = {}
 
-            (@pending + extra_subscribers).each do |job_class|
+            # The pending list is filtered here, not only pruned by preparation. A snapshot
+            # may be built without a preceding prune -- `activate` does exactly that -- and
+            # the list can hold an entry whose macro ran before a later argument raised, so
+            # a snapshot must never validate a class the constant no longer denotes.
+            (@pending.select { |job_class| live?(job_class) } + extra_subscribers).each do |job_class|
               validate_subscriber!(job_class)
 
               job_class.event_rail_subscriptions.each do |event_class|

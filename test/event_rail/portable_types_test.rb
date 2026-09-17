@@ -1,133 +1,137 @@
 require "test_helper"
 require "json"
 
-module PortableTypeFixtures
-  class LineItem < EventRail::Data
-    attribute :sku, :string
-    attribute :quantity, :integer
-  end
-
-  class Order < EventRail::Event
-    event_type "tests.portable_order"
-    version 1
-    default_source "tests"
-
-    attribute :order_id, :string
-    attribute :total, :decimal
-    attribute :placed_on, :date
-    attribute :placed_at, :datetime
-    attribute :tags, :string, array: true
-    attribute :properties
-    attribute :line_items, LineItem, array: true
-  end
-
-  # A custom Active Model type whose cast value is already a portable scalar of a
-  # type EventRail knows how to write.
-  class Upcase < ActiveModel::Type::Value
-    def cast(value)
-      value.nil? ? nil : value.to_s.upcase
+# These fixtures are defined after the host application has been prepared, which is the case
+# the registry refuses by default. The declaration window is the public door for it.
+EventRail::TestHelper.declare do
+  module PortableTypeFixtures
+    class LineItem < EventRail::Data
+      attribute :sku, :string
+      attribute :quantity, :integer
     end
 
-    def type
-      :string
-    end
-  end
+    class Order < EventRail::Event
+      event_type "tests.portable_order"
+      version 1
+      default_source "tests"
 
-  class WithCustomType < EventRail::Event
-    event_type "tests.portable_custom"
-    version 1
-    default_source "tests"
-
-    attribute :code, Upcase.new
-  end
-
-  # A custom type that claims a familiar type while casting to something no written
-  # form can carry.
-  class Opaque < ActiveModel::Type::Value
-    def cast(_value)
-      Object.new
+      attribute :order_id, :string
+      attribute :total, :decimal
+      attribute :placed_on, :date
+      attribute :placed_at, :datetime
+      attribute :tags, :string, array: true
+      attribute :properties
+      attribute :line_items, LineItem, array: true
     end
 
-    def type
-      :string
-    end
-  end
+    # A custom Active Model type whose cast value is already a portable scalar of a
+    # type EventRail knows how to write.
+    class Upcase < ActiveModel::Type::Value
+      def cast(value)
+        value.nil? ? nil : value.to_s.upcase
+      end
 
-  class WithOpaqueType < EventRail::Event
-    event_type "tests.portable_opaque"
-    version 1
-    default_source "tests"
-
-    attribute :code, Opaque.new
-  end
-
-  Money = Struct.new(:cents, :currency) do
-    def to_s
-      "#{cents} #{currency}"
-    end
-  end
-
-  # A type EventRail has no written form for, which supplies its own and proves it.
-  class MoneyType < ActiveModel::Type::Value
-    include EventRail::PortableType
-
-    def cast(value)
-      return if value.nil?
-      return value if value.is_a?(Money)
-
-      cents, currency = value.split(" ")
-      Money.new(Integer(cents), currency)
+      def type
+        :string
+      end
     end
 
-    def serialize(value)
-      value&.to_s
+    class WithCustomType < EventRail::Event
+      event_type "tests.portable_custom"
+      version 1
+      default_source "tests"
+
+      attribute :code, Upcase.new
     end
 
-    def deserialize(value)
-      cast(value)
+    # A custom type that claims a familiar type while casting to something no written
+    # form can carry.
+    class Opaque < ActiveModel::Type::Value
+      def cast(_value)
+        Object.new
+      end
+
+      def type
+        :string
+      end
     end
 
-    def type
-      :money
+    class WithOpaqueType < EventRail::Event
+      event_type "tests.portable_opaque"
+      version 1
+      default_source "tests"
+
+      attribute :code, Opaque.new
     end
 
-    def portable_examples
-      [ Money.new(0, "USD"), Money.new(1_250, "EUR") ]
-    end
-  end
-
-  # The same domain type without any written form of its own.
-  class BareMoneyType < ActiveModel::Type::Value
-    def cast(value)
-      return if value.nil?
-      return value if value.is_a?(Money)
-
-      cents, currency = value.split(" ")
-      Money.new(Integer(cents), currency)
+    Money = Struct.new(:cents, :currency) do
+      def to_s
+        "#{cents} #{currency}"
+      end
     end
 
-    def type
-      :money
-    end
-  end
+    # A type EventRail has no written form for, which supplies its own and proves it.
+    class MoneyType < ActiveModel::Type::Value
+      include EventRail::PortableType
 
-  # A type whose written form is a Ruby object, which is exactly the shape that
-  # reaches a queue adapter raw.
-  class UnwritableType < MoneyType
-    def serialize(value)
-      value
-    end
-  end
+      def cast(value)
+        return if value.nil?
+        return value if value.is_a?(Money)
 
-  # A type whose written form loses information, so it cannot reconstruct its own
-  # cast value.
-  class LossyType < MoneyType
-    def serialize(value)
-      value&.cents
+        cents, currency = value.split(" ")
+        Money.new(Integer(cents), currency)
+      end
+
+      def serialize(value)
+        value&.to_s
+      end
+
+      def deserialize(value)
+        cast(value)
+      end
+
+      def type
+        :money
+      end
+
+      def portable_examples
+        [ Money.new(0, "USD"), Money.new(1_250, "EUR") ]
+      end
     end
 
-    def deserialize(value)
-      value.nil? ? nil : Money.new(value, "???")
+    # The same domain type without any written form of its own.
+    class BareMoneyType < ActiveModel::Type::Value
+      def cast(value)
+        return if value.nil?
+        return value if value.is_a?(Money)
+
+        cents, currency = value.split(" ")
+        Money.new(Integer(cents), currency)
+      end
+
+      def type
+        :money
+      end
+    end
+
+    # A type whose written form is a Ruby object, which is exactly the shape that
+    # reaches a queue adapter raw.
+    class UnwritableType < MoneyType
+      def serialize(value)
+        value
+      end
+    end
+
+    # A type whose written form loses information, so it cannot reconstruct its own
+    # cast value.
+    class LossyType < MoneyType
+      def serialize(value)
+        value&.cents
+      end
+
+      def deserialize(value)
+        value.nil? ? nil : Money.new(value, "???")
+      end
     end
   end
 end

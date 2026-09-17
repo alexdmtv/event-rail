@@ -1,59 +1,65 @@
 require "test_helper"
 
-module MetadataFixtures
-  class AccountOpened < EventRail::Event
-    event_type "tests.account_opened"
-    version 1
-    default_source "acme.accounts"
-    identity_by :account_id
+# These fixtures are defined after the host application has been prepared, which is the case
+# the registry refuses by default. The declaration window is the public door for it.
+EventRail::TestHelper.declare do
+  module MetadataFixtures
+    class AccountOpened < EventRail::Event
+      event_type "tests.account_opened"
+      version 1
+      default_source "acme.accounts"
+      identity_by :account_id
 
-    attribute :account_id, :string
-    attribute :owner_name, :string
+      attribute :account_id, :string
+      attribute :owner_name, :string
 
-    validates :account_id, presence: true
+      validates :account_id, presence: true
+    end
   end
 end
 
-module StampFixtures
-  class << self
-    attr_accessor :validation_runs, :items_built
+EventRail::TestHelper.declare do
+  module StampFixtures
+    class << self
+      attr_accessor :validation_runs, :items_built
 
-    def reset
-      self.validation_runs = 0
-      self.items_built = 0
+      def reset
+        self.validation_runs = 0
+        self.items_built = 0
+      end
     end
-  end
-  reset
+    reset
 
-  class LineItem < EventRail::Data
-    attribute :sku, :string
-    attribute :quantity, :integer
+    class LineItem < EventRail::Data
+      attribute :sku, :string
+      attribute :quantity, :integer
 
-    validate { StampFixtures.validation_runs += 1 }
+      validate { StampFixtures.validation_runs += 1 }
 
-    # Counted on initialize rather than on new, so it measures construction through
-    # every entry point including trusted reconstruction, which allocates directly.
-    def initialize(...)
-      StampFixtures.items_built += 1
-      super
+      # Counted on initialize rather than on new, so it measures construction through
+      # every entry point including trusted reconstruction, which allocates directly.
+      def initialize(...)
+        StampFixtures.items_built += 1
+        super
+      end
     end
-  end
 
-  class Order < EventRail::Event
-    event_type "tests.stamp_order"
-    version 1
-    default_source "tests"
+    class Order < EventRail::Event
+      event_type "tests.stamp_order"
+      version 1
+      default_source "tests"
 
-    attribute :order_id, :string
-    attribute :line_items, LineItem, array: true
+      attribute :order_id, :string
+      attribute :line_items, LineItem, array: true
 
-    validate { StampFixtures.validation_runs += 1 }
+      validate { StampFixtures.validation_runs += 1 }
 
-    attr_reader :installed_by_initializer
+      attr_reader :installed_by_initializer
 
-    def initialize(...)
-      @installed_by_initializer = "installed"
-      super
+      def initialize(...)
+        @installed_by_initializer = "installed"
+        super
+      end
     end
   end
 end

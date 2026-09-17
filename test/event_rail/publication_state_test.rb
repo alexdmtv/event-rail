@@ -1,29 +1,33 @@
 require "test_helper"
 
-module PublicationFixtures
-  class OrderPlaced < EventRail::Event
-    event_type "tests.pub_order_placed"
-    version 1
-    default_source "acme.orders"
+# These fixtures are defined after the host application has been prepared, which is the case
+# the registry refuses by default. The declaration window is the public door for it.
+EventRail::TestHelper.declare do
+  module PublicationFixtures
+    class OrderPlaced < EventRail::Event
+      event_type "tests.pub_order_placed"
+      version 1
+      default_source "acme.orders"
 
-    attribute :order_id, :string
-    attribute :note, :string
-    identity_by :order_id
-  end
+      attribute :order_id, :string
+      attribute :note, :string
+      identity_by :order_id
+    end
 
-  class Keyless < EventRail::Event
-    event_type "tests.pub_keyless"
-    version 1
-    default_source "acme.orders"
+    class Keyless < EventRail::Event
+      event_type "tests.pub_keyless"
+      version 1
+      default_source "acme.orders"
 
-    attribute :note, :string
-  end
+      attribute :note, :string
+    end
 
-  class Sourceless < EventRail::Event
-    event_type "tests.pub_sourceless"
-    version 1
+    class Sourceless < EventRail::Event
+      event_type "tests.pub_sourceless"
+      version 1
 
-    attribute :note, :string
+      attribute :note, :string
+    end
   end
 end
 
