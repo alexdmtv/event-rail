@@ -221,6 +221,36 @@ class RegistryTest < ActiveSupport::TestCase
     assert_match(/autoload-once/, error.message)
   end
 
+  test "a subscription on a class with no name is rejected at the declaration" do
+    error = assert_raises(EventRail::DeclarationError) do
+      Registry.reopen do
+        Class.new(RegistryFixtures::Base) do
+          subscribes_to RegistryFixtures::Placed
+
+          def perform(event)
+            event
+          end
+        end
+      end
+    end
+
+    assert_match(/cannot enqueue a job it cannot name/, error.message)
+
+    # The point of rejecting at the macro rather than during preparation: nothing was
+    # recorded, so the registry is still usable. Rejecting later would leave the class in the
+    # pending list and fail every rebuild for the rest of the process.
+    assert Registry.prepare, "a rejected declaration must not poison later rebuilds"
+    assert_includes Registry.snapshot.subscribers_for(RegistryFixtures::Placed), RegistryFixtures::OnPlaced
+  end
+
+  test "an argument error still wins over the missing name" do
+    error = assert_raises(EventRail::DeclarationError) do
+      Registry.reopen { Class.new(RegistryFixtures::Base) { subscribes_to String } }
+    end
+
+    assert_match(/not an EventRail::Event class/, error.message)
+  end
+
   test "concurrent readers observe only a complete snapshot" do
     rebuilds = Thread.new { 20.times { Registry.prepare } }
 

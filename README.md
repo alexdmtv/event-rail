@@ -152,6 +152,8 @@ Subscribers are discovered from the conventional `app/events` and `app/jobs` roo
 
 `subscribes_to` is exact and not inherited: a subclass of a subscriber is a different job and receives nothing. A subscriber must define its own `perform` taking exactly one required positional event parameter, must not have subclasses, and must include `EventRail::JobContext`. Each of those is checked during preparation, so a mistake fails the boot that introduced it rather than the first publication.
 
+A subscriber must also be reachable by name, because Active Job enqueues a job by name. Declaring a subscription on a class that has none raises immediately, so `Foo.const_set(:Bar, Class.new(ApplicationJob) { subscribes_to Baz })` is not supported -- name the class first. The check is on the name the class carries, not on whether a constant resolves to it, so a class with a name nothing resolves to is still dropped from the registry without comment; that is a deliberate limit, not an oversight.
+
 A subscriber declared outside those roots must be loaded before preparation finishes, or declaring it raises: EventRail refuses to run with a subscriber it cannot see at boot. A subscriber required from an initializer works, but initializers run before the main autoloader exists, so such a file has to bring its own event class and job base rather than referencing autoloaded constants. Declaring a subscriber after preparation -- from a test file, or from a lazily autoloaded path outside `app/events` and `app/jobs` -- raises for the same reason, so a test that needs a throwaway subscriber should define it in a file under a conventional root of the test application instead.
 
 ### At-least-once delivery, and what that means for subscribers
