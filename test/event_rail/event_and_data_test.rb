@@ -1,62 +1,66 @@
 require "test_helper"
 
-module EventAndDataFixtures
-  class LineItem < EventRail::Data
-    attribute :product_id, :string
-    attribute :quantity, :integer
+# These fixtures are defined after the host application has been prepared, which is the case
+# the registry refuses by default. The declaration window is the public door for it.
+EventRail::TestHelper.declare do
+  module EventAndDataFixtures
+    class LineItem < EventRail::Data
+      attribute :product_id, :string
+      attribute :quantity, :integer
 
-    validates :product_id, presence: true
-    validates :quantity, numericality: { greater_than: 0 }
-  end
-
-  class OrderPlaced < EventRail::Event
-    event_type "tests.event_and_data_order_placed"
-    version 1
-    default_source "acme.orders"
-    identity_by :order_id
-
-    attribute :order_id, :string
-    attribute :line_items, LineItem, array: true
-    attribute :properties
-    attribute :tags, :string, array: true
-    attribute :total, :decimal
-    attribute :delivery_on, :date
-
-    validates :order_id, presence: true
-  end
-
-  class GlobalRecord
-    def to_global_id
-      "gid://example/Record/1"
+      validates :product_id, presence: true
+      validates :quantity, numericality: { greater_than: 0 }
     end
-  end
 
-  class Measurement < EventRail::Event
-    event_type "tests.measurement"
-    version 1
-    default_source "tests"
+    class OrderPlaced < EventRail::Event
+      event_type "tests.event_and_data_order_placed"
+      version 1
+      default_source "acme.orders"
+      identity_by :order_id
 
-    attribute :count, :integer
-    attribute :ratio, :float
-    attribute :amount, :decimal
-    attribute :flag, :boolean
-    attribute :recorded_at, :datetime
-    attribute :recorded_on, :date
-  end
+      attribute :order_id, :string
+      attribute :line_items, LineItem, array: true
+      attribute :properties
+      attribute :tags, :string, array: true
+      attribute :total, :decimal
+      attribute :delivery_on, :date
 
-  class Counted < EventRail::Event
-    event_type "tests.counted"
-    version 1
-    default_source "tests"
-
-    attribute :order_id, :string
-
-    class << self
-      attr_accessor :validation_runs
+      validates :order_id, presence: true
     end
-    self.validation_runs = 0
 
-    validate { self.class.validation_runs += 1 }
+    class GlobalRecord
+      def to_global_id
+        "gid://example/Record/1"
+      end
+    end
+
+    class Measurement < EventRail::Event
+      event_type "tests.measurement"
+      version 1
+      default_source "tests"
+
+      attribute :count, :integer
+      attribute :ratio, :float
+      attribute :amount, :decimal
+      attribute :flag, :boolean
+      attribute :recorded_at, :datetime
+      attribute :recorded_on, :date
+    end
+
+    class Counted < EventRail::Event
+      event_type "tests.counted"
+      version 1
+      default_source "tests"
+
+      attribute :order_id, :string
+
+      class << self
+        attr_accessor :validation_runs
+      end
+      self.validation_runs = 0
+
+      validate { self.class.validation_runs += 1 }
+    end
   end
 end
 

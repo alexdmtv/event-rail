@@ -1,37 +1,41 @@
 require "test_helper"
 
-module ValueFixtures
-  class Address < EventRail::Data
-    attribute :city, :string
-  end
+# These fixtures are defined after the host application has been prepared, which is the case
+# the registry refuses by default. The declaration window is the public door for it.
+EventRail::TestHelper.declare do
+  module ValueFixtures
+    class Address < EventRail::Data
+      attribute :city, :string
+    end
 
-  class Shipped < EventRail::Event
-    event_type "tests.value_shipped"
-    version 1
-    default_source "tests"
+    class Shipped < EventRail::Event
+      event_type "tests.value_shipped"
+      version 1
+      default_source "tests"
 
-    attribute :order_id, :string
-    attribute :total, :decimal
-    attribute :address, Address
-  end
+      attribute :order_id, :string
+      attribute :total, :decimal
+      attribute :address, Address
+    end
 
-  class Keyed < EventRail::Event
-    event_type "tests.value_keyed"
-    version 1
-    default_source "tests"
+    class Keyed < EventRail::Event
+      event_type "tests.value_keyed"
+      version 1
+      default_source "tests"
 
-    attribute :order_id, :string
-    attribute :note, :string
-    identity_by :order_id
-  end
+      attribute :order_id, :string
+      attribute :note, :string
+      identity_by :order_id
+    end
 
-  def self.complete_metadata(id: "evt-1", occurred_at: Time.utc(2026, 9, 1))
-    EventRail::Metadata.complete(
-      id: id,
-      source: "tests",
-      occurred_at: occurred_at,
-      correlation_id: "corr-1"
-    )
+    def self.complete_metadata(id: "evt-1", occurred_at: Time.utc(2026, 9, 1))
+      EventRail::Metadata.complete(
+        id: id,
+        source: "tests",
+        occurred_at: occurred_at,
+        correlation_id: "corr-1"
+      )
+    end
   end
 end
 

@@ -117,7 +117,54 @@ class ReloadingTest < ActiveSupport::TestCase
     assert_match(/app\/events/, result.fetch("raised"))
   end
 
+  # Readiness before the first prepare is a boot-wide state too: in this process the host
+  # application is already initialized, and `Registry.reset!` cannot stand in for it,
+  # because a declaration required from an initializer runs its macro once and no rebuild
+  # re-runs it. So the unprepared registry is observed in a child that stops short of
+  # `initialize!`.
+  test "publication before the first snapshot raises a distinct not-ready error" do
+    result = boot_without_initializing(<<~RUBY)
+      before = begin
+        EventRail.const_get(:Internal)::Registry.snapshot
+        "no error"
+      rescue EventRail::NotReadyError => error
+        error.class.name
+      end
+
+      prepared_before = EventRail.const_get(:Internal)::Registry.prepared?
+      Rails.application.initialize!
+
+      emit(
+        "before" => before,
+        "prepared_before" => prepared_before,
+        "prepared_after" => EventRail.const_get(:Internal)::Registry.prepared?
+      )
+    RUBY
+
+    assert_equal "EventRail::NotReadyError", result.fetch("before")
+    refute result.fetch("prepared_before"), "nothing may be prepared before initialization"
+    assert result.fetch("prepared_after"), "initialization must prepare the registry"
+  end
+
   private
+    # Loads the application definition without running the initializers, so the registry is
+    # observable in its unprepared state.
+    def boot_without_initializing(script)
+      program = <<~RUBY
+        require "json"
+
+        def emit(payload)
+          STDOUT.write("EVENT_RAIL_RESULT" + JSON.generate(payload) + "\\n")
+        end
+
+        require_relative #{File.join(DUMMY_ROOT, "config/application").inspect}
+
+        #{script}
+      RUBY
+
+      run_program("test", program)
+    end
+
     def boot(environment, script)
       program = <<~RUBY
         require "json"
@@ -131,6 +178,10 @@ class ReloadingTest < ActiveSupport::TestCase
         #{script}
       RUBY
 
+      run_program(environment, program)
+    end
+
+    def run_program(environment, program)
       stdout, stderr, status = Open3.capture3(
         { "RAILS_ENV" => environment, "SECRET_KEY_BASE" => "x" * 64 },
         "bundle", "exec", "ruby", "-e", program, chdir: File.expand_path("../..", __dir__)
