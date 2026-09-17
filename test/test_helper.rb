@@ -4,6 +4,7 @@ ENV["RAILS_ENV"] = "test"
 require_relative "../test/dummy/config/environment"
 require "rails/test_help"
 require "minitest/mock"
+require "event_rail/test_helper"
 
 # A Rails deprecation the library itself triggers is a defect on the compatibility
 # floor, not a warning to scroll past: it becomes a removal on the next major. The
@@ -19,6 +20,7 @@ Registry = EventRailInternal::Registry
 
 class ActiveSupport::TestCase
   include ActiveJob::TestHelper
+  include EventRail::TestHelper
 
   setup do
     clear_enqueued_jobs

@@ -109,15 +109,27 @@ class PublicSurfaceTest < ActiveSupport::TestCase
     assert_performed_with(job: SurfaceFixtures::OnPlaced, args: [ publication.event ])
   end
 
+  # `EventRail::TestHelper` is deliberately absent from this list. The exclusion is on
+  # asserting, observing, and contract testing, none of which it does: it opens a
+  # declaration window and activates a fixture, and Active Job's own helpers remain the
+  # only assertion surface. It is also not loaded by requiring the library, which
+  # `test_fixture_declaration_test.rb` proves in a subprocess.
   test "EventRail exposes no assertion, observer, or contract-test helper API" do
     %i[
-      assert_published assert_event_published assertions test_helper TestHelper
+      assert_published assert_event_published assertions
       observe observer subscribe on_event contract_test conformance
     ].each do |name|
       refute EventRail.respond_to?(name), "EventRail must not expose #{name}"
       refute EventRail.const_defined?(name.to_s.to_sym), "EventRail must not define #{name}" if
         name.to_s.start_with?(/[A-Z]/)
     end
+  end
+
+  test "the test helper adds no assertions of its own" do
+    added = EventRail::TestHelper.instance_methods(false) +
+      EventRail::TestHelper.singleton_methods(false)
+
+    assert_equal [ :declare, :with_subscribers ], added.sort
   end
 
   # --- 8.3 fixed constants and the absence of configuration ---------------------
