@@ -40,6 +40,12 @@ module EventRail
       # later test in the process.
       @window = false
       @fixtures = []
+      # Set from `before_class_unload`, which fires first in a reload cycle, and cleared when
+      # preparation finishes. Rails deletes the constants and only then runs prepare
+      # callbacks, and nothing clears the snapshot in between -- so without this flag the
+      # window between the two is indistinguishable from a sealed registry, and a legal
+      # declaration arriving there would be rejected for lateness.
+      @reloading = false
       # Subscribers activated for the duration of a block, and the snapshot and fixture set
       # to restore when it exits. A stack, so nested activations are additive.
       @active_fixtures = []
@@ -55,7 +61,7 @@ module EventRail
               next
             end
 
-            if @snapshot && !@building
+            if @snapshot && !@building && !@reloading
               raise DeclarationError,
                 "#{job_class} declared a subscription after EventRail finished preparing, so it would receive no " \
                 "deliveries. Move it under a conventional app/events or app/jobs root, or load it from an " \
@@ -79,6 +85,17 @@ module EventRail
           !@snapshot.nil?
         end
 
+        # Marks the start of a reload cycle. Registered once from a Railtie initializer, never
+        # from preparation: a callback registered inside `prepare` would be added again on
+        # every reload and accumulate for the life of the process.
+        def reloading!
+          @monitor.synchronize { @reloading = true }
+        end
+
+        def reloading?
+          @reloading
+        end
+
         def subscribers_for(event_class)
           snapshot.subscribers_for(event_class)
         end
@@ -95,6 +112,11 @@ module EventRail
               @snapshot = build_snapshot
             ensure
               @building = previously_building
+              # Cleared here rather than from a reloader callback because the two reload paths
+              # differ: a console `reload!` runs prepare twice, the executor path that serves a
+              # request runs it once. The end of preparation is the only point correct for
+              # both. In `ensure`, so a failed prepare does not leave sealing disabled.
+              @reloading = false
             end
           end
           @snapshot
@@ -188,6 +210,7 @@ module EventRail
             @snapshot = nil
             @building = false
             @window = false
+            @reloading = false
             @active_fixtures = []
             @activations = []
             # @fixtures is deliberately not cleared, for the same reason the pending list is

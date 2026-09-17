@@ -26,5 +26,18 @@ module Dummy
     config.to_prepare do
       Rails.autoloaders.main.do_not_eager_load(Rails.root.join("app/services").to_s)
     end
+
+    # A prepare callback registered directly on the reloader runs before EventRail's, which
+    # the add_to_prepare_blocks finisher registers later. That is the one place an
+    # application can reach the window between a constant unload and EventRail's rebuild,
+    # so the reload tests need it -- but only they do, hence the environment variable.
+    if ENV["DUMMY_PREPARE_TOUCHES_EVENTS"] == "true"
+      config.after_initialize do
+        Rails.application.reloader.to_prepare(prepend: true) do
+          Orders::OrderPlaced
+          Orders::RecordOrderMetricsJob
+        end
+      end
+    end
   end
 end
