@@ -61,7 +61,7 @@ module EventRail
       class << self
         # Appending is idempotent per job class: the macro may be called more than once
         # in one body, and the declarations themselves live on the job class.
-        def declare(job_class)
+        def declare(job_class, location = nil)
           @monitor.synchronize do
             if @window
               @fixtures << job_class unless @fixtures.include?(job_class)
@@ -70,9 +70,10 @@ module EventRail
 
             if @snapshot && !@building && !@reloading
               raise DeclarationError,
-                "#{job_class} declared a subscription after EventRail finished preparing, so it would receive no " \
-                "deliveries. Move it under a conventional app/events or app/jobs root, or load it from an " \
-                "autoload-once path or plain require before application preparation."
+                "#{named(job_class)}#{" (#{at(location)})" if location} declared a subscription after EventRail finished " \
+                "preparing, so it would receive no deliveries. #{discovery_advice}. A subscriber in a gem that is " \
+                "not loaded at boot can be required from an initializer. In a test, define it inside " \
+                "EventRail::TestHelper.declare."
             end
 
             @pending << job_class unless @pending.include?(job_class)
@@ -96,11 +97,10 @@ module EventRail
             next if @building || @reloading || @window
 
             raise DeclarationError,
-              "#{event_class}#{" (#{location})" if location} declared an event contract after EventRail finished " \
-              "preparing, so a worker could not reconstruct it from the queue. Event classes are discovered only " \
-              "from #{CONVENTIONAL_ROOTS.join(" and ")} in the application and its engines: move the file under " \
-              "#{CONVENTIONAL_ROOTS.first}. An event class in a gem that is not loaded at boot can be required " \
-              "from an initializer. In a test, define it inside EventRail::TestHelper.declare."
+              "#{named(event_class)}#{" (#{at(location)})" if location} declared an event contract after EventRail " \
+              "finished preparing, so a worker could not reconstruct it from the queue. #{discovery_advice}. An " \
+              "event class in a gem that is not loaded at boot can be required from an initializer. In a test, " \
+              "define it inside EventRail::TestHelper.declare."
           end
         end
 
@@ -278,6 +278,34 @@ module EventRail
                 nil
               end
             end
+          end
+
+          # Both late-declaration messages share this. It interpolates the configured roots
+          # rather than hardcoding the defaults, and it names the ordering fact that makes the
+          # obvious fix wrong: Rails runs prepare callbacks before `eager_load!`, so adding a
+          # directory to `eager_load_paths` is always too late.
+          def discovery_advice
+            roots = configured_roots
+            "EventRail discovers #{roots.join(" and ")} in the application and its engines, and discovery runs " \
+              "before eager_load!, so adding the directory to eager_load_paths is not enough: move the file under " \
+              "#{roots.first}, or add its root to config.event_rail.roots (which eager-loads that directory " \
+              "during preparation in every environment)"
+          end
+
+          # `to_s` on a class whose `name` was overridden still reports the anonymous form, and
+          # the name is what an adopter searches for.
+          def named(klass)
+            klass.name || klass.inspect
+          end
+
+          # Relative to the application root, so the message names the file the way an editor
+          # does rather than with an absolute path.
+          def at(location)
+            path = location.path
+            root = Rails.root.to_s if defined?(Rails) && Rails.respond_to?(:root) && Rails.root
+            path = path.delete_prefix("#{root}/") if root
+
+            "#{path}:#{location.lineno}"
           end
 
           # Copied on every read, so the registry never holds a reference the application can
