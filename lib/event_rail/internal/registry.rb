@@ -34,12 +34,27 @@ module EventRail
       @pending = []
       @snapshot = nil
       @building = false
+      # A test declaration window, opened by EventRail::TestHelper.declare. Distinct from
+      # @building: a window routes subscriptions to the dormant fixture set rather than to
+      # the live pending list, which is what keeps a fixture from fanning out to every
+      # later test in the process.
+      @window = false
+      @fixtures = []
+      # Subscribers activated for the duration of a block, and the snapshot and fixture set
+      # to restore when it exits. A stack, so nested activations are additive.
+      @active_fixtures = []
+      @activations = []
 
       class << self
         # Appending is idempotent per job class: the macro may be called more than once
         # in one body, and the declarations themselves live on the job class.
         def declare(job_class)
           @monitor.synchronize do
+            if @window
+              @fixtures << job_class unless @fixtures.include?(job_class)
+              next
+            end
+
             if @snapshot && !@building
               raise DeclarationError,
                 "#{job_class} declared a subscription after EventRail finished preparing, so it would receive no " \
@@ -100,11 +115,86 @@ module EventRail
           end
         end
 
+        # Opens a test declaration window. Subscriptions declared inside become dormant
+        # fixtures; event contracts declared inside are indexed when the window closes,
+        # because `build_contracts` rescans `EventRail::Event.descendants` and a named class
+        # stays there for the life of the process.
+        #
+        # The monitor is held across the yield, as `reopen` does, because a window is opened
+        # at file scope before any test runs. `activate` deliberately does not, since it
+        # yields to arbitrary test code.
+        def declare_fixtures
+          @monitor.synchronize do
+            unless @activations.empty?
+              raise ArgumentError,
+                "a declaration window cannot be opened inside with_subscribers, because closing it rebuilds the " \
+                "registry and would discard the activation"
+            end
+
+            previously = @window
+            @window = true
+            begin
+              yield
+            ensure
+              @window = previously
+            end
+
+            # Rebuilding here is what puts window-declared contracts in the index. Nothing
+            # is eager-loaded: the window body has already run.
+            @snapshot = build_snapshot(extra_subscribers: @active_fixtures) if @snapshot
+          end
+        end
+
+        # Activates dormant fixture subscribers for the duration of the block, then restores
+        # the previous snapshot. The block runs outside the monitor: a test may spawn a
+        # thread that calls `prepare`, and holding the lock across the yield would deadlock
+        # it.
+        def activate(job_classes)
+          restore = nil
+
+          @monitor.synchronize do
+            validate_activation!(job_classes)
+
+            # Built before anything is committed: `build_snapshot` applies the same
+            # validation preparation does, so an abstract or context-less fixture raises
+            # here. Assigning first would leave the failed fixture active for every later
+            # activation in the process.
+            fixtures = @active_fixtures + job_classes
+            candidate = build_snapshot(extra_subscribers: fixtures)
+
+            restore = [ @snapshot, @active_fixtures ]
+            @snapshot = candidate
+            @active_fixtures = fixtures
+            @activations.push(restore)
+          end
+
+          begin
+            yield
+          ensure
+            @monitor.synchronize do
+              @snapshot, @active_fixtures = restore
+              @activations.pop
+            end
+          end
+        end
+
+        def fixtures
+          @fixtures.dup.freeze
+        end
+
         def reset!
           @monitor.synchronize do
             @pending = []
             @snapshot = nil
             @building = false
+            @window = false
+            @active_fixtures = []
+            @activations = []
+            # @fixtures is deliberately not cleared, for the same reason the pending list is
+            # pruned rather than emptied: a fixture is declared once at file scope and its
+            # window never runs again, so clearing it would leave every later activation in
+            # the process unable to find it. Fixtures are dormant, so keeping them changes
+            # no snapshot.
           end
         end
 
@@ -156,11 +246,13 @@ module EventRail
             resolved.equal?(klass)
           end
 
-          def build_snapshot
+          # `extra_subscribers` carries fixtures activated for a block. They are not added to
+          # the pending list, so the next rebuild without them drops them again.
+          def build_snapshot(extra_subscribers: EMPTY_SUBSCRIBERS)
             contracts = build_contracts
             subscribers = {}
 
-            @pending.each do |job_class|
+            (@pending + extra_subscribers).each do |job_class|
               validate_subscriber!(job_class)
 
               job_class.event_rail_subscriptions.each do |event_class|
@@ -184,6 +276,30 @@ module EventRail
             concrete = discovered.select { |event_class| event_class.concrete? }
 
             ContractIndex.build(concrete)
+          end
+
+          # These are caller mistakes in a test, not failures of the library's declaration
+          # rules, so they raise ArgumentError: an adopter rescuing EventRail::Error should
+          # not catch them.
+          def validate_activation!(job_classes)
+            job_classes.each do |job_class|
+              if job_class.name.nil?
+                raise ArgumentError,
+                  "#{job_class.inspect} has no name, and Active Job cannot enqueue a job it cannot name; " \
+                  "assign the class to a constant"
+              end
+
+              next if @fixtures.include?(job_class)
+
+              if @pending.include?(job_class)
+                raise ArgumentError,
+                  "#{job_class} is already a live subscriber; with_subscribers is for fixtures declared in a test"
+              end
+
+              raise ArgumentError,
+                "#{job_class} was not declared inside EventRail::TestHelper.declare, so with_subscribers cannot " \
+                "activate it"
+            end
           end
 
           def validate_subscriber!(job_class)
