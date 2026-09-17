@@ -72,6 +72,31 @@ module EventRail
           end
         end
 
+        # The contract half of the sealing rule, called from the writer form of
+        # `EventRail::Event.event_type` and `.version`. A check only: contracts are collected
+        # by rescanning `EventRail::Event.descendants` when a snapshot is built, so there is
+        # no pending list for events and nothing here to keep reload-safe.
+        #
+        # Named classes only. An unnamed class can never enter the index -- `build_contracts`
+        # selects through `live?`, which resolves the constant the name denotes -- so checking
+        # one would reject every inline event definition in a test suite for no guarantee
+        # gained.
+        def declare_contract(event_class, location = nil)
+          return if event_class.name.nil?
+
+          @monitor.synchronize do
+            next unless @snapshot
+            next if @building || @reloading || @window
+
+            raise DeclarationError,
+              "#{event_class}#{" (#{location})" if location} declared an event contract after EventRail finished " \
+              "preparing, so a worker could not reconstruct it from the queue. Event classes are discovered only " \
+              "from #{CONVENTIONAL_ROOTS.join(" and ")} in the application and its engines: move the file under " \
+              "#{CONVENTIONAL_ROOTS.first}. An event class in a gem that is not loaded at boot can be required " \
+              "from an initializer. In a test, define it inside EventRail::TestHelper.declare."
+          end
+        end
+
         def snapshot
           snapshot = @snapshot
           return snapshot if snapshot

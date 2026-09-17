@@ -43,6 +43,7 @@ module EventRail
           raise DeclarationError, "event_type exceeds #{Limits::MAX_EVENT_TYPE_BYTES} bytes"
         end
 
+        Internal::Registry.declare_contract(self, caller_locations(1, 1).first)
         @event_type = value.dup.freeze
       end
 
@@ -53,6 +54,7 @@ module EventRail
           raise DeclarationError, "version must be a positive integer"
         end
 
+        Internal::Registry.declare_contract(self, caller_locations(1, 1).first)
         @event_version = value
       end
 

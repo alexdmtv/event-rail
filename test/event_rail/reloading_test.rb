@@ -85,9 +85,11 @@ class ReloadingTest < ActiveSupport::TestCase
 
     assert result.fetch("eager_loaded")
     assert_equal(
-      [ "billing.invoice_issued/1", "host.application_started/1", "orders.order_placed/1",
-        "preloaded.ledger_posted/1" ],
-      result.fetch("contracts")
+      [ "billing.invoice_issued/1", "host.application_started/1", "inventory.stock_depleted/1",
+        "orders.order_placed/1", "preloaded.ledger_posted/1" ],
+      result.fetch("contracts"),
+      "inventory.stock_depleted lives outside every discovery root and is registered only " \
+      "because a subscriber in app/jobs names it during preparation"
     )
     assert_equal(
       [ "Billing::CreateInvoiceJob", "Orders::RecordOrderMetricsJob" ],
