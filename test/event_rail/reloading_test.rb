@@ -117,6 +117,72 @@ class ReloadingTest < ActiveSupport::TestCase
     assert_match(/app\/events/, result.fetch("raised"))
   end
 
+  # --- the reload window --------------------------------------------------------
+
+  test "a prepare callback ordered ahead of EventRail's may touch discovered constants" do
+    result = boot("development", <<~RUBY, env: { "DUMMY_PREPARE_TOUCHES_EVENTS" => "true" })
+      # Three reloads. Each one deletes the constants, then runs the application's prepended
+      # prepare callback -- which references an event class and a subscriber -- and only then
+      # EventRail's own prepare. Without the reload flag the first of those is rejected as a
+      # late declaration.
+      3.times { Rails.application.reloader.reload! }
+
+      snapshot = EventRail.const_get(:Internal)::Registry.snapshot
+      emit(
+        "order_placed" => snapshot.subscribers_for(Orders::OrderPlaced).map(&:name).sort,
+        "reloading_after" => EventRail.const_get(:Internal)::Registry.reloading?
+      )
+    RUBY
+
+    assert_equal(
+      [ "Billing::CreateInvoiceJob", "Orders::RecordOrderMetricsJob" ],
+      result.fetch("order_placed")
+    )
+    refute result.fetch("reloading_after"), "the flag must be cleared once preparation finishes"
+  end
+
+  test "the reload flag is set only between the unload and the rebuild" do
+    result = boot("development", <<~RUBY)
+      registry = EventRail.const_get(:Internal)::Registry
+      observed = []
+
+      Rails.application.reloader.before_class_unload { observed << [ "unload", registry.reloading? ] }
+      Rails.application.reloader.to_prepare(prepend: true) { observed << [ "prepare", registry.reloading? ] }
+
+      at_steady_state = registry.reloading?
+      Rails.application.reloader.reload!
+
+      emit(
+        "steady" => at_steady_state,
+        "during" => observed.uniq,
+        "after" => registry.reloading?
+      )
+    RUBY
+
+    refute result.fetch("steady"), "nothing may be reloading at steady state"
+    refute result.fetch("after"), "the flag must be cleared once preparation finishes"
+    assert_includes result.fetch("during"), [ "prepare", true ],
+      "a prepare callback ahead of EventRail's must see the reload in progress"
+  end
+
+  test "a late declaration still raises once a reload has completed" do
+    result = boot("development", <<~RUBY)
+      Rails.application.reloader.reload!
+
+      raised = begin
+        LateSubscriber
+        nil
+      rescue EventRail::DeclarationError => error
+        error.class.name
+      end
+
+      emit("raised" => raised)
+    RUBY
+
+    assert_equal "EventRail::DeclarationError", result.fetch("raised"),
+      "the reload flag must not leave sealing disabled"
+  end
+
   # Readiness before the first prepare is a boot-wide state too: in this process the host
   # application is already initialized, and `Registry.reset!` cannot stand in for it,
   # because a declaration required from an initializer runs its macro once and no rebuild
@@ -165,7 +231,7 @@ class ReloadingTest < ActiveSupport::TestCase
       run_program("test", program)
     end
 
-    def boot(environment, script)
+    def boot(environment, script, env: {})
       program = <<~RUBY
         require "json"
 
@@ -178,12 +244,12 @@ class ReloadingTest < ActiveSupport::TestCase
         #{script}
       RUBY
 
-      run_program(environment, program)
+      run_program(environment, program, env)
     end
 
-    def run_program(environment, program)
+    def run_program(environment, program, env = {})
       stdout, stderr, status = Open3.capture3(
-        { "RAILS_ENV" => environment, "SECRET_KEY_BASE" => "x" * 64 },
+        { "RAILS_ENV" => environment, "SECRET_KEY_BASE" => "x" * 64 }.merge(env),
         "bundle", "exec", "ruby", "-e", program, chdir: File.expand_path("../..", __dir__)
       )
 
