@@ -21,20 +21,20 @@ EventRail is narrow on purpose: durable fanout across a boundary inside one appl
 | An event log -- audit history, replay, rebuilding read models | [Rails Event Store](https://railseventstore.org) | It is a store. Events persist in the same transaction as the state that produced them, which also closes the dual-write gap below. |
 | Handlers that run inside the same request | [downstream](https://github.com/palkan/downstream) | Delivery is synchronous by default, async opt-in per subscriber. |
 | In-process decoupling and nothing more | `ActiveSupport::Notifications` | Already in your application. No gem, no contract, no queue. |
-| Aggregates and state rebuilt from history | [Sequent](https://www.sequent.io) | Full event sourcing, with the machinery that implies. |
+| Events to be the system of record, not a message | [Sequent](https://www.sequent.io) | A full event-sourcing framework: commands, aggregates, projectors. |
 
 **Why not call `perform_later` three times?** That is already durable fanout, and for three jobs in one method it is the right answer. EventRail earns its place when the publisher should not know its subscribers, when the payload needs a versioned contract that outlives a worker running older code, and when a retry must not produce a second copy of a fact already recorded.
 
 ### What it gives you
 
-- **Retry-stable identity**, derived from execution scope and causation rather than generated, so a follow-up event published while handling a redelivered cause derives the ID it derived the first time. Idempotency holds across hops, not only across one subscriber's retries.
-- **Subscribers that are the jobs**, each keeping its own queue, retry policy, and concurrency limits instead of sharing one wrapper job's.
+- **Retry-stable identity**, derived from the publishing execution rather than generated, so a redelivered cause produces the same event rather than a second copy of it. Idempotency holds across hops, not only across one subscriber's retries.
+- **Subscribers that are the jobs**, each keeping its own queue, retry policy, and concurrency limits rather than sharing the single wrapper job other gems route subscribers through.
 - **Boot-time validation**: a wrong `perform` arity, a missing `EventRail::JobContext`, a late declaration -- each fails the boot that introduced it, not the first publication in production.
 - **A typed boundary**: a `Date`, a `BigDecimal`, a record, or a GlobalID is refused rather than serialized into something a worker cannot restore.
 - **Your own layout**: discovery matches a path suffix against the autoload roots Rails already has, covering engines and a packwerk-style `packs/billing/app/jobs` with no configuration.
 - **No Active Record**, table, migration, or initializer.
 
-### What it does not
+### What it does not do
 
 - **No event log and no synchronous handlers.** No history, replay, read-model rebuild, or browser UI, and every subscriber crosses the queue.
 - **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)); from a controller action there is no such guarantee. Retry-stable identity is also what makes an application's own sweeper safe to build, since republishing the same intent derives the same event.
@@ -122,7 +122,7 @@ event.metadata   # immutable metadata; not yet stamped
 
 `attributes` is Active Model's own meaning and is what application code reads. `data` is the single written form that both the queue representation and the public envelope use, so a `Date`, a `BigDecimal`, or a nested Ruby object never reaches a queue adapter or a codec.
 
-Casting refuses to discard information rather than substituting a plausible value. `"abc"` is not `0`, `true` is not `"t"`, a timestamp needs an explicit offset, and a date attribute will not silently drop a time of day. An untyped attribute accepts only recursively JSON-like values — strings, integers, finite floats, booleans, `nil`, arrays, string-keyed hashes — bounded in nesting depth and forbidden from using the `_aj_` prefix Active Job reserves in its own argument encoding. Records, GlobalID values, arbitrary Ruby objects, non-finite numbers, undeclared attributes, and callable defaults are rejected.
+Casting refuses to discard information rather than substituting a plausible value. `"abc"` is not `0`, `true` is not `"t"`, a timestamp needs an explicit offset, and a date attribute will not silently drop a time of day. An untyped attribute accepts only recursively JSON-like values -- strings, integers, finite floats, booleans, `nil`, arrays, string-keyed hashes -- bounded in nesting depth and forbidden from using the `_aj_` prefix Active Job reserves in its own argument encoding. Records, GlobalID values, arbitrary Ruby objects, non-finite numbers, undeclared attributes, and callable defaults are rejected.
 
 Constructed events, nested data, metadata, and every contained value are recursively immutable. Two events of one class with equal payload and equal metadata are equal values, which is what lets `assert_enqueued_with(args: [event])` match a published event.
 
@@ -218,7 +218,7 @@ Retries, backoff, discarding, and dead-letter handling stay where they already a
 
 Don't. Publication raises `EventRail::TransactionalPublicationError` when a transaction is open, in every environment, and the fix is to publish after the transaction commits.
 
-Both queue deferral settings are wrong inside a transaction, in opposite directions. With `enqueue_after_transaction_commit` on, the enqueue is deferred past the point where its failure can be reported, so a publication that silently enqueued nothing looks successful. With it off, the enqueue announces a fact that a rollback then contradicts. The check is on the open transaction itself, so it does not depend on the setting — or on Active Record being present at all.
+Both queue deferral settings are wrong inside a transaction, in opposite directions. With `enqueue_after_transaction_commit` on, the enqueue is deferred past the point where its failure can be reported, so a publication that silently enqueued nothing looks successful. With it off, the enqueue announces a fact that a rollback then contradicts. The check is on the open transaction itself, so it does not depend on the setting -- or on Active Record being present at all.
 
 ### Replay-safe publishers
 
@@ -239,7 +239,7 @@ Guarding publication behind "did I already transition?" is the failure mode to a
 
 ## Identity, occurrence time, and source
 
-Inside an opted-in job, an event's ID is derived from a permanent EventRail namespace and the resolved source, executing job class, execution scope, event type, version, and logical identity. The execution scope is the same value the event records as its causation: a regular job's own ID, or, for a subscriber, the ID of the event it is handling. That is what makes identity survive more than one hop — a follow-up event published while handling a redelivered cause derives the ID it derived the first time.
+Inside an opted-in job, an event's ID is derived from a permanent EventRail namespace and the resolved source, executing job class, execution scope, event type, version, and logical identity. The execution scope is the same value the event records as its causation: a regular job's own ID, or, for a subscriber, the ID of the event it is handling. That is what makes identity survive more than one hop -- a follow-up event published while handling a redelivered cause derives the ID it derived the first time.
 
 Logical identity is chosen in this order: an explicit event ID (an inbound external event), an explicit `key:` passed to `publish`, the class's `identity_by` attributes, or a singleton marker for the first publication of that type in the execution. Provide an explicit key when neither declared identity nor the singleton default can tell two legitimate publications apart:
 
@@ -254,7 +254,7 @@ Changing `identity_by`, changing `default_source`, or renaming a subscriber clas
 
 `occurred_at` is the logical publication time: an explicit timezone-aware value is preserved as the same instant, and otherwise it is the start of the current execution, stable across that execution's retries and never inherited from a cause. Use a persisted domain timestamp when business occurrence time matters. Stored times are UTC at microsecond precision.
 
-`source` identifies a logical producer — not an environment, queue, topic, cluster, or deployment. Any bounded non-empty string is accepted; a stable namespaced value such as `acme.orders` is recommended, and EventRail does no URI parsing.
+`source` identifies a logical producer -- not an environment, queue, topic, cluster, or deployment. Any bounded non-empty string is accepted; a stable namespaced value such as `acme.orders` is recommended, and EventRail does no URI parsing.
 
 ## Logical context
 
@@ -268,7 +268,7 @@ end
 
 A nested scope inherits lineage and may add extensions or repeat identical values; replacing an inherited identifier, origin time, or extension value fails rather than rewriting the lineage of a flow already in progress.
 
-Context extensions are durable baggage: opted-in child jobs carry them, and published events merge them with event-local extensions, rejecting conflicting values. They are not the place for domain data — that belongs in declared attributes.
+Context extensions are durable baggage: opted-in child jobs carry them, and published events merge them with event-local extensions, rejecting conflicting values. They are not the place for domain data -- that belongs in declared attributes.
 
 ### Reading context
 
@@ -450,7 +450,7 @@ The private Active Job representation and the job context entry each carry their
 2. Only then deploy a release that writes the new form.
 3. Remove the old reader only after every queued message in the old form is drained or expired.
 
-Rolling back reverses that: a rollback is safe only to a release that can still read what the newer release wrote. A change to how an individual value is written is a different matter — that encoding is shared with the public envelope, so it is a breaking public change rather than a private format bump.
+Rolling back reverses that: a rollback is safe only to a release that can still read what the newer release wrote. A change to how an individual value is written is a different matter -- that encoding is shared with the public envelope, so it is a breaking public change rather than a private format bump.
 
 ## Development
 
