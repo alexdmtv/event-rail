@@ -4,7 +4,7 @@
 
 EventRail gives a Rails module its second public interface.
 
-The first one is synchronous: call a method, get an answer. Ruby hands it to you for free, and it is a dependency -- the caller names the callee, and from then on the two are coupled. The second inverts that. A module announces a fact, and whoever cares subscribes; neither one names the other. Rails ships no way to express it. `ActiveSupport::Notifications` is in-process and untyped, Active Record callbacks are the coupling you were trying to escape, and an event store asks you to adopt a storage model in order to send one message across a boundary.
+The first one is synchronous: call a method, get an answer. Ruby hands it to you for free, and it is a dependency -- the caller names the callee, and from then on the two are coupled. The second inverts it. A module announces a fact, and whoever cares subscribes. The dependency does not vanish -- a subscriber still names the event, which belongs to the module that publishes it -- but it points the other way and it is much narrower: a dependency on something that happened, not on how the other module works. What matters is the side that does not accumulate. A publisher that has to invoke every interested module directly learns a new name for each one; a publisher that announces a fact learns nothing. Rails ships no way to express it. `ActiveSupport::Notifications` is in-process and untyped, Active Record callbacks are the coupling you were trying to escape, and an event store asks you to adopt a storage model in order to send one message across a boundary.
 
 An EventRail event is an immutable, versioned value. Every subscriber is an ordinary Active Job that keeps its own queue, retry policy, and concurrency limits, and delivery goes through the queue adapter you already run. The publisher never names a subscriber. There is no transport, no registration API, and no runtime of its own.
 
@@ -12,32 +12,31 @@ EventRail is pre-1.0: the public API may change in a minor release, and every ch
 
 ## When to use EventRail
 
-EventRail is narrow on purpose: durable fanout across a module boundary, where each subscriber retries independently and the same logical fact keeps the same identity across every retry and every hop. Reaching for an event store to get that means adopting its storage model too -- entities as streams, state rebuilt from history -- which is a large commitment for what is, at the boundary, one message. If you want that commitment, or you want something else entirely, these fit better.
+EventRail is narrow on purpose: durable fanout across a module boundary, where each subscriber retries independently and the same fact keeps the same identity across every retry and every hop. Reaching for an event store to get that means adopting its storage model too -- entities as streams, state rebuilt from history -- a large commitment for what is, at the boundary, one message. If you want that commitment, or something else entirely, these fit better.
 
 | If you need | Use | Because |
 | --- | --- | --- |
-| An event log -- audit history, replay, rebuilding read models | [Rails Event Store](https://railseventstore.org) | It is a store. Events persist in the same transaction as the state that produced them, which also closes the dual-write gap described below. |
-| Handlers that run inside the same request | [downstream](https://github.com/palkan/downstream) | Delivery is synchronous by default, with async opt-in per subscriber. |
+| An event log -- audit history, replay, rebuilding read models | [Rails Event Store](https://railseventstore.org) | It is a store. Events persist in the same transaction as the state that produced them, which also closes the dual-write gap below. |
+| Handlers that run inside the same request | [downstream](https://github.com/palkan/downstream) | Delivery is synchronous by default, async opt-in per subscriber. |
 | In-process decoupling and nothing more | `ActiveSupport::Notifications` | Already in your application. No gem, no contract, no queue. |
 | Aggregates and state rebuilt from history | [Sequent](https://www.sequent.io) | Full event sourcing, with the machinery that implies. |
 
-**Why not call `perform_later` three times?** That is already durable fanout, and for three jobs in one method it is the right answer. EventRail earns its place when the publisher should not know its subscribers, when the payload needs a versioned contract that survives a worker running older code, and when a retry must not produce a second copy of a fact that was already recorded.
+**Why not call `perform_later` three times?** That is already durable fanout, and for three jobs in one method it is the right answer. EventRail earns its place when the publisher should not know its subscribers, when the payload needs a versioned contract that outlives a worker running older code, and when a retry must not produce a second copy of a fact already recorded.
 
-### What EventRail does that the alternatives do not
+### What it gives you
 
-- **Retry-stable identity.** An event's ID is derived from its execution scope and causation rather than generated, so a follow-up event published while handling a redelivered cause derives the ID it derived the first time. Idempotency holds across hops, not only across one subscriber's retries.
-- **Subscribers are the jobs.** Each keeps its own queue, retry policy, and concurrency limits, because each is an ordinary Active Job class. A gem that wraps subscribers in one shared job gives every subscriber one queue and one retry policy.
-- **Mistakes surface at boot.** A wrong `perform` arity, a missing `EventRail::JobContext`, a subclassed subscriber, a declaration arriving after preparation -- each fails the boot that introduced it rather than the first publication in production.
-- **Nothing untyped reaches the queue.** A `Date`, a `BigDecimal`, a record, or a GlobalID is refused at the boundary rather than serialized into something a worker cannot restore.
-- **Subscribers live where your modules live.** A discovery root is matched as a path suffix against the autoload roots Rails already has, so one default covers the host application, every engine, and a packwerk-style `packs/billing/app/jobs` without naming any of them.
-- **No Active Record, no table, no migration, no initializer.**
+- **Retry-stable identity**, derived from execution scope and causation rather than generated, so a follow-up event published while handling a redelivered cause derives the ID it derived the first time. Idempotency holds across hops, not only across one subscriber's retries.
+- **Subscribers that are the jobs**, each keeping its own queue, retry policy, and concurrency limits instead of sharing one wrapper job's.
+- **Boot-time validation**: a wrong `perform` arity, a missing `EventRail::JobContext`, a late declaration -- each fails the boot that introduced it, not the first publication in production.
+- **A typed boundary**: a `Date`, a `BigDecimal`, a record, or a GlobalID is refused rather than serialized into something a worker cannot restore.
+- **Your module layout**: discovery matches a path suffix against the autoload roots Rails already has, covering engines and a packwerk-style `packs/billing/app/jobs` with no configuration.
+- **No Active Record**, table, migration, or initializer.
 
-### What EventRail deliberately does not do
+### What it does not
 
-- **No event log.** No history, no replay, no read-model rebuild, no browser UI.
-- **No synchronous handlers.** Every subscriber crosses the queue.
-- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes. A process that dies between the two loses the event with no record that it was owed. Publishing from a job makes this recoverable, because the retry re-runs the transition and republishes under the same identity -- see [Replay-safe publishers](#replay-safe-publishers) -- but publishing from a controller action has no such guarantee. A store that writes the event in the same transaction as the state does not have this gap; that is the cost of not being one. EventRail does make an application's own outbox sound, though: a sweeper that republishes an unfinished intent is only correct if republication is idempotent, and republishing the same intent derives the same event identity.
-- **Discovery is conventional, and the convention is enforced.** A subscriber outside a [discovery root](#where-discovery-looks) fails the boot rather than being quietly ignored. That is a deliberate trade: a silent delivery bug becomes a loud startup error, at the price of a layout rule the application has to follow.
+- **No event log and no synchronous handlers.** No history, replay, read-model rebuild, or browser UI, and every subscriber crosses the queue.
+- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)); from a controller action there is no such guarantee. Retry-stable identity is also what makes an application's own sweeper safe to build, since republishing the same intent derives the same event.
+- **Discovery is enforced, not advisory.** A subscriber outside a [discovery root](#where-discovery-looks) fails the boot rather than being quietly ignored: a silent delivery bug traded for a loud startup error, at the price of a layout rule.
 
 ## Requirements
 
