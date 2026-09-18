@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml/badge.svg)](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml)
 
-EventRail is an early-stage Rails library for immutable domain events and durable fanout through ordinary Active Job subscribers. It builds on Rails conventions instead of introducing a transport, command bus, dependency-injection container, or replacement job runtime.
+EventRail is a Rails library for immutable domain events and durable fanout through ordinary Active Job subscribers. Subscribers are ordinary jobs that keep their own queue, retry, and concurrency configuration, and delivery goes through the queue adapter you already run. There is no transport, no registration API, and no runtime of its own.
 
-EventRail is not ready for production use yet. The public API is still being implemented and validated.
+EventRail is pre-1.0: the public API may change in a minor release, and every change is documented in the [CHANGELOG](CHANGELOG.md). Delivery semantics, safety limits, and the notification contract are settled and documented below.
 
 ## Requirements
 
