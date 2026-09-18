@@ -164,11 +164,31 @@ Every example is round-tripped through JSON when the attribute is declared, so a
 
 ```ruby
 module Docs
-  class OnOrderPlacedJob < ApplicationJob
-    subscribes_to OrderPlaced
+  # app/jobs/billing/charge_card_job.rb
+  module Billing
+    class ChargeCardJob < ApplicationJob
+      queue_as :payments
+      retry_on Timeout::Error, attempts: 10
 
-    def perform(event)
-      Rails.logger.info("charging #{event.order_id} idempotently on #{event.id}")
+      subscribes_to OrderPlaced
+
+      def perform(event)
+        Rails.logger.info("charging #{event.order_id} idempotently on #{event.id}")
+      end
+    end
+  end
+
+  # packs/analytics/app/jobs/analytics/record_order_job.rb
+  module Analytics
+    class RecordOrderJob < ApplicationJob
+      queue_as :low
+      discard_on ActiveJob::DeserializationError
+
+      subscribes_to OrderPlaced
+
+      def perform(event)
+        Rails.logger.info("recording #{event.order_id}")
+      end
     end
   end
 end
@@ -181,6 +201,8 @@ publication.event                # the stamped, immutable fact
 publication.accepted_subscribers # subscribers whose enqueue was accepted
 publication.skipped_subscribers  # subscribers whose own enqueue callback declined
 ```
+
+Billing and analytics do not know about each other, and the publishing code names neither. Adding a third subscriber is adding a file; the code that publishes `OrderPlaced` never changes. Each one keeps its own queue and its own failure policy, because each one is just a job -- a payment that retries for ten attempts and an analytics write that is discarded when its event can no longer be loaded are the same fanout, configured separately.
 
 Subscribers are discovered from the conventional `app/events` and `app/jobs` roots of the host application and every engine, during Rails preparation. There is no registration API, no initializer, and no registry to query.
 
@@ -341,7 +363,7 @@ Application tests use Active Job's own helpers and nothing from EventRail:
 # doc:illustrative
 publication = EventRail.publish(Docs::OrderPlaced.new(order_id: "A-1005", total: "1.00", placed_at: Time.now.utc.iso8601))
 
-assert_enqueued_with(job: Docs::OnOrderPlacedJob, args: [ publication.event ])
+assert_enqueued_with(job: Docs::Billing::ChargeCardJob, args: [ publication.event ])
 perform_enqueued_jobs
 ```
 
