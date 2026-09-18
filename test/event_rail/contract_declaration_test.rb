@@ -79,6 +79,25 @@ class ContractDeclarationTest < ActiveSupport::TestCase
     assert Registry.prepare
   end
 
+  test "re-declaring the same value on a sealed registry is accepted" do
+    # Only a change is a declaration. A `load` rather than a `require`, or a reopened class
+    # body, re-runs the writer with the value already in place; that alters no contract, so
+    # the index is already correct and rejecting it would be a false positive.
+    assert_nothing_raised do
+      Orders::OrderPlaced.event_type "orders.order_placed"
+      Orders::OrderPlaced.version 1
+    end
+
+    assert_equal Orders::OrderPlaced, Registry.snapshot.event_class_for("orders.order_placed", 1)
+  end
+
+  test "declaring a different value on a sealed registry is still rejected" do
+    assert_raises(EventRail::DeclarationError) { Orders::OrderPlaced.version 99 }
+  ensure
+    Orders::OrderPlaced.instance_variable_set(:@event_version, 1)
+    Registry.prepare
+  end
+
   test "a malformed value still gets its own error rather than the timing one" do
     error = assert_raises(EventRail::DeclarationError) { declare_in_place(:BadValue) { event_type "" } }
 

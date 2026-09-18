@@ -43,7 +43,12 @@ module EventRail
           raise DeclarationError, "event_type exceeds #{Limits::MAX_EVENT_TYPE_BYTES} bytes"
         end
 
-        Internal::Registry.declare_contract(self, caller_locations(1, 1).first)
+        # Only a change is a declaration. Re-running a class body that sets the same value --
+        # a `load` rather than a `require`, a reopened class -- alters no contract, so the
+        # index is already correct and rejecting it would be a false positive.
+        unless @event_type == value
+          Internal::Registry.declare_contract(self, caller_locations(1, 1).first)
+        end
         @event_type = value.dup.freeze
       end
 
@@ -54,7 +59,9 @@ module EventRail
           raise DeclarationError, "version must be a positive integer"
         end
 
-        Internal::Registry.declare_contract(self, caller_locations(1, 1).first)
+        unless @event_version == value
+          Internal::Registry.declare_contract(self, caller_locations(1, 1).first)
+        end
         @event_version = value
       end
 
