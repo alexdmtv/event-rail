@@ -257,6 +257,20 @@ class RegistryTest < ActiveSupport::TestCase
     assert_match(/not an EventRail::Event class/, error.message)
   end
 
+  test "a malformed roots configuration is a configuration error, not a NoMethodError" do
+    original = Rails.application.config.event_rail.roots
+
+    [ "app/jobs", [ "app/events", nil ], [ "" ], :app_jobs ].each do |bad|
+      Rails.application.config.event_rail.roots = bad
+
+      error = assert_raises(EventRail::ConfigurationError, "#{bad.inspect} must be rejected") { Registry.prepare }
+      assert_match(/must be an array of non-empty strings/, error.message)
+    end
+  ensure
+    Rails.application.config.event_rail.roots = original
+    Registry.prepare
+  end
+
   test "concurrent readers observe only a complete snapshot" do
     rebuilds = Thread.new { 20.times { Registry.prepare } }
 

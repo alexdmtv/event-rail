@@ -213,7 +213,10 @@ module EventRail
             # validation preparation does, so an abstract or context-less fixture raises
             # here. Assigning first would leave the failed fixture active for every later
             # activation in the process.
-            fixtures = @active_fixtures + job_classes
+            # Deduplicated: activating a fixture that an enclosing block already activated
+            # must not register it twice, which would double its fanout -- the same defect
+            # `prune_stale_declarations` exists to prevent on the reload path.
+            fixtures = (@active_fixtures + job_classes).uniq
             candidate = build_snapshot(extra_subscribers: fixtures)
 
             restore = [ @snapshot, @active_fixtures ]
@@ -285,7 +288,11 @@ module EventRail
           # obvious fix wrong: Rails runs prepare callbacks before `eager_load!`, so adding a
           # directory to `eager_load_paths` is always too late.
           def discovery_advice
+            # Falls back to the default rather than raising: this builds the text of another
+            # error, and a misconfigured roots value has its own error from `validate_roots!`
+            # at preparation.
             roots = configured_roots
+            roots = DEFAULT_ROOTS.dup unless well_formed_roots?(roots)
             "EventRail discovers #{roots.join(" and ")} in the application and its engines, and discovery runs " \
               "before eager_load!, so adding the directory to eager_load_paths is not enough: move the file under " \
               "#{roots.first}, or add its root to config.event_rail.roots (which eager-loads that directory " \
@@ -319,12 +326,21 @@ module EventRail
             (configured || DEFAULT_ROOTS).dup
           end
 
+          def well_formed_roots?(roots)
+            roots.is_a?(Array) && roots.all? { |root| root.is_a?(String) && !root.empty? }
+          end
+
           # Only entries beyond the default are checked. Rails registers an `app/*` directory
           # with the main loader only when it exists, so a freshly generated application that
           # has not created `app/events` yet has no such root -- validating the defaults would
           # fail its boot before it had written a single event. A missing default is a
           # convention not yet used; a missing entry the application typed is a mistake.
           def validate_roots!(roots, loader)
+            unless well_formed_roots?(roots)
+              raise ConfigurationError,
+                "config.event_rail.roots must be an array of non-empty strings; got #{roots.inspect}"
+            end
+
             dirs = loader.dirs.map(&:to_s)
 
             (roots - DEFAULT_ROOTS).each do |root|
@@ -370,7 +386,7 @@ module EventRail
             # may be built without a preceding prune -- `activate` does exactly that -- and
             # the list can hold an entry whose macro ran before a later argument raised, so
             # a snapshot must never validate a class the constant no longer denotes.
-            (@pending.select { |job_class| live?(job_class) } + extra_subscribers).each do |job_class|
+            (@pending.select { |job_class| live?(job_class) } + extra_subscribers).uniq.each do |job_class|
               validate_subscriber!(job_class)
 
               job_class.event_rail_subscriptions.each do |event_class|

@@ -147,6 +147,16 @@ class TestFixtureDeclarationTest < ActiveSupport::TestCase
     end
   end
 
+  test "activating the same fixture twice does not double its fanout" do
+    # The registry's whole reload discipline exists to stop one class being registered twice.
+    # An activation nested inside another that named the same fixture must not undo that.
+    with_subscribers(FixtureDoor::AuditJob) do
+      with_subscribers(FixtureDoor::AuditJob) do
+        assert_equal [ FixtureDoor::AuditJob ], publish_fixture.accepted_subscribers
+      end
+    end
+  end
+
   test "several fixtures activate in one call" do
     with_subscribers(FixtureDoor::AuditJob, FixtureDoor::SecondJob) do
       assert_equal 2, publish_fixture.accepted_subscribers.length
