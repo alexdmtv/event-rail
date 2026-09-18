@@ -2,17 +2,19 @@
 
 [![CI](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml/badge.svg)](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml)
 
-EventRail gives a Rails module its second public interface.
+When a Rails application grows, the code that places an order ends up naming everything that should happen next: send the confirmation email, update the loyalty balance, notify the warehouse, write the analytics row. Each addition is another dependency in the one place that can least afford them.
 
-The first one is synchronous: call a method, get an answer. Ruby hands it to you for free, and it is a dependency -- the caller names the callee, and from then on the two are coupled. The second inverts it. A module announces a fact, and whoever cares subscribes. The dependency does not vanish -- a subscriber still names the event, which belongs to the module that publishes it -- but it points the other way and it is much narrower: a dependency on something that happened, not on how the other module works. What matters is the side that does not accumulate. A publisher that has to invoke every interested module directly learns a new name for each one; a publisher that announces a fact learns nothing. Rails ships no way to express it. `ActiveSupport::Notifications` is in-process and untyped, Active Record callbacks are the coupling you were trying to escape, and an event store asks you to adopt a storage model in order to send one message across a boundary.
+There are two ways for one part of an application to reach another. The synchronous one -- call a method, get an answer -- Ruby hands you for free, and it is the one above: the caller names the callee. The other inverts it. One part announces a fact, and whoever cares subscribes. The dependency does not vanish -- a subscriber still names the event, which belongs to the code that publishes it -- but it points the other way and it is much narrower: a dependency on something that happened, not on how the other side works. What matters is the side that accumulates. Code that invokes every interested party learns a new name for each one; code that announces a fact learns nothing.
 
-An EventRail event is an immutable, versioned value. Every subscriber is an ordinary Active Job that keeps its own queue, retry policy, and concurrency limits, and delivery goes through the queue adapter you already run. The publisher never names a subscriber. There is no transport, no registration API, and no runtime of its own.
+Rails ships no way to express the second. `ActiveSupport::Notifications` is in-process and untyped, Active Record callbacks are the coupling you were trying to escape, and an event store asks you to adopt a storage model in order to send one message across a boundary.
+
+EventRail is that second interface. An event is an immutable, versioned value. Every subscriber is an ordinary Active Job that keeps its own queue, retry policy, and concurrency limits, and delivery goes through the queue adapter you already run. The publisher never names a subscriber. There is no transport, no registration API, and no runtime of its own.
 
 EventRail is pre-1.0: the public API may change in a minor release, and every change is documented in the [CHANGELOG](CHANGELOG.md). Delivery semantics, safety limits, and the notification contract are settled and documented below.
 
 ## When to use EventRail
 
-EventRail is narrow on purpose: durable fanout across a module boundary, where each subscriber retries independently and the same fact keeps the same identity across every retry and every hop. Reaching for an event store to get that means adopting its storage model too -- entities as streams, state rebuilt from history -- a large commitment for what is, at the boundary, one message. If you want that commitment, or something else entirely, these fit better.
+EventRail is narrow on purpose: durable fanout across a boundary inside one application, where each subscriber retries independently and the same fact keeps the same identity across every retry and every hop. Reaching for an event store to get that means adopting its storage model too -- entities as streams, state rebuilt from history -- a large commitment for what is, at the boundary, one message. If you want that commitment, or something else entirely, these fit better.
 
 | If you need | Use | Because |
 | --- | --- | --- |
@@ -29,7 +31,7 @@ EventRail is narrow on purpose: durable fanout across a module boundary, where e
 - **Subscribers that are the jobs**, each keeping its own queue, retry policy, and concurrency limits instead of sharing one wrapper job's.
 - **Boot-time validation**: a wrong `perform` arity, a missing `EventRail::JobContext`, a late declaration -- each fails the boot that introduced it, not the first publication in production.
 - **A typed boundary**: a `Date`, a `BigDecimal`, a record, or a GlobalID is refused rather than serialized into something a worker cannot restore.
-- **Your module layout**: discovery matches a path suffix against the autoload roots Rails already has, covering engines and a packwerk-style `packs/billing/app/jobs` with no configuration.
+- **Your own layout**: discovery matches a path suffix against the autoload roots Rails already has, covering engines and a packwerk-style `packs/billing/app/jobs` with no configuration.
 - **No Active Record**, table, migration, or initializer.
 
 ### What it does not
