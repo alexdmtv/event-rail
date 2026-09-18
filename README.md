@@ -2,13 +2,17 @@
 
 [![CI](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml/badge.svg)](https://github.com/alexdmtv/event-rail/actions/workflows/ci.yml)
 
-EventRail is a Rails library for immutable domain events and durable fanout through ordinary Active Job subscribers. Subscribers are ordinary jobs that keep their own queue, retry, and concurrency configuration, and delivery goes through the queue adapter you already run. There is no transport, no registration API, and no runtime of its own.
+EventRail gives a Rails module its second public interface.
+
+The first one is synchronous: call a method, get an answer. Ruby hands it to you for free, and it is a dependency -- the caller names the callee, and from then on the two are coupled. The second inverts that. A module announces a fact, and whoever cares subscribes; neither one names the other. Rails ships no way to express it. `ActiveSupport::Notifications` is in-process and untyped, Active Record callbacks are the coupling you were trying to escape, and an event store asks you to adopt a storage model in order to send one message across a boundary.
+
+An EventRail event is an immutable, versioned value. Every subscriber is an ordinary Active Job that keeps its own queue, retry policy, and concurrency limits, and delivery goes through the queue adapter you already run. The publisher never names a subscriber. There is no transport, no registration API, and no runtime of its own.
 
 EventRail is pre-1.0: the public API may change in a minor release, and every change is documented in the [CHANGELOG](CHANGELOG.md). Delivery semantics, safety limits, and the notification contract are settled and documented below.
 
 ## When to use EventRail
 
-EventRail occupies a narrow position: durable fanout to background jobs, where each subscriber retries independently and the same logical fact keeps the same identity across every retry and every hop. If that is not the problem you have, something else is a better fit.
+EventRail is narrow on purpose: durable fanout across a module boundary, where each subscriber retries independently and the same logical fact keeps the same identity across every retry and every hop. Reaching for an event store to get that means adopting its storage model too -- entities as streams, state rebuilt from history -- which is a large commitment for what is, at the boundary, one message. If you want that commitment, or you want something else entirely, these fit better.
 
 | If you need | Use | Because |
 | --- | --- | --- |
@@ -25,13 +29,14 @@ EventRail occupies a narrow position: durable fanout to background jobs, where e
 - **Subscribers are the jobs.** Each keeps its own queue, retry policy, and concurrency limits, because each is an ordinary Active Job class. A gem that wraps subscribers in one shared job gives every subscriber one queue and one retry policy.
 - **Mistakes surface at boot.** A wrong `perform` arity, a missing `EventRail::JobContext`, a subclassed subscriber, a declaration arriving after preparation -- each fails the boot that introduced it rather than the first publication in production.
 - **Nothing untyped reaches the queue.** A `Date`, a `BigDecimal`, a record, or a GlobalID is refused at the boundary rather than serialized into something a worker cannot restore.
+- **Subscribers live where your modules live.** A discovery root is matched as a path suffix against the autoload roots Rails already has, so one default covers the host application, every engine, and a packwerk-style `packs/billing/app/jobs` without naming any of them.
 - **No Active Record, no table, no migration, no initializer.**
 
 ### What EventRail deliberately does not do
 
 - **No event log.** No history, no replay, no read-model rebuild, no browser UI.
 - **No synchronous handlers.** Every subscriber crosses the queue.
-- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes. A process that dies between the two loses the event with no record that it was owed. Publishing from a job makes this recoverable, because the retry re-runs the transition and republishes under the same identity -- see [Replay-safe publishers](#replay-safe-publishers) -- but publishing from a controller action has no such guarantee. A store that writes the event in the same transaction as the state does not have this gap; that is the cost of not being one.
+- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes. A process that dies between the two loses the event with no record that it was owed. Publishing from a job makes this recoverable, because the retry re-runs the transition and republishes under the same identity -- see [Replay-safe publishers](#replay-safe-publishers) -- but publishing from a controller action has no such guarantee. A store that writes the event in the same transaction as the state does not have this gap; that is the cost of not being one. EventRail does make an application's own outbox sound, though: a sweeper that republishes an unfinished intent is only correct if republication is idempotent, and republishing the same intent derives the same event identity.
 - **Discovery is conventional, and the convention is enforced.** A subscriber outside a [discovery root](#where-discovery-looks) fails the boot rather than being quietly ignored. That is a deliberate trade: a silent delivery bug becomes a loud startup error, at the price of a layout rule the application has to follow.
 
 ## Requirements
