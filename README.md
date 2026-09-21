@@ -37,7 +37,7 @@ EventRail is narrow on purpose: durable fanout across a boundary inside one appl
 ### What it does not do
 
 - **No event log and no synchronous handlers.** No history, replay, read-model rebuild, or browser UI, and every subscriber crosses the queue.
-- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)); from a controller action there is no such guarantee. Retry-stable identity is also what makes an application's own sweeper safe to build, since republishing the same intent derives the same event.
+- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)); from a controller action there is no such guarantee. An application that wants recovery beyond that can record an intent and republish it from a sweeper, but a republication from a different job derives a different event ID, so the intent's own key belongs in the payload for consumers to deduplicate on.
 - **Discovery is enforced, not advisory.** A subscriber outside a [discovery root](#where-discovery-looks) fails the boot rather than being quietly ignored: a silent delivery bug traded for a loud startup error, at the price of a layout rule.
 
 ## Requirements
