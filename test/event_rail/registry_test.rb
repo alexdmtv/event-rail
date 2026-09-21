@@ -21,6 +21,24 @@ Registry.reopen do
       attribute :order_id, :string
     end
 
+    # Declares neither half of the contract: an application's own abstract event base.
+    class AbstractBase < EventRail::Event
+      default_source "tests"
+
+      attribute :order_id, :string
+    end
+
+    # What a subscriber must name instead: the concrete class under the base.
+    class ConcretePlaced < AbstractBase
+      event_type "tests.registry_concrete_placed"
+      version 1
+    end
+
+    # A leaf under a concrete event that declares nothing of its own. Neither event_type
+    # nor version is inherited, so it is as unpublishable as the abstract base above.
+    class LeafWithoutContract < Placed
+    end
+
     class Base < ActiveJob::Base
       include EventRail::JobContext
     end
@@ -93,6 +111,12 @@ Registry.reopen do
       end
     end
 
+    class OnConcretePlaced < Base
+      def perform(event)
+        event
+      end
+    end
+
     class SplatPerform < Base
       def perform(*events)
         events
@@ -123,6 +147,8 @@ EventRail::TestHelper.declare do
     RegistryFixtures::KeywordPerform,
     RegistryFixtures::WithoutJobContext
   ].each { |job_class| job_class.subscribes_to RegistryFixtures::Placed }
+
+  RegistryFixtures::OnConcretePlaced.subscribes_to RegistryFixtures::ConcretePlaced
 end
 
 class RegistryTest < ActiveSupport::TestCase
@@ -247,6 +273,93 @@ class RegistryTest < ActiveSupport::TestCase
     # pending list and fail every rebuild for the rest of the process.
     assert Registry.prepare, "a rejected declaration must not poison later rebuilds"
     assert_includes Registry.snapshot.subscribers_for(RegistryFixtures::Placed), RegistryFixtures::OnPlaced
+  end
+
+  test "a subscription to an event class without a contract is rejected at the declaration" do
+    # Named through const_set rather than `def self.name`, because the message interpolates
+    # the class itself and `to_s` on a renamed anonymous class still reports the anonymous
+    # form. No `reopen` is needed: the rejection precedes the call that seals would refuse.
+    RegistryFixtures.const_set(:SubscribesToAbstract, Class.new(RegistryFixtures::Base) do
+      def perform(event)
+        event
+      end
+    end)
+
+    error = assert_raises(EventRail::DeclarationError) do
+      RegistryFixtures::SubscribesToAbstract.subscribes_to RegistryFixtures::AbstractBase
+    end
+
+    assert_match(/RegistryFixtures::SubscribesToAbstract/, error.message)
+    assert_match(/RegistryFixtures::AbstractBase/, error.message)
+    assert_match(/declares neither event_type nor version/, error.message)
+
+    # The same point the unnameable rule makes: nothing was recorded, so the registry is
+    # still usable rather than failing every rebuild for the rest of the process. The
+    # subscription list is what discriminates: without the rejection the macro appends to it
+    # and only the sealed registry stops the declaration, one step further on.
+    refute_predicate RegistryFixtures::SubscribesToAbstract, :event_rail_subscriber?
+    assert Registry.prepare, "a rejected declaration must not poison later rebuilds"
+    assert_includes Registry.snapshot.subscribers_for(RegistryFixtures::Placed), RegistryFixtures::OnPlaced
+  ensure
+    RegistryFixtures.send(:remove_const, :SubscribesToAbstract)
+  end
+
+  test "a subscription to a subclass that declares no contract of its own is rejected too" do
+    RegistryFixtures.const_set(:SubscribesToLeaf, Class.new(RegistryFixtures::Base) do
+      def perform(event)
+        event
+      end
+    end)
+
+    error = assert_raises(EventRail::DeclarationError) do
+      RegistryFixtures::SubscribesToLeaf.subscribes_to RegistryFixtures::LeafWithoutContract
+    end
+
+    assert_match(/RegistryFixtures::LeafWithoutContract/, error.message)
+    assert_match(/Neither declaration is inherited/, error.message)
+    refute_predicate RegistryFixtures::SubscribesToLeaf, :event_rail_subscriber?
+  ensure
+    RegistryFixtures.send(:remove_const, :SubscribesToLeaf)
+  end
+
+  test "a subscription to a concrete subclass of an abstract base is accepted and delivers" do
+    with_subscribers(RegistryFixtures::OnConcretePlaced) do
+      publication = EventRail.publish(RegistryFixtures::ConcretePlaced.new(order_id: "o-1"))
+
+      assert_enqueued_with job: RegistryFixtures::OnConcretePlaced, args: [ publication.event ]
+    end
+  end
+
+  test "a half-declared contract is reported through the event class, not its subscriber" do
+    # event_type is declared while the class is still anonymous, so `declare_contract`
+    # returns early on the nil name rather than refusing the declaration against the sealed
+    # registry. Both constants are removed afterwards: a named half-declared class cannot be
+    # unloaded, and `live?` is the only thing that keeps it out of every later rebuild.
+    RegistryFixtures.const_set(:HalfDeclared, Class.new(RegistryFixtures::AbstractBase) do
+      event_type "tests.registry_half_declared"
+    end)
+    RegistryFixtures.const_set(:OnHalfDeclared, Class.new(RegistryFixtures::Base) do
+      def perform(event)
+        event
+      end
+    end)
+
+    Registry.reopen do
+      RegistryFixtures::OnHalfDeclared.subscribes_to RegistryFixtures::HalfDeclared
+    end
+
+    error = assert_raises(EventRail::InvalidContract) { Registry.prepare }
+
+    assert_match(/RegistryFixtures::HalfDeclared/, error.message)
+    assert_match(/must explicitly declare event_type and version/, error.message)
+  ensure
+    # Guarded and half-declared first: if the second const_set had raised, an unguarded
+    # removal would abort this block and leave the half-declared class named and live, which
+    # is the process-wide poisoning the comment above describes.
+    [ :HalfDeclared, :OnHalfDeclared ].each do |name|
+      RegistryFixtures.send(:remove_const, name) if RegistryFixtures.const_defined?(name, false)
+    end
+    Registry.prepare
   end
 
   test "an argument error still wins over the missing name" do

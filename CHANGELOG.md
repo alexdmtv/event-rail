@@ -13,6 +13,19 @@ here unless a release changes how they behave.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-21
+
+### Changed
+
+- **`subscribes_to` now raises `EventRail::DeclarationError` when the event class it names
+  declares neither `event_type` nor `version`**, at the declaration itself. Previously such
+  a subscription was accepted and then never fired: publication matches subscribers by exact
+  event class, so a concrete subclass never reached the base's registration, and the class
+  without a contract could not be constructed to be published on its own. Because neither
+  declaration is inherited, this covers a shared abstract base such as `ApplicationEvent`
+  and equally a subclass of a concrete event that adds nothing of its own. Subscribe to each
+  concrete event class instead.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added
@@ -87,6 +100,7 @@ here unless a release changes how they behave.
 - A typed error hierarchy rooted at `EventRail::Error`, distinguishing declaration,
   casting, context, serialization, and publication failures.
 
-[Unreleased]: https://github.com/alexdmtv/event-rail/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/alexdmtv/event-rail/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/alexdmtv/event-rail/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alexdmtv/event-rail/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/alexdmtv/event-rail/releases/tag/v0.1.0
