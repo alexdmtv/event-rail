@@ -40,9 +40,9 @@ class OrderLifecycleTest < FlowTestCase
   end
 
   test "a checkout whose follow-up was never scheduled is resumed by the customer's retry" do
-    Orders::FollowUpJob.define_singleton_method(:perform_later_as) { |*| raise "queue unavailable" }
+    queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
     assert_raises(RuntimeError) { checkout }
-    Orders::FollowUpJob.singleton_class.remove_method(:perform_later_as)
+    queue_adapter.singleton_class.remove_method(:enqueue)
 
     order, published = place_and_settle
 

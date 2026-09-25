@@ -49,7 +49,7 @@ class CancellationFlowTest < FlowTestCase
 
     published = travel(31.minutes) do
       record_publications do
-        Orders::ExpireAbandonedOrdersJob.perform_now
+        Orders::Api.expire_abandoned_orders
         work_off_queue
       end
     end
