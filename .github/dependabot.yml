@@ -15,6 +15,16 @@ updates:
       - dependency-name: minitest
         versions: [ ">= 6" ]
 
+  # The example application has its own bundle. Its lockfile is committed, as an
+  # application's is, and the example job catches a bump that breaks it.
+  - package-ecosystem: bundler
+    directory: "/examples/shop"
+    schedule:
+      interval: weekly
+    groups:
+      example-dependencies:
+        patterns: [ "*" ]
+
   # gemfiles/ is deliberately unmanaged. Dependabot's bundler ecosystem only recognises a
   # file named Gemfile or gems.rb, and that directory holds adapters.gemfile, so an entry
   # for it fails every run with "No files found in /gemfiles". Leaving it out is also the

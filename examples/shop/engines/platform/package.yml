@@ -1,0 +1,5 @@
+# The bottom layer. Everything in it is available to every module: it holds only base
+# classes and demonstration settings, so it enforces no privacy of its own.
+enforce_dependencies: true
+enforce_privacy: false
+dependencies: []
