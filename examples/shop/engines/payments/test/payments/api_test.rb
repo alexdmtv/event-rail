@@ -122,5 +122,15 @@ module Payments
 
       assert_equal [ "payments.refund_failed" ], published.map(&:event_type)
     end
+
+    test "payments are looked up for many references at once" do
+      authorize("ref-1")
+      authorize("ref-2")
+
+      payments = Api.payments(%w[ ref-1 ref-2 ref-3 ])
+
+      assert_equal %w[ ref-1 ref-2 ], payments.keys.sort
+      assert_equal "authorized", payments["ref-2"].state
+    end
   end
 end

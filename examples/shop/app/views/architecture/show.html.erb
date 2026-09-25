@@ -1,0 +1,54 @@
+<% content_for :title, "Architecture" %>
+<% content_for :live, true %>
+
+<section class="intro">
+  <h1>Architecture</h1>
+  <p>The module graph below is read from the <code>package.yml</code> files packwerk enforces in CI. Solid arrows are
+    method calls a module may make; dashed arrows are dependencies on another module's published events only.
+    Calls point one way -- down -- and packwerk rejects a cycle. Every module builds on Platform, drawn as the foundation
+    rather than as an arrow from each; the console you are looking at is the host application, depends on every module,
+    and is left out.</p>
+</section>
+
+<section class="card">
+  <svg class="graph" viewBox="0 0 <%= PackageGraph::WIDTH %> <%= @graph.height %>" role="img" aria-label="Module dependency graph">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" class="arrowhead"></path>
+      </marker>
+    </defs>
+    <% @graph.edges.each do |edge| %>
+      <% from, to = @graph.node(edge.from), @graph.node(edge.to) %>
+      <% next unless from && to %>
+      <line x1="<%= from.x + from.width / 2 %>" y1="<%= from.y + PackageGraph::NODE_HEIGHT %>"
+            x2="<%= to.x + to.width / 2 %>" y2="<%= to.y %>"
+            class="edge <%= "events" if edge.events_only %>" data-edge="<%= edge.from %>-><%= edge.to %>" marker-end="url(#arrow)"></line>
+    <% end %>
+    <% @graph.nodes.each do |node| %>
+      <g class="node <%= module_class(node.name) %>">
+        <rect x="<%= node.x %>" y="<%= node.y %>" width="<%= node.width %>" height="<%= PackageGraph::NODE_HEIGHT %>" rx="8"></rect>
+        <text x="<%= node.x + node.width / 2 %>" y="<%= node.y + 25 %>"><%= node.name %></text>
+      </g>
+    <% end %>
+  </svg>
+</section>
+
+<section class="card">
+  <header><h2>Event map</h2><span class="muted small">observed from recorded traffic -- EventRail keeps no registry to query</span></header>
+  <% if @wiring.empty? %>
+    <p class="empty">Nothing observed yet. Start the simulator and come back.</p>
+  <% else %>
+    <table>
+      <thead><tr><th>Event</th><th>Published by</th><th>Heard by</th></tr></thead>
+      <tbody>
+        <% @wiring.each do |wiring| %>
+          <tr>
+            <td><%= event_label(wiring.event_type) %></td>
+            <td><%= safe_join(wiring.publishers.map { |source| module_badge(source.delete_prefix("shop.").camelize) }, " ") %></td>
+            <td><%= safe_join(wiring.subscribers.map { |job| tag.span(module_badge(module_of(job)) + " " + tag.code(job.demodulize), class: "subscriber") }, " ") %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+</section>

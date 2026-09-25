@@ -113,8 +113,8 @@ jobs:
       - run: bin/rails db:prepare
         env:
           RAILS_ENV: test
+      # Every test, the console's system tests included: `test` covers test/system.
       - run: bin/rails test test engines/*/test
-      - run: bin/rails test:system
       - run: bin/packwerk validate
       - run: bin/packwerk check
 

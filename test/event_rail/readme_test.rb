@@ -36,6 +36,13 @@ class ReadmeTest < ActiveSupport::TestCase
     Registry.prepare
   end
 
+  test "every relative link in the README points to a file in the repository" do
+    links = File.read(README).scan(/\]\(([^)#]+)(?:#[^)]*)?\)/).flatten.reject { |target| target.match?(%r{\A[a-z]+:}) }
+
+    assert_includes links, "examples/shop/README.md"
+    links.each { |target| assert File.exist?(File.expand_path(target, File.dirname(README))), "README links to missing #{target}" }
+  end
+
   test "the documented limits table matches the constants" do
     table = File.read(README)[/## Fixed safety limits.*?\n\n(\|.*?)\n\n/m, 1]
 

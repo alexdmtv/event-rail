@@ -37,5 +37,14 @@ module Fulfillment
 
       assert_equal [ "fulfillment.return_received" ], published.map(&:event_type).uniq
     end
+
+    test "shipments are looked up for many references at once" do
+      request_shipment
+
+      shipments = Api.shipments(%w[ ref-1 ref-2 ])
+
+      assert_equal [ "ref-1" ], shipments.keys
+      assert_equal "requested", shipments["ref-1"].state
+    end
   end
 end

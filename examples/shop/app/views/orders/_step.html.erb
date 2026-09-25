@@ -1,0 +1,28 @@
+<li class="step <%= step.event? ? "event" : "job" %> <%= module_class(step.module_name) %>" id="step-<%= step.id.parameterize %>">
+  <div class="step-line">
+    <%= module_badge(step.module_name) %>
+    <% if step.event? %>
+      <span class="kind">published</span> <%= event_label(step.name, step.version) %>
+    <% else %>
+      <span class="kind">ran</span> <code><%= step.name %></code>
+      <% if step.outcome.present? && !step.outcome.in?(%w[ enqueued ]) %><%= state_pill(step.outcome) %><% end %>
+      <% step.attempts.each do |attempt| %>
+        <span class="attempt <%= attempt.outcome %>" title="<%= [ attempt.error_class, attempt.error_message ].compact.join(": ") %>">
+          <%= attempt.outcome == "failed" ? "✕" : "✓" %> <%= attempt.number %><% if attempt.duration_ms %> · <%= attempt.duration_ms %> ms<% end %>
+        </span>
+      <% end %>
+      <% if step.attempts.empty? %><span class="muted small">queued</span><% end %>
+    <% end %>
+    <span class="muted small"><%= step.created_at.strftime("%H:%M:%S") %></span>
+  </div>
+  <% if (failures = step.attempts.select { |attempt| attempt.outcome == "failed" }).any? %>
+    <ul class="errors">
+      <% failures.each do |attempt| %>
+        <li>attempt <%= attempt.number %>: <code><%= attempt.error_class %></code> <%= attempt.error_message %></li>
+      <% end %>
+    </ul>
+  <% end %>
+  <% if step.children.any? %>
+    <ol class="tree"><%= render partial: "orders/step", collection: step.children %></ol>
+  <% end %>
+</li>

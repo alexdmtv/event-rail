@@ -1,9 +1,15 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
+  # With the simulator on, the debug log grows by megabytes a minute; RAILS_LOG_LEVEL=info quiets it.
+  config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "debug")
+
   # Jobs run in Solid Queue, in their own database, inside the Puma process that bin/dev starts.
   config.active_job.queue_adapter = :solid_queue
   config.solid_queue.connects_to = { database: { writing: :queue } }
+  # The job dashboard at /jobs is open on a developer's machine. Mission Control asks for
+  # HTTP basic credentials everywhere else.
+  config.mission_control.jobs.http_basic_auth_enabled = false
 
   # Settings specified here will take precedence over those in config/application.rb.
 

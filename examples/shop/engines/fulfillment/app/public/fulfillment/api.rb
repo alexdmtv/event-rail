@@ -32,9 +32,17 @@ module Fulfillment
 
       def shipment(reference)
         shipment = Fulfillment::Shipment.find_by(reference: reference)
-        shipment && Shipment.new(reference: shipment.reference, state: shipment.state, tracking_code: shipment.tracking_code,
-          dispatched_at: shipment.dispatched_at, delivered_at: shipment.delivered_at)
+        shipment && shipment_value(shipment)
       end
+
+      # The shipments for many references at once, by reference.
+      def shipments(references) = Fulfillment::Shipment.where(reference: references).to_h { |shipment| [ shipment.reference, shipment_value(shipment) ] }
+
+      private
+        def shipment_value(shipment)
+          Shipment.new(reference: shipment.reference, state: shipment.state, tracking_code: shipment.tracking_code,
+            dispatched_at: shipment.dispatched_at, delivered_at: shipment.delivered_at)
+        end
     end
   end
 end

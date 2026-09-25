@@ -3,6 +3,7 @@ module Orders
   # Every method is synchronous; what happens next arrives as Orders::Events.
   module Api
     CURRENCY = "EUR"
+    STATES = Orders::Order::STATES
 
     # A snapshot of the customer, kept on the order. The shop has no customer module; the
     # caller supplies who is buying.
@@ -55,6 +56,13 @@ module Orders
 
       def order(id)
         order = Orders::Order.includes(:line_items).find_by(id: id)
+        order && value(order)
+      end
+
+      # The order whose flow a correlation belongs to: every event of an order's flow carries
+      # the correlation its checkout opened.
+      def order_for_correlation(correlation_id)
+        order = Orders::Order.includes(:line_items).find_by(correlation_id: correlation_id)
         order && value(order)
       end
 

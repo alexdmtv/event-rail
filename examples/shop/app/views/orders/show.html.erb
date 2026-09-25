@@ -1,0 +1,49 @@
+<% content_for :title, "Order ##{@order.id}" %>
+<% content_for :live, true %>
+
+<section class="intro">
+  <h1>Order #<%= @order.id %> <%= state_pill(@order.state) %></h1>
+  <p><%= @order.customer_name %> · <%= money(@order.total_cents, @order.currency) %> ·
+    <%= @order.lines.map { |line| "#{line.quantity} × #{line.name}" }.to_sentence %></p>
+  <p class="muted small">Correlation <code><%= @order.correlation_id %></code>
+    <% if @order.cancel_reason %> · cancelled: <%= @order.cancel_reason %><% end %>
+    <% if @order.attention_reason %> · <strong>needs attention:</strong> <%= @order.attention_reason %><% end %></p>
+  <div class="actions">
+    <% if @order.cancellable? %>
+      <%= button_to "Cancel order", cancel_order_path(@order.id), class: "button" %>
+    <% end %>
+    <% if @order.returnable? %>
+      <%= button_to "Request a return", return_order_path(@order.id), class: "button" %>
+    <% end %>
+  </div>
+</section>
+
+<div class="grid-4">
+  <div class="card mini"><h3 class="<%= module_class("Orders") %>">Orders</h3><%= state_pill(@order.state) %></div>
+  <div class="card mini"><h3 class="<%= module_class("Payments") %>">Payments</h3><%= state_pill(@payment&.state) %></div>
+  <div class="card mini"><h3 class="<%= module_class("Fulfillment") %>">Fulfillment</h3><%= state_pill(@shipment&.state) %>
+    <% if @shipment&.tracking_code %><span class="muted small"><%= @shipment.tracking_code %></span><% end %></div>
+  <div class="card mini"><h3 class="<%= module_class("Loyalty") %>">Loyalty</h3><strong><%= @points %></strong> <span class="muted small">points</span></div>
+</div>
+
+<section class="card">
+  <header><h2>Flow</h2><span class="muted small">every event and job this order caused, each under its cause</span></header>
+  <% if @flow.empty? %>
+    <p class="empty">Nothing recorded for this order yet.</p>
+  <% else %>
+    <ol class="tree"><%= render partial: "orders/step", collection: @flow %></ol>
+  <% end %>
+</section>
+
+<section class="card">
+  <header><h2 class="<%= module_class("Notifications") %>">Notifications</h2><span class="muted small">recorded, not emailed</span></header>
+  <% if @notifications.empty? %>
+    <p class="empty">None yet.</p>
+  <% else %>
+    <ul class="notifications">
+      <% @notifications.each do |notification| %>
+        <li><strong><%= notification.subject %></strong> <span class="muted small"><%= ago(notification.created_at) %></span><br><%= notification.body %></li>
+      <% end %>
+    </ul>
+  <% end %>
+</section>

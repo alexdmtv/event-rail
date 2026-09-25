@@ -1,0 +1,79 @@
+<% content_for :title, "Console" %>
+<% content_for :live, true %>
+
+<section class="intro">
+  <h1>A shop, running</h1>
+  <p>Six business modules, each a Rails engine, talking through method calls where an answer is needed now and through
+    EventRail events where it is not. Start the simulator, break something, and follow an order.</p>
+</section>
+
+<div class="grid-2">
+  <section class="card" id="simulator">
+    <header>
+      <h2>Simulator</h2>
+      <%= state_pill(@simulation.running ? "running" : "stopped") %>
+    </header>
+    <p class="muted">Simulated customers check out, cancel and return through Orders' public API, like any client.</p>
+    <div class="actions">
+      <%= button_to (@simulation.running ? "Stop" : "Start"), simulation_path, method: :patch,
+            params: { command: @simulation.running ? "stop" : "start" }, class: (@simulation.running ? "button" : "button primary") %>
+    </div>
+    <%= form_with url: simulation_path, method: :patch, class: "settings" do |form| %>
+      <label>Orders per minute <%= form.number_field :orders_per_minute, value: @simulation.orders_per_minute, min: 0, max: 120 %></label>
+      <label>Cancel rate % <%= form.number_field :cancel_rate, value: percent(@simulation.cancel_rate), min: 0, max: 100 %></label>
+      <label>Return rate % <%= form.number_field :return_rate, value: percent(@simulation.return_rate), min: 0, max: 100 %></label>
+      <%= form.submit "Apply", class: "button" %>
+    <% end %>
+    <dl class="stats">
+      <div><dt>Simulated checkouts</dt><dd><%= @simulation.placed_count %></dd></div>
+      <div><dt>Rejected at checkout</dt><dd><%= @simulation.rejected_count %></dd></div>
+      <% Orders::Api::STATES.each do |state| %>
+        <div><dt><%= state.humanize %></dt><dd><%= @counts.fetch(state, 0) %></dd></div>
+      <% end %>
+    </dl>
+    <% if @simulation.last_rejection %>
+      <p class="muted small">Last rejection: <%= @simulation.last_rejection %></p>
+    <% end %>
+  </section>
+
+  <section class="card" id="faults">
+    <header><h2>Faults</h2><span class="muted small">demonstration only</span></header>
+    <%= form_with url: faults_path, method: :patch, class: "settings" do |form| %>
+      <label>Card declined at checkout % <%= form.number_field :authorization_decline_rate, value: percent(@faults.authorization_decline_rate), min: 0, max: 100 %></label>
+      <label>Capture refused % <%= form.number_field :capture_refusal_rate, value: percent(@faults.capture_refusal_rate), min: 0, max: 100 %></label>
+      <label>Refund refused % <%= form.number_field :refund_refusal_rate, value: percent(@faults.refund_refusal_rate), min: 0, max: 100 %></label>
+      <label>Payment provider times out % <%= form.number_field :temporary_failure_rate, value: percent(@faults.temporary_failure_rate), min: 0, max: 100 %></label>
+      <label>Carrier delay, seconds <%= form.number_field :carrier_delay_seconds, value: @faults.carrier_delay_seconds, min: 0, max: 600 %></label>
+      <%= form.submit "Apply", class: "button" %>
+    <% end %>
+    <%= form_with url: faults_path, method: :patch, class: "settings inline" do |form| %>
+      <label>Make <%= form.select :job_class, @forceable_jobs, {}, class: "wide" %></label>
+      <label>fail its next <%= form.number_field :count, value: 3, min: 1, max: 50 %> runs</label>
+      <%= form.submit "Break it", class: "button danger" %>
+    <% end %>
+    <% if @faults.forced_failures.any? { |_, count| count.positive? } %>
+      <ul class="forced">
+        <% @faults.forced_failures.select { |_, count| count.positive? }.each do |job, count| %>
+          <li><%= module_badge(module_of(job)) %> <code><%= job %></code> fails <%= count %> more <%= "run".pluralize(count) %></li>
+        <% end %>
+      </ul>
+    <% end %>
+  </section>
+</div>
+
+<section class="card" id="feed">
+  <header><h2>Live feed</h2><span class="muted small">the latest events published, newest first</span></header>
+  <% if @feed.empty? %>
+    <p class="empty">Nothing published yet. Start the simulator, or <%= link_to "place an order", new_order_path %>.</p>
+  <% else %>
+    <ol class="feed">
+      <% @feed.each do |publication| %>
+        <li id="<%= dom_id_for(publication) %>">
+          <%= module_badge(publication.module_name) %>
+          <%= link_to event_label(publication.event_type, publication.version), flow_path(publication.correlation_id) %>
+          <span class="muted small"><%= ago(publication.created_at) %></span>
+        </li>
+      <% end %>
+    </ol>
+  <% end %>
+</section>
