@@ -10,20 +10,20 @@ module Simulation
       @settings = settings
     end
 
+    # Cancellations and returns keep pace with orders: at a cancel rate of 10 percent, one
+    # cancellation for every ten orders placed, aimed at a recent order that has not shipped.
     def tick
-      orders_this_second.times { place_an_order }
-      cancel_an_order if rand < @settings.cancel_rate / 10
-      return_an_order if rand < @settings.return_rate / 10
+      per_second = @settings.orders_per_minute / 60.0
+      occurrences(per_second).times { place_an_order }
+      occurrences(per_second * @settings.cancel_rate).times { cancel_an_order }
+      occurrences(per_second * @settings.return_rate).times { return_an_order }
       restock_low_shelves
     end
 
     private
       # A rate of 20 a minute is a third of an order a second: always the whole part, and the
       # fraction by chance.
-      def orders_this_second
-        per_second = @settings.orders_per_minute / 60.0
-        per_second.floor + (rand < per_second % 1 ? 1 : 0)
-      end
+      def occurrences(per_second) = per_second.floor + (rand < per_second % 1 ? 1 : 0)
 
       def place_an_order
         customer = Customer.order("RANDOM()").first or return
