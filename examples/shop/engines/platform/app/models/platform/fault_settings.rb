@@ -25,6 +25,9 @@ module Platform
       settings.update!(forced_failures: settings.forced_failures.merge(job_class.to_s => Integer(count)))
     end
 
+    # A cheap read first, so that jobs nobody asked to fail never take a write lock.
+    def self.forced_failures_pending?(job_class) = current.forced_failures.fetch(job_class.to_s, 0).positive?
+
     # Consumes one forced failure for the named job, atomically, and says whether it had one.
     def self.consume_forced_failure(job_class)
       transaction do
