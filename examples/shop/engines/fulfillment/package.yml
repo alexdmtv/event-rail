@@ -1,0 +1,5 @@
+enforce_dependencies: true
+enforce_privacy: true
+dependencies:
+  - engines/platform
+  - engines/fulfillment/app/public/fulfillment/events

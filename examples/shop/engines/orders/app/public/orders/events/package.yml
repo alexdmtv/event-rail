@@ -1,0 +1,5 @@
+# Orders' published events: the only part of Orders a module that merely reacts to it
+# needs. It depends on nothing, so an event can never reach into Orders' internals, and
+# depending on it grants those events and nothing else.
+enforce_dependencies: true
+dependencies: []

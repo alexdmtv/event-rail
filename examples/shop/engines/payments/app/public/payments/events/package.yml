@@ -1,0 +1,5 @@
+# Payments' published events: the only part of Payments a module that merely reacts to it
+# needs. It depends on nothing, so an event can never reach into Payments' internals, and
+# depending on it grants those events and nothing else.
+enforce_dependencies: true
+dependencies: []

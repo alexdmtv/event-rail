@@ -4,3 +4,8 @@ enforce_dependencies: true
 dependencies:
   - engines/platform
   - engines/catalog
+  - engines/payments
+  - engines/fulfillment
+  - engines/orders
+  - engines/notifications
+  - engines/loyalty
