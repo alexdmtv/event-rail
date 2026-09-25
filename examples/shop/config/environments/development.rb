@@ -1,8 +1,11 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
-  # With the simulator on, the debug log grows by megabytes a minute; RAILS_LOG_LEVEL=info quiets it.
-  config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "debug")
+  # Jobs run all the time here -- the simulator's tick every second, even while it is off -- so
+  # the terminal shows requests at info level and jobs log to log/jobs.log. The console and
+  # /jobs are the places to watch jobs; RAILS_LOG_LEVEL=debug brings back every SQL query.
+  config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
+  config.active_job.logger = ActiveSupport::TaggedLogging.logger(Rails.root.join("log/jobs.log"))
 
   # Jobs run in Solid Queue, in their own database, inside the Puma process that bin/dev starts.
   config.active_job.queue_adapter = :solid_queue
