@@ -1,0 +1,10 @@
+enforce_dependencies: true
+enforce_privacy: true
+dependencies:
+  - engines/platform
+  - engines/catalog
+  - engines/payments
+  - engines/payments/app/public/payments/events
+  - engines/fulfillment
+  - engines/fulfillment/app/public/fulfillment/events
+  - engines/orders/app/public/orders/events

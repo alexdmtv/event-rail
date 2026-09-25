@@ -1,0 +1,7 @@
+# Depends on Orders' published events and nothing else of Orders: it can hear orders, and
+# cannot call Orders' API or read its tables.
+enforce_dependencies: true
+enforce_privacy: true
+dependencies:
+  - engines/platform
+  - engines/orders/app/public/orders/events

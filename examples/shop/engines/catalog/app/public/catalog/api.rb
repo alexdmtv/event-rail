@@ -3,7 +3,7 @@ module Catalog
   # continue without the answer: checkout must know the price and whether the stock exists
   # before it can accept an order. Results are plain values, never records.
   module Api
-    Product = Data.define(:sku, :name, :price_cents, :available)
+    Product = Data.define(:sku, :name, :price_cents, :on_hand, :available)
     Line = Data.define(:sku, :name, :quantity, :unit_price_cents) do
       def total_cents = quantity * unit_price_cents
     end
@@ -28,6 +28,11 @@ module Catalog
       end
 
       def product(sku) = product_value(find!(sku))
+
+      # Adds a product to the catalog with its opening stock.
+      def add_product(sku:, name:, price_cents:, on_hand:)
+        product_value(Catalog::Product.create!(sku: sku, name: name, price_cents: price_cents, on_hand: on_hand))
+      end
 
       # items: { "sku" => quantity }
       def quote(items)
@@ -85,7 +90,7 @@ module Catalog
         def find!(sku) = Catalog::Product.find_by(sku: sku) || raise(UnknownProduct, "unknown product #{sku}")
 
         def product_value(product)
-          Product.new(sku: product.sku, name: product.name, price_cents: product.price_cents, available: product.available)
+          Product.new(sku: product.sku, name: product.name, price_cents: product.price_cents, on_hand: product.on_hand, available: product.available)
         end
     end
   end

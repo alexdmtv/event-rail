@@ -22,6 +22,11 @@ Bundler.require(*Rails.groups)
 # on, so it can boot on its own for its generators.
 require_relative "../engines/platform/lib/platform/engine"
 require_relative "../engines/catalog/lib/catalog/engine"
+require_relative "../engines/payments/lib/payments/engine"
+require_relative "../engines/fulfillment/lib/fulfillment/engine"
+require_relative "../engines/orders/lib/orders/engine"
+require_relative "../engines/notifications/lib/notifications/engine"
+require_relative "../engines/loyalty/lib/loyalty/engine"
 
 module Shop
   class Application < Rails::Application
