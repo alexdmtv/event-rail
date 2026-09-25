@@ -55,5 +55,26 @@ module Simulation
       assert_equal 2, Api.state.rejected_count
       assert_match(/declined/, Api.state.last_rejection)
     end
+
+    test "cancellations keep pace with orders at the cancel rate" do
+      Api.configure(orders_per_minute: 120, cancel_rate: 1.0, return_rate: 0)
+      Api.start
+
+      Api.tick
+
+      assert_equal %w[ cancelled cancelled ], Orders::Api.recent.map(&:state)
+    end
+
+    test "returns keep pace with orders at the return rate" do
+      Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
+      Orders::Api.checkout(customer: Customer.sole.snapshot, items: { "MUG" => 1 }, key: "delivered-earlier")
+      work_off_queue
+      Api.configure(orders_per_minute: 60, cancel_rate: 0, return_rate: 1.0)
+      Api.start
+
+      Api.tick
+
+      assert_equal "awaiting_return", Orders::Api.recent.find { |order| order.reference == "delivered-earlier" }.state
+    end
   end
 end
