@@ -1,0 +1,43 @@
+<% content_for :title, "Orders" %>
+<% content_for :live, true %>
+
+<section class="intro">
+  <h1>Orders</h1>
+  <p>Each column is one module's own view of the order, read through its public API. They do not change together:
+    watch a new order's payment, shipment and points fill in as each module catches up.</p>
+</section>
+
+<section class="card flush">
+  <% if @orders.empty? %>
+    <p class="empty">No orders yet. <%= link_to "Place one", new_order_path %>, or start the simulator from the <%= link_to "console", root_path %>.</p>
+  <% else %>
+    <table class="orders">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Customer</th>
+          <th class="number">Total</th>
+          <th class="<%= module_class("Orders") %>">Orders</th>
+          <th class="<%= module_class("Payments") %>">Payments</th>
+          <th class="<%= module_class("Fulfillment") %>">Fulfillment</th>
+          <th class="<%= module_class("Loyalty") %> number">Loyalty</th>
+          <th>Placed</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @orders.each do |order| %>
+          <tr id="order-<%= order.id %>">
+            <td><%= link_to "##{order.id}", order_path(order.id) %></td>
+            <td><%= order.customer_name %></td>
+            <td class="number"><%= money(order.total_cents, order.currency) %></td>
+            <td><%= state_pill(order.state) %></td>
+            <td><%= state_pill(@payments[order.reference]&.state) %></td>
+            <td><%= state_pill(@shipments[order.reference]&.state) %></td>
+            <td class="number"><%= @points.fetch(order.id.to_s, "—") %></td>
+            <td class="muted small"><%= ago(order.placed_at) %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+</section>

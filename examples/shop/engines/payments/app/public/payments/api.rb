@@ -42,6 +42,9 @@ module Payments
         payment && value(payment)
       end
 
+      # The payments for many references at once, by reference.
+      def payments(references) = Payments::Payment.where(reference: references).to_h { |payment| [ payment.reference, value(payment) ] }
+
       private
         def enqueue(job_class, command, reference)
           job_class.perform_later_as("payments-#{command}-#{reference}", reference)

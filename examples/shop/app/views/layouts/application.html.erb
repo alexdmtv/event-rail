@@ -1,27 +1,44 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title><%= content_for(:title) || "Shop" %></title>
+    <title><%= content_for(:title) || "Shop console" %> · EventRail example</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Shop">
+    <meta name="application-name" content="Shop console">
     <meta name="mobile-web-app-capable" content="yes">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
-
+    <%# Live pages revisit themselves; Turbo morphs in what changed and keeps the scroll. %>
+    <meta name="turbo-refresh-method" content="morph">
+    <meta name="turbo-refresh-scroll" content="preserve">
     <%= yield :head %>
-
-
     <link rel="icon" href="/icon.png" type="image/png">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.png">
-
-    <%# Includes all stylesheet files in app/assets/stylesheets %>
     <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
     <%= javascript_importmap_tags %>
   </head>
 
   <body>
-    <%= yield %>
+    <header class="topbar">
+      <%= link_to root_path, class: "brand" do %>
+        <strong>Shop</strong> <span>an EventRail example</span>
+      <% end %>
+      <nav>
+        <%= link_to "Console", root_path, class: ("current" if current_page?(root_path)) %>
+        <%= link_to "Orders", orders_path, class: ("current" if controller_name == "orders" && action_name != "new") %>
+        <%= link_to "New order", new_order_path, class: ("current" if current_page?(new_order_path)) %>
+        <%= link_to "Architecture", architecture_path, class: ("current" if current_page?(architecture_path)) %>
+        <%= link_to "Jobs ↗", "/jobs", target: "_blank", rel: "noopener" %>
+      </nav>
+    </header>
+
+    <% flash.each do |kind, message| %>
+      <p class="flash flash-<%= kind %>"><%= message %></p>
+    <% end %>
+
+    <main <%= tag.attributes(content_for(:live) ? { data: { controller: "auto-refresh" } } : {}) %>>
+      <%= yield %>
+    </main>
   </body>
 </html>

@@ -88,5 +88,12 @@ module Orders
     test "an empty basket is refused" do
       assert_raises(Api::EmptyBasket) { checkout(items: {}) }
     end
+
+    test "an order is found by the correlation its checkout opened" do
+      order = checkout
+
+      assert_equal order, Api.order_for_correlation(order.correlation_id)
+      assert_nil Api.order_for_correlation("unknown")
+    end
   end
 end
