@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_25_000007) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
   create_table "catalog_products", force: :cascade do |t|
     t.string "sku", null: false
     t.string "name", null: false
@@ -170,6 +170,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000007) do
     t.float "temporary_failure_rate", default: 0.0, null: false
     t.integer "carrier_delay_seconds", default: 4, null: false
     t.json "forced_failures", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "simulation_customers", force: :cascade do |t|
+    t.string "customer_id", null: false
+    t.string "name", null: false
+    t.string "email", null: false
+    t.string "address", null: false
+    t.index ["customer_id"], name: "index_simulation_customers_on_customer_id", unique: true
+  end
+
+  create_table "simulation_settings", force: :cascade do |t|
+    t.boolean "running", default: false, null: false
+    t.integer "orders_per_minute", default: 20, null: false
+    t.float "cancel_rate", default: 0.1, null: false
+    t.float "return_rate", default: 0.1, null: false
+    t.integer "placed_count", default: 0, null: false
+    t.integer "rejected_count", default: 0, null: false
+    t.string "last_rejection"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
   end

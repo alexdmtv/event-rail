@@ -28,6 +28,7 @@ require_relative "../engines/orders/lib/orders/engine"
 require_relative "../engines/notifications/lib/notifications/engine"
 require_relative "../engines/loyalty/lib/loyalty/engine"
 require_relative "../engines/observability/lib/observability/engine"
+require_relative "../engines/simulation/lib/simulation/engine"
 
 module Shop
   class Application < Rails::Application

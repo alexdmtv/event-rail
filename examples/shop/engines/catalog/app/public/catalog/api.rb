@@ -58,6 +58,12 @@ module Catalog
         true
       end
 
+      # A delivery from a supplier arrived.
+      def receive_stock(sku:, quantity:)
+        Catalog::Product.transaction { find!(sku).lock!.increment!(:on_hand, Integer(quantity)) }
+        true
+      end
+
       # Gives held stock back. Releasing twice, or releasing nothing, changes nothing.
       def release(reservation_id:)
         Catalog::Reservation.held.where(reservation_id: reservation_id).update_all(state: "released", updated_at: Time.current)
