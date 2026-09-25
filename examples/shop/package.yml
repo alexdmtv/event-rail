@@ -1,0 +1,6 @@
+# The host application: the developer console that composes the modules. It reads their
+# public APIs and never their internals. Nothing depends on it.
+enforce_dependencies: true
+dependencies:
+  - engines/platform
+  - engines/catalog

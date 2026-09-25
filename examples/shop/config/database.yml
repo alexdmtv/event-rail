@@ -1,0 +1,31 @@
+# Business data and queued jobs live in separate databases. A job is never enqueued in the
+# same transaction as the records it refers to, so nothing in the application relies on
+# the two sharing storage -- and each module could later move its tables elsewhere.
+default: &default
+  adapter: sqlite3
+  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  timeout: 10000
+
+development:
+  primary:
+    <<: *default
+    database: storage/development.sqlite3
+  queue:
+    <<: *default
+    database: storage/development_queue.sqlite3
+    migrations_paths: db/queue_migrate
+
+# Tests run jobs with Active Job's test adapter and perform_enqueued_jobs, so the test
+# environment needs no queue database.
+test:
+  <<: *default
+  database: storage/test.sqlite3
+
+production:
+  primary:
+    <<: *default
+    database: storage/production.sqlite3
+  queue:
+    <<: *default
+    database: storage/production_queue.sqlite3
+    migrations_paths: db/queue_migrate

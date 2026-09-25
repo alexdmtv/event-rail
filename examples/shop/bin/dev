@@ -1,0 +1,5 @@
+#!/usr/bin/env ruby
+# One command runs everything: the web server, and Solid Queue's dispatcher, scheduler and
+# workers inside it, so jobs and EventRail subscribers run without a second process.
+ENV["SOLID_QUEUE_IN_PUMA"] ||= "1"
+exec "./bin/rails", "server", *ARGV
