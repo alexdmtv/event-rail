@@ -10,3 +10,4 @@ dependencies:
   - engines/notifications
   - engines/loyalty
   - engines/observability
+  - engines/simulation
