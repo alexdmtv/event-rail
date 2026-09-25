@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_25_000006) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_25_000007) do
   create_table "catalog_products", force: :cascade do |t|
     t.string "sku", null: false
     t.string "name", null: false
@@ -76,6 +76,37 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000006) do
     t.datetime "created_at", null: false
     t.index ["event_id", "kind"], name: "index_notifications_notifications_on_event_id_and_kind", unique: true
     t.index ["order_id"], name: "index_notifications_notifications_on_order_id"
+  end
+
+  create_table "observability_attempts", force: :cascade do |t|
+    t.string "job_id", null: false
+    t.string "job_class", null: false
+    t.integer "number", null: false
+    t.string "outcome", null: false
+    t.string "error_class"
+    t.string "error_message"
+    t.integer "duration_ms"
+    t.datetime "created_at", null: false
+    t.index ["created_at"], name: "index_observability_attempts_on_created_at"
+    t.index ["job_id"], name: "index_observability_attempts_on_job_id"
+  end
+
+  create_table "observability_nodes", force: :cascade do |t|
+    t.string "node_id", null: false
+    t.string "kind", null: false
+    t.string "name", null: false
+    t.integer "version"
+    t.string "source"
+    t.string "parent_id"
+    t.string "correlation_id"
+    t.string "published_by_job_id"
+    t.integer "subscriber_count"
+    t.string "outcome"
+    t.datetime "created_at", null: false
+    t.index ["correlation_id"], name: "index_observability_nodes_on_correlation_id"
+    t.index ["created_at"], name: "index_observability_nodes_on_created_at"
+    t.index ["node_id"], name: "index_observability_nodes_on_node_id", unique: true
+    t.index ["parent_id"], name: "index_observability_nodes_on_parent_id"
   end
 
   create_table "orders_line_items", force: :cascade do |t|

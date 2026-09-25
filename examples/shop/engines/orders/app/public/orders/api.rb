@@ -43,6 +43,16 @@ module Orders
         value(Orders::ReturnRequest.new(Orders::Order.find(order_id)).call)
       end
 
+      # Cancels every order still placed and unpaid 30 minutes after checkout. Run every
+      # minute by Orders::ExpireAbandonedOrdersJob; returns how many were cancelled.
+      def expire_abandoned_orders
+        Orders::Order.abandoned.find_each.count do |order|
+          cancel(order.id, reason: "abandoned")
+        rescue NotCancellable
+          false # it moved on while the scan ran
+        end
+      end
+
       def order(id)
         order = Orders::Order.includes(:line_items).find_by(id: id)
         order && value(order)

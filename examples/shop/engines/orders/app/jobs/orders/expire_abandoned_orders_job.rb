@@ -9,12 +9,6 @@ module Orders
   class ExpireAbandonedOrdersJob < ActiveJob::Base
     queue_as :orders
 
-    def perform
-      Order.abandoned.find_each do |order|
-        Api.cancel(order.id, reason: "abandoned")
-      rescue Api::NotCancellable
-        next # it moved on while the scan ran
-      end
-    end
+    def perform = Api.expire_abandoned_orders
   end
 end

@@ -1,0 +1,6 @@
+# Observability hears the shop through instrumentation, not through events or calls, so it
+# depends on no business module. Nothing depends on it except the console.
+enforce_dependencies: true
+enforce_privacy: true
+dependencies:
+  - engines/platform
