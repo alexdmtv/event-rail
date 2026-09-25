@@ -22,6 +22,9 @@ FileUtils.chdir APP_ROOT do
 
   puts "\n== Preparing database =="
   system! "bin/rails db:prepare"
+  # db:prepare seeds only a database it has just created. The seeds are idempotent, so seed
+  # every time: a database left behind by an interrupted setup gets its products and customers.
+  system! "bin/rails db:seed"
   system! "bin/rails db:reset" if ARGV.include?("--reset")
 
   puts "\n== Removing old logs and tempfiles =="
