@@ -31,16 +31,14 @@ module Payments
         raise Unavailable, failure.message
       end
 
-      # Each command enqueues under an ID derived from the reference: see
-      # Platform::ApplicationJob.perform_later_as.
-      def capture(reference:) = enqueue(CaptureJob, "capture", reference)
-      def void(reference:) = enqueue(VoidJob, "void", reference)
-      def refund(reference:) = enqueue(RefundJob, "refund", reference)
+      def capture(reference:) = enqueue(CaptureJob, reference)
+      def void(reference:) = enqueue(VoidJob, reference)
+      def refund(reference:) = enqueue(RefundJob, reference)
 
       # Gives back whatever the payment holds when the command runs: refunds it if it was
       # captured, voids it if it was not. For a caller undoing its payment without knowing
       # whether a capture has landed.
-      def release(reference:) = enqueue(ReleaseJob, "release", reference)
+      def release(reference:) = enqueue(ReleaseJob, reference)
 
       def payment(reference)
         payment = Payments::Payment.find_by(reference: reference)
@@ -51,8 +49,8 @@ module Payments
       def payments(references) = Payments::Payment.where(reference: references).to_h { |payment| [ payment.reference, value(payment) ] }
 
       private
-        def enqueue(job_class, command, reference)
-          job_class.perform_later_as("payments-#{command}-#{reference}", reference)
+        def enqueue(job_class, reference)
+          job_class.perform_later(reference)
           nil
         end
 

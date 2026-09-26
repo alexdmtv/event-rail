@@ -5,15 +5,15 @@ module Fulfillment
     # A real carrier would call back through a webhook; the scheduled jobs play that part.
     class Fake
       def pick_up(shipment)
-        DispatchJob.perform_later_as("fulfillment-dispatch-#{shipment.reference}", shipment.reference, wait: delay)
+        DispatchJob.set(wait: delay).perform_later(shipment.reference)
       end
 
       def carry(shipment)
-        DeliveryJob.perform_later_as("fulfillment-deliver-#{shipment.reference}", shipment.reference, wait: delay)
+        DeliveryJob.set(wait: delay).perform_later(shipment.reference)
       end
 
       def bring_back(parcel_return)
-        ReturnArrivalJob.perform_later_as("fulfillment-return-#{parcel_return.reference}", parcel_return.reference, wait: delay)
+        ReturnArrivalJob.set(wait: delay).perform_later(parcel_return.reference)
       end
 
       private

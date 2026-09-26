@@ -42,9 +42,8 @@ module Payments
       def publish(event) = EventRail.publish(event)
 
       # The last permitted attempt's temporary failure is decided here, inside perform, so
-      # that the outcome is published within this job's EventRail context -- its flow and a
-      # stable identity -- rather than from a retry_on block, which runs after that context
-      # has closed.
+      # that the outcome is published within this job's EventRail context -- its flow --
+      # rather than from a retry_on block, which runs after that context has closed.
       def call_provider(operation, payment)
         send(operation, payment)
       rescue Gateway::Refused => refusal

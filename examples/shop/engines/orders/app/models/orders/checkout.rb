@@ -94,7 +94,7 @@ module Orders
             quote.lines.each do |line|
               order.line_items.create!(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
             end
-            FollowUpJob.stage_later_as("orders-follow-up-#{order.id}", order.id)
+            FollowUpJob.stage_later(order.id)
           end
         end
       end

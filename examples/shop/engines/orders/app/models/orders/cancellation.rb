@@ -9,8 +9,9 @@ module Orders
   #      parcel has left -- Orders may not have heard yet -- so its refusal is the refusal.
   #   2. The order becomes cancelled.
   #   3. Orders::CancellationJob releases the stock, asks Payments to give back whatever the
-  #      payment holds, and announces the cancellation. It is enqueued under an ID derived
-  #      from the order, so a repeated announcement carries the same event identity.
+  #      payment holds, and announces the cancellation. A job, so that each step is retried
+  #      until it is done; a repeated announcement carries the same event identity, as
+  #      OrderCancelled is identified by its order.
   #
   # Three paths lead here: the customer, a refused capture, and the abandoned-order expiry.
   # A cancellation interrupted before its job was enqueued is finished by whichever path
@@ -33,7 +34,7 @@ module Orders
       end
 
       Flow.continue(@order, step: "cancel") do
-        CancellationJob.perform_later_as("orders-cancel-#{@order.id}", @order.id)
+        CancellationJob.perform_later(@order.id)
       end
       @order
     end

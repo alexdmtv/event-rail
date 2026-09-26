@@ -55,6 +55,20 @@ module Payments
       assert_equal first.map(&:event_id), second.map(&:event_id)
     end
 
+    test "captures enqueued by separate callers under random job IDs report one PaymentCaptured" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new
+
+      published = record_publications do
+        2.times { CaptureJob.perform_later("ref-1") }
+        perform_enqueued_jobs
+      end
+
+      assert_equal 1, gateway.calls[:capture]
+      assert_equal [ "payments.payment_captured" ] * 2, published.map(&:event_type), "each run reports the capture"
+      assert_equal 1, published.map(&:event_id).uniq.size, "the fact has one ID whichever job reports it"
+    end
+
     test "temporary provider failures are retried until the capture succeeds" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout, :timeout, :ok ])
@@ -193,15 +207,14 @@ module Payments
       authorize
       Gateway.adapter = ScriptedGateway.new(capture: [ :timeout ] * 5)
 
-      published = record_publications do
-        EventRail.with_context(message_id: "checkout-flow-1") { Api.capture(reference: "ref-1") }
-        work_off_queue
-      end
+      EventRail.with_context(message_id: "checkout-flow-1") { Api.capture(reference: "ref-1") }
+      capture_job_id = enqueued_jobs.sole["job_id"]
+      published = record_publications { work_off_queue }
 
       failure = published.sole
       assert_equal "payments.capture_failed", failure.event_type
       assert_equal "checkout-flow-1", failure.correlation_id
-      assert_equal "payments-capture-ref-1", failure.causation_id
+      assert_equal capture_job_id, failure.causation_id
     end
 
     test "payments are looked up for many references at once" do

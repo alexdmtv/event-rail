@@ -1,8 +1,8 @@
 module Orders
   # Everything after checkout's decision: announcing the order, then asking Payments to
-  # capture it. Staged with the order under an ID derived from it, so a job handed to the
-  # queue twice announces under the same event ID -- subscribers see a repetition, not a
-  # second order.
+  # capture it. Staged with the order, so it runs once the order has committed. OrderPlaced
+  # is identified by its order, so a job handed to the queue twice announces under the same
+  # event ID -- subscribers see a repetition, not a second order.
   #
   # The announcement is unconditional: a run that crashed after publishing is retried and
   # publishes again under the same identity, rather than skipping a step it cannot tell it

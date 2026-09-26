@@ -5,7 +5,7 @@ module Orders
   # Payments decides between voiding and refunding, from its own state, when it runs: an
   # order still `placed` may have a capture that landed before Orders heard of it. The
   # announcement is unconditional, so a run retried after publishing publishes again, under
-  # the same identity -- this job's ID is derived from the order.
+  # the same identity: OrderCancelled is identified by its order.
   class CancellationJob < ApplicationJob
     def perform(order_id)
       order = Order.find(order_id)

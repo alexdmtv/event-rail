@@ -3,8 +3,8 @@ module Orders
   #
   # Each step is taken whenever the order has shipped, not only when this run moved it: a run
   # retried after its transition committed still ships the stock (Catalog ships a reservation
-  # once), and a redelivery of the same carrier event derives the same event identity, so
-  # republishing is how a crash between the transition and the publication is recovered.
+  # once), and OrderShipped is identified by its order, so republishing is how a crash
+  # between the transition and the publication is recovered.
   class MarkShippedJob < ApplicationJob
     subscribes_to Fulfillment::Events::ShipmentDispatched
 
