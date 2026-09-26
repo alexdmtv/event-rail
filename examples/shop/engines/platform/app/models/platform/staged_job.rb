@@ -14,7 +14,9 @@ module Platform
   # carry the same IDs as the first run's, because each event declares its identity.
   #
   # The table belongs in the store of the records it commits with. Every module shares one
-  # database today; a module given its own store gets a staged-jobs table there.
+  # database today, so this one table serves them all: stage_later checks for a transaction
+  # on this model's connection. A module moved to a store of its own would need a staged-jobs
+  # table there, and stage_later and the relay pointed at it.
   class StagedJob < ApplicationRecord
     # Rows younger than this are still being handed over by the request that staged them.
     GRACE = 5.seconds
