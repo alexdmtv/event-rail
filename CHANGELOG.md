@@ -13,6 +13,8 @@ here unless a release changes how they behave.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-26
+
 ### Changed
 
 - **Breaking: an event with declared identity derives its ID from the fact, not from the
@@ -156,7 +158,8 @@ here unless a release changes how they behave.
 - A typed error hierarchy rooted at `EventRail::Error`, distinguishing declaration,
   casting, context, serialization, and publication failures.
 
-[Unreleased]: https://github.com/alexdmtv/event-rail/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/alexdmtv/event-rail/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/alexdmtv/event-rail/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/alexdmtv/event-rail/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alexdmtv/event-rail/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/alexdmtv/event-rail/releases/tag/v0.1.0
