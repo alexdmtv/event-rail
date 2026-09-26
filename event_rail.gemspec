@@ -7,7 +7,7 @@ Gem::Specification.new do |spec|
   spec.email = [ "alexey.dmitriev6238@gmail.com" ]
   spec.homepage = "https://github.com/alexdmtv/event-rail"
   spec.summary = "Typed, durable event fanout through ordinary Active Job subscribers."
-  spec.description = "EventRail adds immutable domain events, retry-stable identity, logical context propagation, and Rails-native durable fanout without replacing Active Job or its queue adapter."
+  spec.description = "EventRail adds immutable domain events, stable, fact-derived identity, logical context propagation, and Rails-native durable fanout without replacing Active Job or its queue adapter."
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.3"
 

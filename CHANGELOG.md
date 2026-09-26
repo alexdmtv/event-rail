@@ -13,6 +13,62 @@ here unless a release changes how they behave.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: an event with declared identity derives its ID from the fact, not from the
+  job that publishes it.** With `identity_by` or `identity:`, the ID now comes from the
+  event's source, event type and identity only: not the job class, the job's ID, the
+  execution or the schema version. The same fact has one ID wherever and however often it
+  is published, in a controller or in any job, and in every version of its event type.
+  Previously a caller that ran twice enqueued a new job with a new ID and published the same
+  fact under a new event ID.
+- **Breaking: `publish(event, key:)` is now `publish(event, identity:)`.** A key used to be
+  scoped to one job; an identity names a fact across every job. `key:` raises with
+  directions, and `identity:` is refused for a class that declares `identity_by`. An explicit
+  identity derives the same ID as a single string `identity_by` attribute with the same value.
+- **Breaking: every derived ID changes.** The derivation has a new namespace and separate,
+  documented rules for declared facts and for executions, pinned by vectors published in the
+  README so other implementations can reproduce them. Strings are hashed as UTF-8 and invalid
+  UTF-8 is refused.
+- **Breaking: random IDs are UUIDv7**, time-ordered, for events without declared identity
+  published outside a job. Derived IDs remain UUIDv5.
+- An event without declared identity published by a subscriber derives its ID from the
+  handled event's source as well as its ID, so causes from two producers that share an ID are
+  scoped apart.
+- The duplicate check within one execution includes the source, so one job can publish the
+  same fact for two producers, and relay two events that share an ID from different sources.
+- A relayed event keeps its lineage as it arrived: an absent causation is no longer filled
+  from the relaying context. A relay retried with a different payload, occurrence time or
+  extensions is refused, as a local retry is.
+- One publication record per `(source, type, version, id)` within an execution: publishing
+  the stamped event of a failed local publication, for instance to recover from an
+  `EnqueueError`, is its retry, and publishing it after success is a duplicate. A relayed ID
+  is compared as opaque bytes, so an ID that is not valid UTF-8 relays as before.
+- **Breaking: a declared identity attribute cannot be an empty string**, as it cannot be nil:
+  every blank event would otherwise be one fact.
+- `EventRail.with_context` opened inside a running job keeps the job's execution, so an
+  undeclared event published in the block keeps its retry-stable ID and its duplicate check;
+  it used to get a random ID.
+- Versioning: every version of an event type keeps its declared identity values; changing
+  what an event identifies needs a new event type, not a new version.
+
+### Added
+
+- `publish(event, source:)` publishes a locally built event on behalf of another producer,
+  such as an inbound webhook; relaying an event under a different source than it carries is
+  refused.
+
+### Upgrading
+
+- Audit every `identity_by` and every former `key:` before upgrading. A value that was safe
+  within one job, such as a line number or a product ID for a fact that recurs, now names one
+  fact across every job and would merge distinct facts silently. Identity must name the
+  occurrence, not the thing it is about.
+- IDs derived before and after the upgrade differ. A publication retried across the deploy, a
+  delayed job, a backfill or a dead-letter redelivery can deliver a fact again under a new ID;
+  subscribers that also deduplicate on a business key are unaffected. Draining publishing jobs
+  before deploying narrows the window.
+
 ## [0.3.0] - 2026-09-21
 
 ### Changed
