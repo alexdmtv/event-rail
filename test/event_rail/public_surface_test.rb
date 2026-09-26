@@ -62,10 +62,7 @@ class PublicSurfaceTest < ActiveSupport::TestCase
 
   test "no notification payload contains domain data or extensions" do
     payloads = capture(NOTIFICATION_NAMES) do
-      EventRail.publish(
-        SurfaceFixtures::Placed.new(order_id: "o-1", secret: "do not log me"),
-        key: nil
-      )
+      EventRail.publish(SurfaceFixtures::Placed.new(order_id: "o-1", secret: "do not log me"))
       perform_enqueued_jobs
     end
 

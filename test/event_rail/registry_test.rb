@@ -60,7 +60,9 @@ Registry.reopen do
           correlation_id: EventRail::Current.correlation_id,
           causation_id: EventRail::Current.causation_id,
           extensions: EventRail::Current.extensions,
-          execution: EventRailInternal::Execution.current
+          execution: EventRailInternal::Execution.current,
+          # An undeclared follow-up, whose ID derives from this subscriber's scope.
+          follow_up_id: EventRailInternal::Stamping.prepare(Shipped.new(order_id: event.order_id)).event.id
         }
       end
     end
@@ -502,9 +504,21 @@ class RegistryTest < ActiveSupport::TestCase
     perform_subscriber(event)
     execution = RegistryFixtures::OnPlaced.handled.sole.fetch(:execution)
 
-    assert_equal event.id, execution.scope
+    assert_equal [ event.source, event.id ], execution.scope
     assert_equal "RegistryFixtures::OnPlaced", execution.job_class
     assert_predicate execution, :derives_identity?
+  end
+
+  test "causes that share an ID but not a source give their subscribers' follow-ups different IDs" do
+    perform_subscriber(stamped_event(source: "tests"))
+    perform_subscriber(stamped_event(source: "partner.tests"))
+    perform_subscriber(stamped_event(source: "tests")) # the first cause, redelivered
+
+    follow_ups = RegistryFixtures::OnPlaced.handled.map { |handled| handled.fetch(:follow_up_id) }
+    refute_equal follow_ups[0], follow_ups[1]
+    assert_equal follow_ups[0], follow_ups[2], "a redelivered cause derives the same follow-up"
+    assert_equal [ "evt-RegistryFixtures::Placed" ], RegistryFixtures::OnPlaced.handled.map { |handled| handled.fetch(:message_id) }.uniq,
+      "the logical message stays the event's ID"
   end
 
   test "execution rejects an argument of an undeclared class before subscriber code runs" do
@@ -544,13 +558,13 @@ class RegistryTest < ActiveSupport::TestCase
       assert_match message, error.message
     end
 
-    def stamped_event(event_class: RegistryFixtures::Placed)
+    def stamped_event(event_class: RegistryFixtures::Placed, source: "tests")
       event_class.send(
         :__reconstruct__,
         data: { "order_id" => "o-1" },
         metadata: EventRail::Metadata.complete(
           id: "evt-#{event_class.name}",
-          source: "tests",
+          source: source,
           occurred_at: Time.utc(2026, 9, 1),
           correlation_id: "corr-1",
           causation_id: "cause-1",

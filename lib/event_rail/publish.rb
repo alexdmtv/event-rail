@@ -7,6 +7,9 @@ module EventRail
     #
     #   publication = EventRail.publish(Orders::OrderPlaced.new(order_id: order.id))
     #
+    # `identity:` names the fact for an event whose class declares no `identity_by`;
+    # `source:` publishes a locally built event on behalf of another producer.
+    #
     # Individual enqueue calls, not `perform_all_later`. Bulk enqueue skips each job's
     # own `enqueue` callbacks on several adapters, and those callbacks are exactly where
     # an application puts uniqueness, concurrency, and feature-flag decisions that this
@@ -15,10 +18,17 @@ module EventRail
     # Delivery is at-least-once. Jobs already accepted are not rolled back when a later
     # subscriber's enqueue fails, and the retry repeats complete fanout under the same
     # event ID, so a subscriber may see the same event more than once.
-    def publish(event, key: nil)
+    def publish(event, identity: nil, source: nil, **unknown)
+      if unknown.key?(:key)
+        raise ArgumentError,
+          "publish's key: is now identity:, and it names a fact across every job rather than within one; " \
+          "check the value names one occurrence per source and event type before renaming it"
+      end
+      raise ArgumentError, "unknown keyword#{"s" if unknown.size > 1}: #{unknown.keys.map(&:inspect).join(", ")}" if unknown.any?
+
       Internal::Transaction.check!
 
-      prepared = Internal::Stamping.prepare(event, key: key)
+      prepared = Internal::Stamping.prepare(event, identity: identity, source: source)
       stamped = prepared.event
       subscribers = Internal::Registry.subscribers_for(stamped.class)
 

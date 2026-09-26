@@ -3,7 +3,7 @@ require "securerandom"
 module EventRail
   module Internal
     # Turns a proposal into a stamped fact: resolves source, selects logical identity,
-    # derives a retry-stable ID, fixes occurrence time, and installs lineage. Fanout
+    # derives its ID, fixes occurrence time, and installs lineage. Fanout
     # is a separate concern layered on top of this.
     module Stamping
       module_function
@@ -14,17 +14,21 @@ module EventRail
         end
       end
 
-      def prepare(event, key: nil)
+      def prepare(event, identity: nil, source: nil)
         unless event.is_a?(Event)
           raise InvalidEvent, "#{event.inspect} is not an EventRail::Event"
         end
+        Metadata.validate_source!(source) unless source.nil?
 
-        return relay(event, key: key) if event.stamped?
+        return relay(event, identity: identity, source: source) if event.stamped?
 
-        validate_key!(key)
+        validate_identity!(event, identity)
+        source = (source || event.class.default_source)&.dup&.freeze
+        raise InvalidMetadata, "source is required to publish #{event.class}" unless source
+
         execution = Execution.current
-        logical_identity = resolve_logical_identity(event, key)
-        logical_key = [ event.event_type, event.version, Identity.encode_component(logical_identity) ].freeze
+        derived_id = derive_id(event, execution, source, declared_identity(event, identity))
+        logical_key = record_key(source, event, derived_id)
 
         recorded = execution&.derives_identity? ? execution.record(logical_key) : nil
         if recorded&.succeeded?
@@ -36,8 +40,7 @@ module EventRail
         extensions = Extensions.merge!(Current.extensions, event.extensions, error: InvalidEvent)
         detect_retry_mismatch!(event, recorded, extensions) if recorded
 
-        source = event.class.default_source
-        event_id = recorded&.event&.id || derive_id(event, execution, source, logical_identity)
+        event_id = recorded&.event&.id || derived_id
         occurred_at = event.occurred_at || recorded&.event&.occurred_at || default_occurred_at(execution)
 
         stamped = event.send(
@@ -62,20 +65,26 @@ module EventRail
         execution.record!(prepared.logical_key, event: prepared.event, succeeded: true)
       end
 
-      # A relayed fact belongs to its origin. Its ID, source, occurrence time,
-      # correlation, and extensions are preserved, and the relaying application's own
-      # context extensions are deliberately not merged in: local baggage is not part of
-      # somebody else's event. Only a missing causation is filled, because the local
-      # message genuinely is what caused this relay.
-      def relay(event, key:)
-        unless key.nil?
+      # A relayed fact belongs to its origin. Its ID, source, occurrence time, lineage
+      # -- an absent causation included -- and extensions are preserved, and the relaying
+      # application's own context is deliberately not merged in: local baggage is not
+      # part of somebody else's event. Two producers may use the same ID, so the source is
+      # part of what makes a relay a repetition, and a relay retried with a different
+      # payload is refused exactly as a local publication is.
+      def relay(event, identity:, source:)
+        unless identity.nil?
           raise PublicationError,
             "#{event.event_type.inspect} already carries the event ID #{event.id.inspect}, so a publication " \
-            "key cannot apply to it"
+            "identity cannot apply to it"
+        end
+        if source && source != event.source
+          raise InvalidMetadata,
+            "#{event.event_type.inspect} #{event.id.inspect} already comes from #{event.source.inspect}; " \
+            "publishing it as #{source.inspect} would re-attribute somebody else's fact"
         end
 
         execution = Execution.current
-        logical_key = [ event.event_type, event.version, Identity.encode_component(event.id) ].freeze
+        logical_key = record_key(event.source, event, event.id)
 
         if execution&.derives_identity?
           recorded = execution.record(logical_key)
@@ -84,71 +93,71 @@ module EventRail
               event_type: event.event_type, version: event.version, event_id: event.id
             )
           end
+          detect_retry_mismatch!(event, recorded, event.extensions) if recorded
+          execution.record!(logical_key, event: event, succeeded: false)
         end
 
-        relayed = if event.causation_id.nil? && Current.message_id
-          event.send(
-            :__stamp__,
-            id: event.id,
-            source: event.source,
-            occurred_at: event.occurred_at,
-            correlation_id: event.correlation_id,
-            causation_id: Current.message_id,
-            extensions: event.extensions
-          )
-        else
-          event
-        end
-
-        execution.record!(logical_key, event: relayed, succeeded: false) if execution&.derives_identity?
-
-        Prepared.new(event: relayed, execution: execution, logical_key: logical_key, relayed: true)
+        Prepared.new(event: event, execution: execution, logical_key: logical_key, relayed: true)
       end
       private_class_method :relay
 
-      # 1. An explicit event ID wins, which is the relay path above.
-      # 2. An explicit call-site key.
-      # 3. The event class's declared identity attributes.
-      # 4. A singleton marker, for the first publication of that type in an execution.
-      def resolve_logical_identity(event, key)
-        return key if key
+      # One record per published event, whether it was stamped here or arrives stamped:
+      # so publishing the stamped result of a failed local publication is a retry of it,
+      # and publishing it again after success is a duplicate. Frozen binary copies, so a
+      # caller mutating the string it passed cannot move a record, and so a relayed ID is
+      # compared as the opaque bytes it is, whatever they hold.
+      def record_key(source, event, id)
+        [ source.b.freeze, event.event_type, event.version, id.b.freeze ].freeze
+      end
+      private_class_method :record_key
+
+      # The fact an event declares itself to be, as a list: an explicit publication
+      # identity, or the class's declared identity attributes in declaration order. Nil
+      # when it declares none. An explicit identity and a single declared attribute with
+      # the same value name the same fact.
+      def declared_identity(event, identity)
+        return [ identity ] if identity
 
         declared = event.class.identity_by
-        return Identity::SINGLETON if declared.empty?
-
-        declared.map { |name| event.public_send(name) }
+        declared.empty? ? nil : declared.map { |name| event.public_send(name) }
       end
-      private_class_method :resolve_logical_identity
+      private_class_method :declared_identity
 
-      # A key spelled as an integer at one call site and as its decimal string at
-      # another would derive two identities for one fact, and nothing would report it.
-      def validate_key!(key)
-        return if key.nil?
+      # A publication identity names a fact across every execution, so it is a string --
+      # an integer at one call site and its decimal spelling at another would be two
+      # facts -- and it cannot contradict an identity the class already declares.
+      def validate_identity!(event, identity)
+        return if identity.nil?
 
-        unless key.is_a?(String) && !key.empty? && key.valid_encoding?
-          raise PublicationError, "publication key must be a non-empty string; got #{key.inspect}"
+        unless event.class.identity_by.empty?
+          raise PublicationError,
+            "#{event.class} declares #{event.class.identity_by.join(", ")} as its identity, so a publication " \
+            "identity cannot apply to it"
         end
-        if key.bytesize > Limits::MAX_IDENTIFIER_BYTES
-          raise PublicationError, "publication key exceeds #{Limits::MAX_IDENTIFIER_BYTES} bytes"
+        unless identity.is_a?(String) && !identity.empty? && identity.valid_encoding?
+          raise PublicationError, "publication identity must be a non-empty string; got #{identity.inspect}"
+        end
+        if identity.bytesize > Limits::MAX_IDENTIFIER_BYTES
+          raise PublicationError, "publication identity exceeds #{Limits::MAX_IDENTIFIER_BYTES} bytes"
         end
       end
-      private_class_method :validate_key!
+      private_class_method :validate_identity!
 
-      def derive_id(event, execution, source, logical_identity)
-        return SecureRandom.uuid.freeze unless execution&.derives_identity?
-
-        unless source
-          raise InvalidMetadata, "source is required to publish #{event.class}"
+      # A declared fact's ID depends on nothing but the fact. Without one, an ID derived
+      # from the execution is stable across its retries and redeliveries; outside any
+      # execution there is nothing stable to derive from, and the ID is random, in time
+      # order so a downstream log indexes it well.
+      def derive_id(event, execution, source, declared)
+        if declared
+          Identity.fact(source: source, event_type: event.event_type, identity: declared).freeze
+        elsif execution&.derives_identity?
+          Identity.execution(
+            source: source, job_class: execution.job_class, scope: execution.scope,
+            event_type: event.event_type, version: event.version
+          ).freeze
+        else
+          SecureRandom.uuid_v7.freeze
         end
-
-        Identity.derive(
-          source: source,
-          job_class: execution.job_class,
-          scope: execution.scope,
-          event_type: event.event_type,
-          version: event.version,
-          logical_identity: logical_identity
-        ).freeze
       end
       private_class_method :derive_id
 

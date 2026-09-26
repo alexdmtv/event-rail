@@ -232,17 +232,19 @@ module EventRail
         self.class.send(:__event_rail_copy__, self, state: { :@metadata => stamped_metadata })
       end
 
-      # A declared identity attribute that is nil cannot produce a canonical value, so
-      # the event can never be published. The local constructor is the strict door and
+      # A declared identity attribute that is nil cannot produce a canonical value, and
+      # one that is empty would make every blank event the same fact, so neither can be
+      # published. The local constructor is the strict door and
       # the only place whose backtrace points at the code that left the field empty.
       # Trusted reconstruction stays permissive: an external event of this contract may
       # legitimately omit a field, and it arrives with an identity already assigned.
       def validate_local_identity!
-        missing = self.class.identity_by.select { |name| public_send(name).nil? }
+        missing = self.class.identity_by.select { |name| public_send(name).then { |value| value.nil? || value == "" } }
         return if missing.empty?
 
         raise InvalidEvent,
-          "#{self.class} declares #{missing.sort.join(", ")} as logical identity, so it cannot be nil"
+          "#{self.class} declares #{missing.sort.join(", ")} as logical identity, so it cannot be nil or empty: " \
+          "every event with a blank identity would be one fact"
       end
 
       def unknown_attributes_message(unknown)

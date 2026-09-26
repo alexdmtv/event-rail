@@ -27,7 +27,7 @@ EventRail is narrow on purpose: durable fanout across a boundary inside one appl
 
 ### What it gives you
 
-- **Retry-stable identity**, derived from the publishing execution rather than generated, so a redelivered cause produces the same event rather than a second copy of it. Idempotency holds across hops, not only across one subscriber's retries.
+- **Stable identity.** An event that declares what fact it is has one ID wherever and however often it is published, so a consumer recognises it arriving again; any other event keeps its ID across retries and redeliveries. Idempotency holds across hops, not only across one subscriber's retries.
 - **Subscribers that are the jobs**, each keeping its own queue, retry policy, and concurrency limits rather than sharing the single wrapper job other gems route subscribers through.
 - **Boot-time validation**: a wrong `perform` arity, a missing `EventRail::JobContext`, or a late declaration fails the boot that introduced it rather than the first publication in production.
 - **A typed boundary**: a `Date`, a `BigDecimal`, a record, or a GlobalID is refused rather than serialized into something a worker cannot restore.
@@ -36,8 +36,8 @@ EventRail is narrow on purpose: durable fanout across a boundary inside one appl
 
 ### What it does not do
 
-- **No event log and no synchronous handlers.** No history, replay, read-model rebuild, or browser UI, and every subscriber crosses the queue.
-- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)); from a controller action there is no such guarantee. An application that wants recovery beyond that can record an intent and republish it from a sweeper, but a republication from a different job derives a different event ID, so the intent's own key belongs in the payload for consumers to deduplicate on.
+- **No event log and no synchronous handlers.** No history, replay, read-model rebuild, or browser UI, and every subscriber crosses the queue. A subscriber can append every event to a store of your own, keyed on `(source, id)`, but that store is a downstream log, not event sourcing: publication follows the commit, with no ordering or expected-version guarantees, so the store is a copy of what happened rather than its source of truth.
+- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)); a controller action has no retry to repeat the publication, though an event with declared identity keeps its ID when anything does. An application that wants recovery beyond that records the intent to publish in the same transaction as its data, and a sweeper or a relay job publishes it; an event with [declared identity](#identity-occurrence-time-and-source) derives the same ID however many times it is republished, so consumers see a repetition rather than a new fact.
 - **Discovery is enforced, not advisory.** A subscriber outside a [discovery root](#where-discovery-looks) fails the boot rather than being quietly ignored: a silent delivery bug traded for a loud startup error, at the price of a layout rule.
 
 ## Requirements
@@ -230,7 +230,9 @@ Two exceptions. Code that is not reloadable at all, such as a gem or a file plai
 
 ### At-least-once delivery, and what that means for subscribers
 
-Fanout is individual `perform_later` calls, one per subscriber. Jobs already accepted are never rolled back when a later subscriber's enqueue fails, and the retry repeats complete fanout under the same event ID. A subscriber must therefore be idempotent, and `event.id` is the key to be idempotent on: it is stable across retries of the publishing execution and across redeliveries of a subscriber's own cause.
+Fanout is individual `perform_later` calls, one per subscriber. Jobs already accepted are never rolled back when a later subscriber's enqueue fails, and the retry repeats complete fanout under the same event ID. A subscriber must therefore be idempotent. An event's full identity is `(source, id)`, so a subscriber records `(subscriber, event.source, event.id)` in the same transaction as its effect and does nothing when that record already exists; a business-key constraint (one refund per order) remains worth having beside it. The ID is stable across retries of the publishing execution and redeliveries of a subscriber's own cause, and, for an event with [declared identity](#identity-occurrence-time-and-source), across every publication of the fact.
+
+Two copies of one fact, published by different executions, can differ: a later `occurred_at`, another causation, or a payload read from state that has since changed. EventRail stores nothing and orders nothing, so it cannot say which copy is authoritative; each subscriber decides, and publishers keep copies equal by building events from persisted data.
 
 No ordering is promised, between subscribers or between events.
 
@@ -261,22 +263,113 @@ Guarding publication behind "did I already transition?" is the failure mode to a
 
 ## Identity, occurrence time, and source
 
-Inside an opted-in job, an event's ID is derived from a permanent EventRail namespace and the resolved source, executing job class, execution scope, event type, version, and logical identity. The execution scope is the same value the event records as its causation: a regular job's own ID, or, for a subscriber, the ID of the event it is handling. That is what makes identity survive more than one hop: a follow-up event published while handling a redelivered cause derives the ID it derived the first time.
+An event's ID says which fact it is, so a consumer can recognise the same fact arriving again. It is chosen by one of three rules, in order:
 
-Logical identity is chosen in this order: an explicit event ID (an inbound external event), an explicit `key:` passed to `publish`, the class's `identity_by` attributes, or a singleton marker for the first publication of that type in the execution. Provide an explicit key when neither declared identity nor the singleton default can tell two legitimate publications apart:
+1. **An event that already carries an ID** — one reconstructed from an envelope — keeps it, with its source and its lineage.
+2. **An event with declared identity** — its class's `identity_by` attributes, or an `identity:` passed to `publish` — derives its ID from its source, its event type and that identity, and from nothing else: not the job that published it, not the execution, not the schema version. The same fact has the same ID wherever and however often it is published, inside a job or in a controller, and in version 1 or version 2.
+3. **Any other event** derives its ID from the execution publishing it: stable across that job's retries, and, for an event a subscriber publishes, across redeliveries of the event it handles. A separate job publishing it again gets a new ID. Outside a job it gets a random, time-ordered ID.
+
+**Identity names the occurrence, not the thing it is about.** This is the rule to get right, because getting it wrong fails silently. `PaymentCaptured identity_by :reference` is right when a payment is captured once. `PriceChanged identity_by :product_id` is wrong: every price change of that product would carry one ID, and consumers would drop all but the first, with no error anywhere. A fact that can happen again for the same thing keys on what distinguishes each occurrence — a persisted change ID, a revision, an import row — never on a hash of the payload or a loop index:
 
 ```ruby
-EventRail.publish(
-  Docs::OrderPlaced.new(order_id: "A-1003", total: "5.00", placed_at: Time.now.utc.iso8601),
-  key: "adjustment-7"
-)
+module Docs
+  module Inventory
+    # One base class per producer, so its source is declared once.
+    class Event < EventRail::Event
+      default_source "acme.inventory"
+    end
+
+    # Stock is adjusted many times; each adjustment is one fact.
+    class StockAdjusted < Event
+      event_type "docs.stock_adjusted"
+      version 1
+      identity_by :adjustment_id
+
+      attribute :adjustment_id, :string
+      attribute :sku, :string
+      attribute :quantity, :integer
+    end
+
+    class StockCounted < Event
+      event_type "docs.stock_counted"
+      version 1
+
+      attribute :sku, :string
+      attribute :counted, :integer
+    end
+  end
+end
+
+first = EventRail.publish(Docs::Inventory::StockAdjusted.new(adjustment_id: "adj-7", sku: "MUG", quantity: -2)).event
+again = EventRail.publish(Docs::Inventory::StockAdjusted.new(adjustment_id: "adj-7", sku: "MUG", quantity: -2)).event
+raise "one adjustment, one ID" unless first.id == again.id
+
+# A class without identity_by can name the fact at the call site instead.
+EventRail.publish(Docs::Inventory::StockCounted.new(sku: "MUG", counted: 38), identity: "count-2026-09-01-MUG")
 ```
 
-Changing `identity_by`, changing `default_source`, or renaming a subscriber class all change the identities that derive from them, so each is a breaking change. Outside a job execution, events receive random IDs.
+Beside that rule:
 
-`occurred_at` is the logical publication time: an explicit timezone-aware value is preserved as the same instant, and otherwise it is the start of the current execution, stable across that execution's retries and never inherited from a cause. Use a persisted domain timestamp when business occurrence time matters. Stored times are UTC at microsecond precision.
+- **`identity:` names a fact across every job**, so it must be unique per source and event type. It is refused for a class that declares `identity_by`, so the two cannot disagree, and it derives the same ID as a single string `identity_by` attribute with the same value, so a class can move from one to the other without changing IDs; an integer `42` and the string `"42"` are different identities.
+- **A tenant belongs in the identity** (or the source) when tenants number their facts independently; an extension is not part of an event's identity.
+- **Never use personal data as identity.** The derivation is a hash, and a hash over an email address or a name is reversible by guessing.
+- **Events that cross an application boundary should declare identity.** An execution-derived ID changes when the publishing code moves, a declared one does not.
+- **Changing `source`, `event_type` or declared identity changes IDs**, so each is a breaking change. Renaming a subscriber class changes the IDs of undeclared events it publishes.
 
-`source` identifies a logical producer, not an environment, queue, topic, cluster, or deployment. Any bounded non-empty string is accepted; a stable namespaced value such as `acme.orders` is recommended, and EventRail does no URI parsing.
+Upgrading from a release where `publish` took `key:`: that key was scoped to one job and is now `identity:`, scoped to every job. Before renaming it, and for every `identity_by`, check that the value names one occurrence per source and event type; a value that used to be safe inside one job, such as a line number, now merges facts.
+
+`occurred_at` is the logical publication time: an explicit timezone-aware value is preserved as the same instant, and otherwise it is the start of the current execution, stable across that execution's retries and never inherited from a cause. Use a persisted domain timestamp when business occurrence time matters, and build an event from persisted data, so that two publications of one fact carry the same payload. Stored times are UTC at microsecond precision.
+
+`source` names the logical producer of an event — `acme.orders` — not an environment, queue, topic, cluster, or deployment. An event ID is unique within its source, so `(source, id)` is an event's full identity, as in CloudEvents, and the source is half of every declared ID. Choose it for the producer rather than the deployment, and a module can move to another application without its events changing IDs. Declare it once, with `default_source` on a module's base event class; an event built on behalf of another producer can be published with `source:` (see [Crossing a network boundary](#crossing-a-network-boundary)). Any bounded non-empty string is accepted, and EventRail does no URI parsing. A follow-up event records its cause's ID as its causation, not its cause's source.
+
+### How an ID is derived
+
+Other implementations can derive the same IDs. An ID is a UUIDv5 ([RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html)) under the namespace `21fedac0-42c6-443f-b01c-6980aab52f32`, over a name that concatenates encoded components:
+
+- **Declared identity:** `"fact"`, source, event type, and the identity as a list — the `identity_by` values in declaration order, or the one `identity:` value.
+- **Execution:** `"execution"`, source, job class name, scope, event type, version, and a singleton marker. The scope is a regular job's Active Job ID, or, for a subscriber, the list `[source, id]` of the event it handles.
+
+Each component is encoded as a tag, its byte length in decimal, a colon, and its bytes:
+
+| Value | Tag | Bytes |
+| --- | --- | --- |
+| String | `s` | its UTF-8 bytes, without Unicode normalization; invalid UTF-8 is refused |
+| Integer | `i` | decimal, with a leading `-` when negative |
+| Decimal | `d` | plain notation: an optional `-`, the integer digits, `.`, and the fractional digits with trailing zeros removed but at least one kept (`12.5`, `100.0`, `0.0`, `-0.0`) |
+| Float | `f` | 17 significant digits with trailing zeros removed, as C's `printf("%.17g")` writes them: positional notation, or exponent notation (`1e+22`, `9.9999999999999995e-08`) when the decimal exponent is below -4 or at least 17, the exponent with a sign and at least two digits; `-0` stays distinct from `0`; non-finite is refused |
+| Boolean | `b` | `true` or `false` |
+| Date | `D` | ISO 8601 (`2026-09-01`) |
+| Timestamp | `T` | converted to UTC, truncated to microseconds, and written as ISO 8601 with six fractional digits (`2026-09-01T10:30:00.123456Z`) |
+| List | `L` | the item count in decimal, a colon, then each item encoded |
+| Singleton marker | `*` | empty |
+
+These vectors are part of the contract, and the test suite asserts them. For declared identity the source is `acme.orders` and the event type `orders.order_placed`; for execution, the job class is `Orders::PlaceOrderJob` and the version `1`:
+
+| Vector | Encoded name | ID |
+| --- | --- | --- |
+| a string | `s4:facts11:acme.orderss19:orders.order_placedL8:1:s3:o-1` | `13b2cda9-e1f7-57b6-ba1d-bb12a7553655` |
+| a non-ASCII string | `s4:facts11:acme.orderss19:orders.order_placedL12:1:s7:Zürich` | `8ad8bbf8-3e10-5162-97da-53cb6752973f` |
+| an integer | `s4:facts11:acme.orderss19:orders.order_placedL7:1:i2:42` | `43230f76-4e80-55d0-bfaf-beab63ac76b9` |
+| a negative integer | `s4:facts11:acme.orderss19:orders.order_placedL7:1:i2:-7` | `4feffb91-0dec-5a7b-a5a0-67968abbe971` |
+| true | `s4:facts11:acme.orderss19:orders.order_placedL9:1:b4:true` | `b1a75e27-6aa2-5f7e-9159-fb429bddc17f` |
+| false | `s4:facts11:acme.orderss19:orders.order_placedL10:1:b5:false` | `631f1712-795b-59fa-b497-103b5f951306` |
+| a decimal | `s4:facts11:acme.orderss19:orders.order_placedL9:1:d4:12.5` | `fc8e4be7-4912-5702-b22b-92d63d710e01` |
+| an integral decimal | `s4:facts11:acme.orderss19:orders.order_placedL10:1:d5:100.0` | `4ab51db7-7864-591d-8e1a-b1f5d9567169` |
+| a zero decimal | `s4:facts11:acme.orderss19:orders.order_placedL8:1:d3:0.0` | `0a066901-77e5-55e3-99c4-a973b5018500` |
+| a negative zero decimal | `s4:facts11:acme.orderss19:orders.order_placedL9:1:d4:-0.0` | `784aef76-53c9-517c-ba3f-732053cd537d` |
+| a float | `s4:facts11:acme.orderss19:orders.order_placedL25:1:f19:0.10000000000000001` | `cc223477-2cb1-5a6d-8d0f-6b25aaf989b7` |
+| an integral float | `s4:facts11:acme.orderss19:orders.order_placedL6:1:f1:1` | `901836d7-5477-5780-8e6b-dd39ed49d272` |
+| a large float | `s4:facts11:acme.orderss19:orders.order_placedL10:1:f5:1e+22` | `d4e88ebb-fdaa-5cc4-9dbe-c576abae6f36` |
+| a small float | `s4:facts11:acme.orderss19:orders.order_placedL28:1:f22:9.9999999999999995e-08` | `83b232ee-36bc-53dc-a455-5a9e31a003a2` |
+| negative zero | `s4:facts11:acme.orderss19:orders.order_placedL7:1:f2:-0` | `7cab07fc-874c-59ff-a946-76d00585d229` |
+| a date | `s4:facts11:acme.orderss19:orders.order_placedL16:1:D10:2026-09-01` | `84aaf8b3-7dc1-5446-880d-a002bfe8cab6` |
+| a timestamp | `s4:facts11:acme.orderss19:orders.order_placedL33:1:T27:2026-09-01T10:30:00.123456Z` | `874e797f-7b0c-5742-b8e2-6b05ae3f738a` |
+| a timestamp with an offset and sub-microsecond digits | `s4:facts11:acme.orderss19:orders.order_placedL33:1:T27:2026-09-01T10:30:01.234567Z` | `7fcd39f5-1a94-5ad2-b899-22ac849d510d` |
+| several values | `s4:facts11:acme.orderss19:orders.order_placedL12:2:s3:o-1i1:2` | `fe61e6d0-cbb6-5db0-96a4-1fd78d86dab9` |
+| a regular job's scope | `s9:executions11:acme.orderss21:Orders::PlaceOrderJobs5:job-1s19:orders.order_placedi1:1*0:` | `e3c5921d-a9bf-5816-b9a7-f36f426cb998` |
+| a subscriber's scope | `s9:executions11:acme.orderss21:Orders::PlaceOrderJobL59:2:s13:acme.paymentss36:0b1e2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4ds19:orders.order_placedi1:1*0:` | `a3a31754-e302-5c23-a4a7-ea353accfeb6` |
+
+Random IDs, for events without declared identity published outside a job, are UUIDv7, so a log indexes them in time order, to the millisecond, and the version digit tells a random ID (7) from a derived one (5).
 
 ## Logical context
 
@@ -336,7 +429,9 @@ OpenTelemetry is not required. When standard Active Job instrumentation is insta
 
 ## Versioning events
 
-`event_type` and `version` form the durable, language-neutral contract, independent of Ruby class names. A compatible optional addition may keep the same version: an older worker preserves the unknown field as opaque data with no reader and includes it again on export. Removing, renaming, requiring, or retyping a field, changing its meaning, or changing identity requires a new version and a distinct class, and the old class stays registered while messages that reference it can still arrive.
+`event_type` and `version` form the durable, language-neutral contract, independent of Ruby class names. A compatible optional addition may keep the same version: an older worker preserves the unknown field as opaque data with no reader and includes it again on export. Removing, renaming, requiring, or retyping a field, or changing its meaning requires a new version and a distinct class, and the old class stays registered while messages that reference it can still arrive.
+
+A new version is a new representation of the same fact, so every version of a type keeps the same declared identity values, in the same order (an attribute may be renamed), and a fact with declared identity carries one ID in every version; an ID derived from the execution includes the version. A consumer subscribed to both versions while old messages drain deduplicates them on that ID. Keeping both representations is a different need: an archive stores `(source, id, version)`, and it must receive both, because a broker or inbox that deduplicates on `(source, id)` before routing by version passes only one of them on. Changing what an event identifies is not a new version but a new event type.
 
 EventRail provides no upcasting and no schema registry.
 
@@ -344,7 +439,7 @@ EventRail provides no upcasting and no schema registry.
 
 | Value | Limit |
 | --- | ---: |
-| Event, correlation, causation, or boundary identifier | 512 bytes |
+| Event, correlation, causation, or boundary identifier, or `identity:` | 512 bytes |
 | Source | 255 bytes |
 | Event type | 255 bytes |
 | Extension entries | 32 |
@@ -458,7 +553,18 @@ event_class = ACCEPTED.fetch([ envelope.event_type, envelope.version ])
 EventRail.publish(envelope.to_event(event_class))
 ```
 
-A relayed event keeps its origin's ID, source, occurrence time, correlation, and extensions; the relaying application's own context extensions are not merged into it, and only a missing causation is filled.
+A relayed event keeps its origin's ID, source, occurrence time, correlation, causation (an absent one stays absent), and extensions; the relaying application's own context extensions are not merged into it. Relaying it with a different `source:` is refused rather than re-attributing somebody else's fact.
+
+A producer that sends no event ID, a supplier's webhook say, is mapped to a local event built on the producer's behalf. Its declared identity and the producer's source make a retried delivery the same fact:
+
+```ruby
+EventRail.publish(
+  Docs::Inventory::StockAdjusted.new(adjustment_id: "delivery-4411", sku: "MUG", quantity: 120),
+  source: "supplier.warehouse"
+)
+```
+
+Source is a claim, not a credential. Before relaying, an inbound adapter checks `envelope.source` against the sources that peer may speak for: a declared fact's ID is predictable, so an unchecked envelope claiming a local source could arrive first under a local fact's ID and make consumers drop the genuine one.
 
 Loop prevention is application policy: an export policy that refuses to export an event whose source is not the local application stops a relayed event from bouncing back to the system it came from. EventRail has no concept of internal versus external, direction, topic, or transport marker.
 

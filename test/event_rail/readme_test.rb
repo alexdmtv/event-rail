@@ -1,4 +1,5 @@
 require "test_helper"
+require_relative "identity_vectors"
 
 # The README's Ruby examples are executed, not proofread.
 #
@@ -34,6 +35,17 @@ class ReadmeTest < ActiveSupport::TestCase
     end
 
     Registry.prepare
+  end
+
+  test "the documented derivation vectors are the ones the suite pins" do
+    table = File.read(README)[/^\| Vector \| Encoded name \| ID \|\n\| --- .*?\n(.*?)\n\n/m, 1]
+    refute_nil table, "the derivation vector table must be present"
+
+    documented = table.lines.map { |line| line.split("|").map(&:strip).reject(&:empty?).map { |cell| cell.delete("`") } }
+    pinned = IdentityVectors::ALL.map { |vector| [ vector.name, vector.encoded.dup.force_encoding(Encoding::UTF_8), vector.id ] }
+
+    assert_equal pinned, documented
+    assert_includes File.read(README), EventRailInternal::Identity::NAMESPACE
   end
 
   test "the documented limits table matches the constants" do
@@ -80,7 +92,9 @@ class ReadmeTest < ActiveSupport::TestCase
       "replay-safe publishers" => "Replay-safe publishers",
       "compatible versus breaking versions" => "Versioning events",
       "timestamp semantics" => "logical publication time",
-      "source semantics" => "identifies a logical producer",
+      "source semantics" => "names the logical producer",
+      "occurrence identity" => "Identity names the occurrence, not the thing it is about",
+      "consumer deduplication on source and ID" => "(subscriber, event.source, event.id)",
       "context and event extensions" => "durable baggage",
       "fixed limits" => "Fixed safety limits",
       "fiber isolation" => "isolation_level = :fiber",

@@ -106,8 +106,11 @@ module EventRail
           entry["extensions"], error: InvalidContext
         )
 
+        # The scope an undeclared follow-up's ID derives from. A subscriber's is the event
+        # it handles, by source as well as ID, since two producers may use one ID; its
+        # logical message and causation stay the event's ID.
         execution = Internal::Execution.new(
-          job_class: self.class.name, scope: message_id, started_at: started_at
+          job_class: self.class.name, scope: event ? [ event.source, event.id ] : message_id, started_at: started_at
         )
 
         Internal::Context.establish(
