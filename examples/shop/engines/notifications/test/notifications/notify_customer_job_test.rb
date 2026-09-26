@@ -4,6 +4,19 @@ module Notifications
   class NotifyCustomerJobTest < ActiveSupport::TestCase
     CUSTOMER = { customer_id: "cus_ada", customer_name: "Ada Lovelace", customer_email: "ada@example.com" }.freeze
 
+    # A delivery of version 1 of OrderPlaced exactly as the release before version 2 left it in
+    # the queue: the subscriber job's serialized argument. Performing it deserializes it, which
+    # only works while version 1 is still registered.
+    QUEUED_V1_DELIVERY = {
+      "_aj_serialized" => "EventRail::Internal::EventSerializer", "format" => 1,
+      "event_type" => "orders.order_placed", "event_version" => 1,
+      "metadata" => {
+        "id" => "d2f4d713-c769-4b2a-b6c5-85c2100a952e", "source" => "shop.orders", "occurred_at" => "2026-09-20T10:00:00.000000Z",
+        "correlation_id" => "checkout-before-the-upgrade", "causation_id" => "orders-follow-up-7", "extensions" => {}
+      },
+      "data" => { "order_id" => "7", **CUSTOMER.transform_keys(&:to_s), "total_cents" => 3870, "line_items" => [] }
+    }.freeze
+
     def placed_v2 = Orders::Events::OrderPlaced.new(order_id: "7", **CUSTOMER, total: { amount_cents: 3870, currency: "EUR" }, line_items: [])
     def placed_v1 = Orders::Events::OrderPlacedV1.new(order_id: "7", **CUSTOMER, total_cents: 3870, line_items: [])
     def publish(event) = EventRail.publish(event).event
@@ -18,9 +31,25 @@ module Notifications
     end
 
     test "a version 1 delivery still queued from before the upgrade is handled" do
+      ActiveJob::Base.execute(NotifyCustomerJob.new.serialize.merge("arguments" => [ QUEUED_V1_DELIVERY ]))
+
+      assert_includes Api.for_order("7").sole.body, "€38.70"
+    end
+
+    test "a version 1 event is still handled when published" do
       NotifyCustomerJob.perform_now(publish(placed_v1))
 
       assert_includes Api.for_order("7").sole.body, "€38.70"
+    end
+
+    test "the same fact published under two identities notifies once" do
+      cancelled = Orders::Events::OrderCancelled.new(order_id: "7", **CUSTOMER, reason: "customer")
+      first, second = publish(cancelled), publish(cancelled)
+      assert_not_equal first.id, second.id
+
+      [ first, second ].each { |event| NotifyCustomerJob.perform_now(event) }
+
+      assert_equal [ "cancelled" ], Api.for_order("7").map(&:kind)
     end
 
     test "a redelivered event records nothing new" do

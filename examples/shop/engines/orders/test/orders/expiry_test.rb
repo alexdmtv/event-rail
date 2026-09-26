@@ -13,10 +13,10 @@ module Orders
 
     test "an order still unpaid after 30 minutes is cancelled as abandoned" do
       order = checkout
+      clear_enqueued_jobs # its follow-up never ran
 
       travel 31.minutes do
-        ExpireAbandonedOrdersJob.perform_now
-        perform_enqueued_jobs(except: FollowUpJob) # the void, not the never-run follow-up
+        perform_enqueued_jobs { ExpireAbandonedOrdersJob.perform_now }
       end
 
       record = order_record(order)
@@ -39,10 +39,11 @@ module Orders
 
     test "an abandoned order's cancellation joins its own flow" do
       order = checkout
+      clear_enqueued_jobs
 
-      published = travel(31.minutes) { record_publications { ExpireAbandonedOrdersJob.perform_now } }
+      published = travel(31.minutes) { record_publications { perform_enqueued_jobs { ExpireAbandonedOrdersJob.perform_now } } }
 
-      assert_equal [ order.correlation_id ], published.map(&:correlation_id)
+      assert_equal [ order.correlation_id ], published.map(&:correlation_id).uniq
     end
   end
 end

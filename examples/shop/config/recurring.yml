@@ -1,6 +1,9 @@
 # Scheduled work. Each of these jobs starts outside every flow, so none carries EventRail's
 # context; what they cause joins the flows of the orders they act on.
 shop: &shop
+  hand_over_staged_jobs:
+    class: Platform::StagedJobRelayJob
+    schedule: every second
   simulation_tick:
     class: Simulation::TickJob
     schedule: every second

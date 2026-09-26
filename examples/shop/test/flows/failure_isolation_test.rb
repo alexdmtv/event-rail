@@ -25,4 +25,38 @@ class FailureIsolationTest < FlowTestCase
     assert_equal 38, points(order)
     assert_empty @job_failures
   end
+
+  # Every journey an order can take, with where it must end.
+  JOURNEYS = {
+    "delivered, then returned" => { ends: "refunded", then: :return },
+    "cancelled before capture" => { ends: "cancelled", first: :cancel },
+    "capture refused" => { ends: "cancelled", provider: { capture: [ :refuse ] } },
+    "refund refused" => { ends: "needs_attention", provider: { refund: [ :refuse ] }, then: :return }
+  }.freeze
+
+  # Only a checkout that fails after authorizing voids through VoidJob; Orders' checkout test
+  # covers that path.
+  IN_NO_JOURNEY = %w[ Payments::VoidJob ].freeze
+
+  test "a failure forced on any job the console offers is retried, and every order still ends where it should" do
+    Catalog::Api.receive_stock(sku: "MUG", quantity: 1_000)
+    Catalog::Api.receive_stock(sku: "TEA", quantity: 1_000)
+
+    ForceableJobs.names.each do |job|
+      Platform::FaultSettings.force_failures(job, 2)
+
+      JOURNEYS.each do |name, journey|
+        Payments::Gateway.adapter = ScriptedGateway.new(**journey.fetch(:provider, {}))
+        order = checkout(key: "#{job}: #{name}")
+        Orders::Api.cancel(order.id) if journey[:first] == :cancel
+        work_off_queue
+        Orders::Api.request_return(order.id) if journey[:then] == :return
+        work_off_queue
+
+        assert_equal journey[:ends], Orders::Api.order(order.id).state, "#{name}, with #{job} failing twice"
+      end
+
+      assert Platform::FaultSettings.current.forced_failures.fetch(job) < 2 || IN_NO_JOURNEY.include?(job), "no journey ran #{job}"
+    end
+  end
 end

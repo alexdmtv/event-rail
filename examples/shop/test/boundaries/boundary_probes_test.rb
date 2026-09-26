@@ -42,6 +42,15 @@ class BoundaryProbesTest < ActiveSupport::TestCase
       end
     RUBY
 
+    # Loyalty depends on Orders' published events only: hearing Orders grants no call into it.
+    events_only_dependency: [ "engines/loyalty/app/models/loyalty/probe_events_only.rb", <<~RUBY ],
+      module Loyalty
+        module ProbeEventsOnly
+          def self.call = Orders::Api.recent
+        end
+      end
+    RUBY
+
     # A published event is a separate package that depends on nothing, not even its module.
     event_reaching_in: [ "engines/orders/app/public/orders/events/probe_reaching_in.rb", <<~RUBY ],
       module Orders
@@ -115,6 +124,10 @@ class BoundaryProbesTest < ActiveSupport::TestCase
 
   test "a lower module cannot call upward" do
     assert_violation :upward_call, "Dependency violation: ::Orders::Api belongs to 'engines/orders', but 'engines/payments' does not specify a dependency"
+  end
+
+  test "depending on a module's events grants no call into the module" do
+    assert_violation :events_only_dependency, "Dependency violation: ::Orders::Api belongs to 'engines/orders', but 'engines/loyalty' does not specify a dependency"
   end
 
   test "a published event cannot reach into its own module" do

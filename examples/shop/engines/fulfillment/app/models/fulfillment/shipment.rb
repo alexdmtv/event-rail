@@ -1,5 +1,7 @@
 module Fulfillment
   class Shipment < ApplicationRecord
+    def requested? = state == "requested"
+    def dispatched? = state == "dispatched"
     def dispatched_or_later? = state.in?(%w[ dispatched delivered ])
     def delivered? = state == "delivered"
 

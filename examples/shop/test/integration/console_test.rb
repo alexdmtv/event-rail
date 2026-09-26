@@ -138,6 +138,15 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     assert_redirected_to order_path(order.id)
   end
 
+  test "an order's page shows its checkout key and the attempt that placed it" do
+    order = checkout(key: "the-key")
+
+    get order_path(order.id)
+
+    assert_select "code", text: "the-key"
+    assert_select "code", text: order.reference
+  end
+
   test "a flow that belongs to no order goes back to the console" do
     get flow_path("unknown")
 
@@ -176,6 +185,19 @@ class ConsoleTest < ActionDispatch::IntegrationTest
 
     assert_redirected_to new_order_path
     assert_match(/Checkout rejected/, flash[:alert])
+  end
+
+  test "a quantity that is not a whole number is refused, whichever way the form is sent" do
+    Simulation::Engine.load_seed
+
+    [ "-2", "1.5" ].each do |quantity|
+      post orders_path(format: :json), params: { customer_id: "cus_1", checkout_key: "bad-#{quantity}", items: { "MUG" => quantity } }
+      assert_response :unprocessable_content
+      assert_match(/not a quantity/, response.parsed_body["error"])
+    end
+
+    assert_empty Orders::Api.recent
+    assert_equal 10, available("MUG")
   end
 
   test "the architecture page draws the declared dependencies and the observed event map" do

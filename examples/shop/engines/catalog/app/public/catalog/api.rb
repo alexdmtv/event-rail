@@ -13,6 +13,7 @@ module Catalog
 
     class Error < StandardError; end
     class UnknownProduct < Error; end
+    class InvalidQuantity < Error; end
     class OutOfStock < Error
       attr_reader :sku
 
@@ -42,17 +43,21 @@ module Catalog
         end)
       end
 
-      # Holds stock for every item or for none. Repeating a reservation ID holds nothing
-      # more, so a retried checkout cannot double-reserve.
+      # Holds stock for every item or for none; items: { "sku" => positive Integer }.
+      # Repeating a reservation ID holds nothing more, so a repeated command cannot
+      # double-reserve.
       def reserve(reservation_id:, items:)
         Catalog::Product.transaction do
           return true if Catalog::Reservation.exists?(reservation_id: reservation_id)
 
           items.each do |sku, quantity|
-            product = find!(sku).lock!
-            raise OutOfStock, sku if product.available < Integer(quantity)
+            # A caller's mistake must not become stock: a negative reservation would add some.
+            raise InvalidQuantity, "#{sku}: #{quantity.inspect} is not a positive quantity" unless quantity.is_a?(Integer) && quantity.positive?
 
-            product.reservations.create!(reservation_id: reservation_id, quantity: Integer(quantity))
+            product = find!(sku).lock!
+            raise OutOfStock, sku if product.available < quantity
+
+            product.reservations.create!(reservation_id: reservation_id, quantity: quantity)
           end
         end
         true

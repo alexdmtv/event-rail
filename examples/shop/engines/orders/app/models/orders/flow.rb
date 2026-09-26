@@ -4,9 +4,10 @@ module Orders
   #
   # Inside a job that already carries EventRail's context -- a subscriber reacting to
   # Payments, say -- the step is already in the flow. A step started from outside one -- the
-  # console, the simulator, the expiry scan -- joins the order's flow explicitly. Its message
-  # ID is derived from the step, so repeating the same step derives the same event
-  # identities.
+  # console, the simulator, the expiry scan -- joins the order's flow explicitly. That gives
+  # it lineage only: outside a job EventRail derives no event identity, so a step that must
+  # publish the same event when repeated hands the publication to a job enqueued under an ID
+  # of its own (see Orders::Cancellation).
   module Flow
     def self.continue(order, step:, &block)
       if EventRail::Current.correlation_id

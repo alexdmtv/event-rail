@@ -1,6 +1,8 @@
 module Orders
   # The payment is captured: the order is paid, and only now is it shipped. Money moves
-  # before goods do.
+  # before goods do. A capture landing for an order cancelled meanwhile needs nothing here:
+  # the cancellation asked Payments to give back whatever the payment holds, and Payments
+  # refunds a capture.
   class MarkPaidJob < ApplicationJob
     subscribes_to Payments::Events::PaymentCaptured
 
@@ -8,17 +10,13 @@ module Orders
       order = Order.find_by(reference: event.reference) or return
 
       order.transition!(from: "placed", to: "paid", paid_at: Time.current)
-      if order.paid?
-        Fulfillment::Api.request_shipment(
-          reference: order.reference,
-          recipient: Fulfillment::Api::Recipient.new(name: order.customer_name, address: order.shipping_address),
-          items: order.items
-        )
-      elsif order.cancelled?
-        # The customer cancelled while the capture was in flight. The void came too late,
-        # so the money goes back as a refund.
-        Payments::Api.refund(reference: order.reference)
-      end
+      return unless order.paid?
+
+      Fulfillment::Api.request_shipment(
+        reference: order.reference,
+        recipient: Fulfillment::Api::Recipient.new(name: order.customer_name, address: order.shipping_address),
+        items: order.items
+      )
     end
   end
 end

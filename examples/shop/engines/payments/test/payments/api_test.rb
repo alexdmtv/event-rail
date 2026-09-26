@@ -123,6 +123,87 @@ module Payments
       assert_equal [ "payments.refund_failed" ], published.map(&:event_type)
     end
 
+    test "a refused capture's hold is voided at the provider, and the refusal still reported" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :refuse ])
+      perform_enqueued_jobs { Api.capture(reference: "ref-1") }
+
+      voided = record_publications { perform_enqueued_jobs { Api.void(reference: "ref-1") } }
+      again = record_publications { perform_enqueued_jobs { Api.capture(reference: "ref-1") } }
+
+      assert_equal 1, gateway.calls[:void]
+      assert_equal [ "payments.authorization_voided" ], voided.map(&:event_type)
+      payment = Api.payment("ref-1")
+      assert_equal "capture_failed", payment.state
+      assert payment.voided_at
+      assert_equal [ "payments.capture_failed" ], again.map(&:event_type)
+    end
+
+    test "release refunds a captured payment and voids an uncaptured one" do
+      authorize("captured")
+      authorize("uncaptured")
+      perform_enqueued_jobs { Api.capture(reference: "captured") }
+
+      published = record_publications do
+        perform_enqueued_jobs { Api.release(reference: "captured"); Api.release(reference: "uncaptured") }
+      end
+
+      assert_equal "refunded", Api.payment("captured").state
+      assert_equal "voided", Api.payment("uncaptured").state
+      assert_equal %w[ payments.authorization_voided payments.refund_issued ], published.map(&:event_type).sort
+    end
+
+    test "a void arriving while a capture is at the provider waits, and the capture stands" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new
+      gateway.define_singleton_method(:capture) do |**options|
+        VoidJob.perform_now("ref-1") # the void finds the payment claimed and retries later
+        super(**options)
+      end
+
+      published = record_publications do
+        CaptureJob.perform_now("ref-1")
+        work_off_queue
+      end
+
+      assert_equal [ 1, 0 ], [ gateway.calls[:capture], gateway.calls[:void] ]
+      assert_equal "captured", Api.payment("ref-1").state
+      assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
+    end
+
+    test "a capture arriving while a void is at the provider waits, and the void stands" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new
+      gateway.define_singleton_method(:void) do |**options|
+        CaptureJob.perform_now("ref-1")
+        super(**options)
+      end
+
+      published = record_publications do
+        VoidJob.perform_now("ref-1")
+        work_off_queue
+      end
+
+      assert_equal [ 0, 1 ], [ gateway.calls[:capture], gateway.calls[:void] ]
+      assert_equal "voided", Api.payment("ref-1").state
+      assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
+    end
+
+    test "a capture that exhausts its retries reports the failure within the caller's flow" do
+      authorize
+      Gateway.adapter = ScriptedGateway.new(capture: [ :timeout ] * 5)
+
+      published = record_publications do
+        EventRail.with_context(message_id: "checkout-flow-1") { Api.capture(reference: "ref-1") }
+        work_off_queue
+      end
+
+      failure = published.sole
+      assert_equal "payments.capture_failed", failure.event_type
+      assert_equal "checkout-flow-1", failure.correlation_id
+      assert_equal "payments-capture-ref-1", failure.causation_id
+    end
+
     test "payments are looked up for many references at once" do
       authorize("ref-1")
       authorize("ref-2")

@@ -2,12 +2,12 @@ module Payments
   # Payments' public surface.
   #
   # `authorize` is synchronous: checkout cannot tell the customer "card declined" later.
-  # `capture`, `void` and `refund` are asynchronous commands: they return at once, a
+  # `capture`, `void`, `release` and `refund` are asynchronous commands: they return at once, a
   # Payments job talks to the provider -- retrying when it times out -- and the outcome
   # arrives as one of Payments::Events. The caller owns the decision to move money; Payments
   # owns how, and when it has happened.
   module Api
-    Payment = Data.define(:reference, :state, :amount_cents, :currency, :failure_reason)
+    Payment = Data.define(:reference, :state, :amount_cents, :currency, :failure_reason, :voided_at)
 
     class Error < StandardError; end
     # The card issuer declined the authorization.
@@ -37,6 +37,11 @@ module Payments
       def void(reference:) = enqueue(VoidJob, "void", reference)
       def refund(reference:) = enqueue(RefundJob, "refund", reference)
 
+      # Gives back whatever the payment holds when the command runs: refunds it if it was
+      # captured, voids it if it was not. For a caller undoing its payment without knowing
+      # whether a capture has landed.
+      def release(reference:) = enqueue(ReleaseJob, "release", reference)
+
       def payment(reference)
         payment = Payments::Payment.find_by(reference: reference)
         payment && value(payment)
@@ -53,7 +58,7 @@ module Payments
 
         def value(payment)
           Payment.new(reference: payment.reference, state: payment.state, amount_cents: payment.amount_cents,
-            currency: payment.currency, failure_reason: payment.failure_reason)
+            currency: payment.currency, failure_reason: payment.failure_reason, voided_at: payment.voided_at)
         end
     end
   end

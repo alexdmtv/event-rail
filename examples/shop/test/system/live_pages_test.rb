@@ -15,13 +15,16 @@ class LivePagesTest < ApplicationSystemTestCase
     assert_equal scrolled, page.evaluate_script("window.scrollY")
   end
 
-  test "a refresh never discards what the developer is typing" do
+  test "unsubmitted input survives the refreshes, and the rest of the page keeps updating" do
     visit root_path
+    assert_text "Nothing published yet"
     fill_in "orders_per_minute", with: "77"
-    find("h1").click # the field loses focus; its input is still unsaved
-    checkout
-    sleep 3 # longer than the refresh interval: an absence can only be checked by waiting
+    find("h1").click # the field loses focus; its input is still unsubmitted
 
+    checkout
+    work_off_queue(due_only: true)
+
+    assert_selector "#feed li", minimum: 2, wait: 3
     assert_field "orders_per_minute", with: "77"
   end
 
@@ -47,6 +50,11 @@ class LivePagesTest < ApplicationSystemTestCase
     click_on "Submit it twice at once"
 
     assert_text(/Both submissions returned order #\d+ — one order\./)
-    assert_equal 1, Orders::Api.recent.size
+    order = Orders::Api.recent.sole
+
+    Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
+    work_off_queue
+    assert_equal "delivered", Orders::Api.order(order.id).state
+    assert_equal "captured", Payments::Api.payment(order.reference).state
   end
 end

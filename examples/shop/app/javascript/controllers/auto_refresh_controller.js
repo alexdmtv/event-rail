@@ -3,26 +3,28 @@ import { Turbo } from "@hotwired/turbo-rails"
 
 // Keeps a page current while the shop runs: every couple of seconds it revisits the page,
 // and Turbo morphs in what changed, keeping the scroll position (see the meta tags in the
-// layout). It pauses while the developer is typing into a form on the page, so a refresh
-// never discards their input, and while the tab is hidden.
+// layout). A form holding input the developer has not submitted is marked permanent, so the
+// morph leaves it alone while the rest of the page keeps updating. The refresh waits only
+// while a field has focus, and while the tab is hidden.
 export default class extends Controller {
   static values = { interval: { type: Number, default: 2000 } }
 
   connect() {
-    this.dirty = false
-    this.element.addEventListener("input", this.markDirty)
-    this.element.addEventListener("submit", this.markClean)
+    this.element.addEventListener("input", this.keep)
+    this.element.addEventListener("submit", this.release)
+    this.element.addEventListener("reset", this.release)
     this.timer = setInterval(() => this.refresh(), this.intervalValue)
   }
 
   disconnect() {
     clearInterval(this.timer)
-    this.element.removeEventListener("input", this.markDirty)
-    this.element.removeEventListener("submit", this.markClean)
+    this.element.removeEventListener("input", this.keep)
+    this.element.removeEventListener("submit", this.release)
+    this.element.removeEventListener("reset", this.release)
   }
 
   refresh() {
-    if (document.hidden || this.dirty || this.typing) return
+    if (document.hidden || this.typing) return
     Turbo.visit(window.location.href, { action: "replace" })
   }
 
@@ -31,6 +33,11 @@ export default class extends Controller {
     return active && this.element.contains(active) && active.matches("input, select, textarea")
   }
 
-  markDirty = () => { this.dirty = true }
-  markClean = () => { this.dirty = false }
+  // Turbo keeps a permanent element as it is when it morphs the page; it needs an id.
+  keep = (event) => {
+    const form = event.target.form
+    if (form?.id) form.setAttribute("data-turbo-permanent", "")
+  }
+
+  release = (event) => { event.target.removeAttribute("data-turbo-permanent") }
 }

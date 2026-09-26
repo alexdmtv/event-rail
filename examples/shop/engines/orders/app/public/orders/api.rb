@@ -12,7 +12,7 @@ module Orders
       def total_cents = quantity * unit_price_cents
     end
     Order = Data.define(
-      :id, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address,
+      :id, :checkout_key, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address,
       :total_cents, :currency, :lines, :correlation_id, :cancel_reason, :attention_reason, :tracking_code,
       :placed_at, :paid_at, :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
     ) do
@@ -22,6 +22,7 @@ module Orders
 
     class Error < StandardError; end
     class EmptyBasket < Error; end
+    class InvalidQuantity < Error; end
     class UnknownProduct < Error; end
     class OutOfStock < Error; end
     class PaymentDeclined < Error; end
@@ -31,7 +32,7 @@ module Orders
     class NotReturnable < Error; end
 
     class << self
-      # items: { "sku" => quantity }. Idempotent on key: see Orders::Checkout.
+      # items: { "sku" => quantity }, each a whole number. Idempotent on key: see Orders::Checkout.
       def checkout(customer:, items:, key:)
         value(Orders::Checkout.new(customer: customer, items: items, key: key).call)
       end
@@ -74,7 +75,7 @@ module Orders
         def value(order)
           Order.new(
             **order.slice(
-              :id, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address, :total_cents,
+              :id, :checkout_key, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address, :total_cents,
               :currency, :correlation_id, :cancel_reason, :attention_reason, :tracking_code, :placed_at, :paid_at,
               :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
             ).symbolize_keys,

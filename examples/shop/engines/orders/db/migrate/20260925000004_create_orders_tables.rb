@@ -1,9 +1,11 @@
 class CreateOrdersTables < ActiveRecord::Migration[8.1]
   def change
     create_table :orders_orders do |t|
-      # The checkout key the caller supplied. It is also the reference Orders gives Catalog,
-      # Payments and Fulfillment, so a retried checkout reaches the same reservation and the
-      # same authorization.
+      # The checkout key the caller supplied: one order per key, whichever attempt placed it.
+      t.string :checkout_key, null: false, index: { unique: true }
+      # The attempt that placed the order, `<checkout key>/<attempt id>`. It is the reference
+      # Orders gives Catalog, Payments and Fulfillment, so every attempt's reservation and
+      # authorization are its own.
       t.string :reference, null: false, index: { unique: true }
       t.string :basket_fingerprint, null: false
       t.string :state, null: false

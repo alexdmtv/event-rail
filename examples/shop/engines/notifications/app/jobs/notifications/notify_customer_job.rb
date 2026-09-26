@@ -19,7 +19,7 @@ module Notifications
       Notification.insert(
         { event_id: event.id, kind: kind, order_id: event.order_id, customer_email: event.customer_email,
           subject: subject, body: body, created_at: Time.current },
-        unique_by: [ :event_id, :kind ]
+        unique_by: [ :order_id, :kind ]
       )
     end
 

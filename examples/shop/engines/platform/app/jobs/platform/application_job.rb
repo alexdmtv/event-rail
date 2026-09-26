@@ -29,5 +29,26 @@ module Platform
       job.enqueue(options)
       job
     end
+
+    # Starts a job as part of the surrounding transaction, for code at a boundary that has
+    # just written business records: the job is staged in their store and commits, or rolls
+    # back, with them (see Platform::StagedJob). Once the transaction has committed, the job
+    # is handed to the queue at once; if that fails, Platform::StagedJobRelayJob hands it over
+    # shortly after. Inside a job, call perform_later_as instead: the job's own retry repeats
+    # a lost enqueue.
+    def self.stage_later_as(job_id, *arguments)
+      transaction = StagedJob.current_transaction
+      raise ArgumentError, "stage_later_as needs a surrounding transaction to commit with; use perform_later_as" unless transaction.open?
+
+      job = new(*arguments)
+      job.job_id = job_id
+      staged = StagedJob.stage(job)
+      transaction.after_commit do
+        staged.hand_over
+      rescue => error
+        Rails.logger.warn("Staged job #{job_id} left for the relay: #{error.class}: #{error.message}")
+      end
+      job
+    end
   end
 end

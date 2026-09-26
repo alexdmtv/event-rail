@@ -12,6 +12,16 @@ module Simulation
       assert_not Api.state.running
     end
 
+    test "starting the server switches a simulator left running off, and keeps its rate" do
+      Api.configure(orders_per_minute: 30, cancel_rate: 0.1, return_rate: 0)
+      Api.start
+
+      Simulation::Engine.switch_simulator_off # what the engine does when the server boots
+
+      assert_not Api.state.running
+      assert_equal 30, Api.state.orders_per_minute
+    end
+
     test "a tick while the simulator is off places nothing" do
       Api.tick
 
@@ -74,7 +84,7 @@ module Simulation
 
       Api.tick
 
-      assert_equal "awaiting_return", Orders::Api.recent.find { |order| order.reference == "delivered-earlier" }.state
+      assert_equal "awaiting_return", Orders::Api.recent.find { |order| order.checkout_key == "delivered-earlier" }.state
     end
   end
 end

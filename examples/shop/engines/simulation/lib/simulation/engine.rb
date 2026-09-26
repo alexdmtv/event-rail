@@ -12,5 +12,18 @@ module Simulation
 
     isolate_namespace Simulation
     share_migrations
+
+    # The simulator is off whenever the shop starts, even if it was left running when the
+    # server stopped: restarting should not resume traffic nobody asked for. Its rate and
+    # fractions are kept.
+    config.after_initialize do
+      Simulation::Engine.switch_simulator_off if defined?(Rails::Server)
+    end
+
+    def self.switch_simulator_off
+      Simulation::Settings.where(running: true).update_all(running: false)
+    rescue ActiveRecord::ActiveRecordError => error # no database yet: nothing to switch off
+      Rails.logger.info("Simulator not switched off at boot: #{error.message}")
+    end
   end
 end

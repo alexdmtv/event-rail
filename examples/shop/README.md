@@ -16,6 +16,8 @@ bin/setup   # installs gems, creates both databases, seeds products and customer
 
 Then open <http://localhost:3000>. After the first time, `bin/dev` starts it again. Requires Ruby 3.3 or newer; the databases are SQLite files in `storage/`.
 
+`bin/setup` is safe to run again after pulling changes: it keeps your data and applies what is new. To start over with a fresh shop instead — the demo data discarded, both databases rebuilt from `db/schema.rb` and seeded — run `bin/setup --reset`.
+
 `bin/dev` is the only process: Solid Queue's dispatcher, scheduler and workers run inside Puma, so jobs and EventRail subscribers run as soon as the server does. The terminal shows web requests; jobs log to `log/jobs.log` (`tail -f log/jobs.log`), because some run every second even while the simulator is off. Set `RAILS_LOG_LEVEL=debug` to see every SQL query.
 
 ## A tour of the console
@@ -87,16 +89,18 @@ Every interaction between two modules in this application:
 | --- | --- | --- |
 | `Catalog::Api.quote` | sync query | checkout needs the price now |
 | `Catalog::Api.reserve` | sync command | the customer must hear "out of stock" now |
-| `Catalog::Api.release` | sync command | undoing Orders' own reservation, on rejection or cancellation |
+| `Catalog::Api.release` | sync command | undoing Orders' own reservation, on a rejected checkout attempt or a cancellation |
 | `Catalog::Api.ship` | sync command | the reserved stock leaves the warehouse when the parcel is dispatched |
 | `Catalog::Api.restock` | sync command | a returned parcel goes back on the shelf |
 | `Catalog::Api.products` | sync query | the simulator picks what to buy |
 | `Catalog::Api.receive_stock` | sync command | the simulated supplier refills a low shelf |
 | `Payments::Api.authorize` | sync command, calls the provider | a declined card must show at checkout |
 | `Payments::Api.capture` | async command | the provider is slow and flaky; Orders waits for the outcome event |
-| `Payments::Api.void` | async command | releasing a card hold Orders placed |
-| `Payments::Api.refund` | async command | giving money back after a cancellation or a return |
+| `Payments::Api.void` | async command | releasing the card hold a rejected checkout attempt placed |
+| `Payments::Api.release` | async command | a cancellation gives back whatever the payment holds; Payments decides between void and refund, because only Payments knows whether a capture has landed |
+| `Payments::Api.refund` | async command | giving money back for a returned parcel |
 | `Fulfillment::Api.request_shipment` | async command | the carrier works on its own schedule |
+| `Fulfillment::Api.cancel_shipment` | sync command | a cancellation must know now whether the parcel has left, and only Fulfillment knows |
 | `Fulfillment::Api.expect_return` | async command | the carrier brings the parcel back when it does |
 | `Orders::Api.checkout` | sync command | the simulator is a client placing orders |
 | `Orders::Api.cancel` | sync command | a simulated customer changing their mind |
@@ -130,28 +134,35 @@ Inside a module, work with one known handler is a plain job, not an event: check
 **Checkout** decides synchronously, because the customer is waiting (`Orders::Checkout`):
 
 ```
-quote prices → reserve stock → authorize card → commit the order → enqueue Orders::FollowUpJob
+quote prices → reserve stock → authorize card → commit the order with Orders::FollowUpJob staged → hand the job to the queue
 ```
 
-A failure before the commit gives back what was taken — the reservation, the authorization — and is reported to the caller, so a rejected checkout leaves nothing held. The follow-up job announces `OrderPlaced` and asks Payments to capture.
+Each run under a checkout key is an **attempt** with a reference of its own, `<key>/<attempt id>`, which is what Orders gives Catalog and Payments. A failure before the commit gives back what *this attempt* took — its reservation, its authorization — and is reported to the caller, so a rejected checkout leaves nothing held, and a retry starts clean: it cannot trip over a released reservation or a void still in the queue. Two submissions of the same key at once both run as attempts; the unique key lets one order through, and the other gives back its own reservation and authorization and returns that order. The follow-up job announces `OrderPlaced` and asks Payments to capture.
 
 **Payment before shipping.** The card is *authorized* at checkout: a hold on the customer's balance, no money moved. It is *captured* — the charge itself — once the order is confirmed, and only a paid order is shipped. A temporary provider failure is retried inside Payments; a refused capture cancels the order before anything leaves the warehouse. (Capturing close to fulfilment is common card practice; the rules vary by card network and region.)
 
-**Cancellation** compensates by state: before capture it voids the hold, after capture it refunds, after dispatch it is refused and the customer is pointed to a return. **Abandoned orders** — still unpaid 30 minutes after checkout — are cancelled by a scheduled business rule, releasing their stock and card hold.
+**Cancellation** asks the module that knows. Fulfillment is asked to cancel the shipment and refuses once the carrier has the parcel — even if Orders has not heard yet — and the customer is pointed to a return. Otherwise the order is cancelled and a job gives back the stock and asks Payments to *release* the payment: Payments voids the hold if nothing was captured and refunds if something was, deciding from its own state when the job runs. An order still `placed` can have a capture that landed before Orders heard of it; asking Orders' own state would have voided nothing and left the customer charged. **Abandoned orders** — still unpaid 30 minutes after checkout — are cancelled by a scheduled business rule, the same way.
+
+**Carrier reports arrive in any order.** The workers run in parallel and EventRail promises no ordering, so a delivery can be handled before the dispatch it follows. Orders' delivery subscriber then raises and is retried until the dispatch is recorded, rather than succeeding without effect and losing the delivery.
 
 **Returns** end in a refund: the carrier brings the parcel back, Orders restocks it and commands a refund, and the order is refunded when Payments reports it. A refund the provider definitively refuses sets the order aside for a person rather than retrying forever.
 
 ## Errors, retries and idempotency
 
-**At the boundary, the caller decides.** A checkout that fails tells its caller, and the caller retries. For that to be safe the operation must be idempotent: the checkout form carries a **checkout key**, which is also the reference Orders gives Catalog and Payments, whose commands are idempotent per reference. A repeated checkout finds the order and returns it. If the order was recorded but its follow-up job never got enqueued — the queue is a separate database, so those two writes can never be one — the retry enqueues it: the caller's retry *is* the recovery. A caller who never retries is covered by the 30-minute expiry, which gives back what the checkout held.
+**At the boundary, the caller decides.** A checkout that fails tells its caller, and the caller retries. For that to be safe the operation must be idempotent: the checkout form carries a **checkout key**, and there is at most one order per key. A repeated checkout finds the order and returns it; one that finds none, because every earlier attempt was rejected, is a fresh attempt. A repeat never runs anything again: the order's follow-up was committed with the order, so there is nothing to resume.
+
+**Work started at a boundary is staged with the data.** A web request that writes an order and must also start its follow-up has a dual write: the queue is a separate database, so enqueuing cannot join the order's transaction. Staging can. `FollowUpJob.stage_later_as` writes the job, in Active Job's own serialized form, to `platform_staged_jobs` in the same transaction as the order, and they commit or roll back together. After the commit the job is handed to the queue at once; if that fails, `Platform::StagedJobRelayJob`, running every second, hands it over shortly after. An accepted order always proceeds, whether or not the customer hears the answer. Handing a job over twice is harmless: it keeps its job ID, so it is the same command publishing the same event IDs. Only boundaries stage — inside a job, the job's own retry repeats a lost enqueue — and the staging table lives in the store of the data it commits with, so a module given its own database gets its own table while the queue keeps its own.
 
 **Inside, EventRail keeps identities stable.** An event's ID is derived from the job publishing it, so a retried job publishes the same fact under the same ID and every subscriber recognises the repetition. The shop leans on this in three places:
 
 - Commands and the follow-up are enqueued under IDs derived from their business key (`Platform::ApplicationJob.perform_later_as`), so repeating a command republishes its outcome under the same event ID.
 - Every publisher reports its current state unconditionally rather than only when it made the change, so a job that crashed between its write and its publication publishes on its retry — under the same identity.
-- Cancellation, which three paths can trigger, records when it was announced, so a cancellation that crashed before its announcement is announced by the next attempt, and a second cancel changes nothing.
+- Only a job derives identity: an event published from a web request, or from any code outside a job, gets a random ID. So a step started outside a job hands anything it must publish replay-stably to a job — cancellation's announcement comes from a job whose ID is derived from the order, and a repeated announcement carries the same event ID.
+- A job that exhausts its retries reports the outcome inside `perform`, on its last attempt, not from a `retry_on` block: the block runs after EventRail's context has closed, and the outcome would drop out of the order's flow.
 
-**Every reaction is idempotent** — a conditional state transition, or a unique index on the event — because delivery is at least once.
+**Every reaction is idempotent** — a conditional state transition, or a unique index on the order and the kind of fact — because delivery is at least once. A handler repeated after an interruption takes every step its state calls for, not only the ones that follow a transition it made itself. And every handler an order depends on retries a failure on its own schedule, so one failed attempt never strands an order.
+
+The patterns, in short: **compensate by your own attempt's reference**; **ask the module that owns a step for its state before undoing it**; **publish replay-stable facts from jobs**; **take the next step whenever the state calls for it**; **retry an unmet prerequisite rather than dropping the fact**.
 
 **Lineage.** A checkout opens EventRail's context with a message ID derived from its key; every job that includes `EventRail::JobContext` carries it on, and every event records its correlation and causation. That is all the console needs to draw an order's tree. Jobs that *start* flows — the simulator's tick, the expiry scan — deliberately carry no context, like a web request; jobs that *continue* flows do.
 
@@ -174,6 +185,7 @@ Loyalty was added after the rest of the shop. It took an engine, one `require_re
 ```
 engines/orders/
   lib/orders/engine.rb             isolate_namespace Orders; requires the engines it builds on
+  bin/rails                        the module's own Rails command: generators write into the module
   package.yml                      its dependencies, enforced by packwerk
   app/public/orders/api.rb         Orders::Api: the synchronous public API, returning plain values
   app/public/orders/events/        Orders::Events: published events, a package of their own
@@ -201,8 +213,9 @@ Both run in CI. `test/boundaries` plants rule-breaking files into a copy of the 
 - **packs-rails with automatic_namespaces**, or attaching a namespace to a folder by hand, to avoid repeating the module name in `app/models/orders/`. Both work with packwerk and EventRail, and both break Rails' generators, which then write files where the module does not look. One repeated folder was cheaper.
 - **Events inside the module package.** Two modules reacting to each other's events then form a package cycle, and a subscriber gains the publisher's whole API.
 - **One shared package for every event.** No cycles, but ownership becomes a folder convention and every team edits one package. The reference modular monoliths we studied give each module its own contracts package instead, which is what `app/public/<module>/events` is.
-- **Jobs and business data in one database**, to enqueue atomically with the commit. It couples job storage to business storage — the opposite of where per-module storage would go. The design accepts the gap and closes it with the caller's retry and the expiry.
-- **A sweeper that completes stalled checkouts.** It would silently finish an order whose customer was told it failed.
+- **Jobs and business data in one database**, to enqueue atomically with the commit. It couples job storage to business storage — the opposite of where per-module storage would go. A staging table and a relay give the same atomicity and keep the queue separate.
+- **Letting the caller's retry recover a lost enqueue** (the first version). It is consistent — the caller is told "placed" only after the hand-off — but a repeat had to re-enqueue whenever the order still looked unstarted, which it also did on every double submission: the whole flow ran twice, every step a no-op the second time.
+- **An idempotency-key table with stored responses and a 409 for a concurrent duplicate**, as payment APIs do. With the follow-up committed alongside the order, the order row and its unique key are idempotency enough.
 
 ## Tests
 
@@ -212,4 +225,4 @@ bin/rails test:system                # only the console, in headless Chrome
 bin/ci                               # everything CI runs
 ```
 
-Module tests live with their module in `engines/<module>/test`. System tests drive headless Chrome through [Cuprite](https://github.com/rubycdp/cuprite); set `BROWSER_PATH` if Chrome is not on your `PATH`. Whole-flow tests in `test/flows` work off the queue one job at a time, as a worker does, and check what every module ended up with through its public API. The `example` job in the gem's CI runs all of it on every pull request, against the gem's current source.
+Module tests live with their module in `engines/<module>/test`. Each engine has its own `bin/rails`, so `bin/rails generate model Refund` run in `engines/payments` writes `Payments::Refund` and a `payments_refunds` migration into Payments. System tests drive headless Chrome through [Cuprite](https://github.com/rubycdp/cuprite); set `BROWSER_PATH` if Chrome is not on your `PATH`. Whole-flow tests in `test/flows` work off the queue one job at a time, as a worker does, and check what every module ended up with through its public API. The `example` job in the gem's CI runs all of it on every pull request, against the gem's current source.

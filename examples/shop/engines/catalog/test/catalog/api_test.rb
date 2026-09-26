@@ -15,6 +15,14 @@ module Catalog
       assert_not_respond_to quote.lines.first, :save
     end
 
+    test "a reservation refuses a quantity that is not a positive integer" do
+      [ -2, 0, "1", 1.5 ].each do |quantity|
+        assert_raises(Api::InvalidQuantity, quantity.inspect) { Api.reserve(reservation_id: "r-#{quantity}", items: { "TEA" => quantity }) }
+      end
+
+      assert_equal 10, Api.product("TEA").available
+    end
+
     test "a reservation holds stock for every item or for none" do
       assert_raises(Api::OutOfStock) { Api.reserve(reservation_id: "r-1", items: { "TEA" => 1, "MUG" => 4 }) }
 

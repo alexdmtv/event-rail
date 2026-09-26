@@ -27,3 +27,11 @@ bin/packwerk validate && bin/packwerk check
 ```
 
 `bin/dev` starts the shop with its job workers; the console is at http://localhost:3000.
+
+The example's `Gemfile.lock` records this gem's version and dependencies, and CI installs it
+frozen. A pull request that changes either -- a version bump for a release included -- updates
+the lock in the same pull request, or the `example` job fails:
+
+```sh
+cd examples/shop && bundle lock
+```

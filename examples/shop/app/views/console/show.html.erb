@@ -18,7 +18,7 @@
       <%= button_to (@simulation.running ? "Stop" : "Start"), simulation_path, method: :patch,
             params: { command: @simulation.running ? "stop" : "start" }, class: (@simulation.running ? "button" : "button primary") %>
     </div>
-    <%= form_with url: simulation_path, method: :patch, class: "settings" do |form| %>
+    <%= form_with url: simulation_path, method: :patch, id: "simulator-settings", class: "settings" do |form| %>
       <label>Orders per minute <%= form.number_field :orders_per_minute, value: @simulation.orders_per_minute, min: 0, max: 120 %></label>
       <label>Cancel rate % <%= form.number_field :cancel_rate, value: percent(@simulation.cancel_rate), min: 0, max: 100 %></label>
       <label>Return rate % <%= form.number_field :return_rate, value: percent(@simulation.return_rate), min: 0, max: 100 %></label>
@@ -38,7 +38,7 @@
 
   <section class="card" id="faults">
     <header><h2>Faults</h2><span class="muted small">demonstration only</span></header>
-    <%= form_with url: faults_path, method: :patch, class: "settings" do |form| %>
+    <%= form_with url: faults_path, method: :patch, id: "fault-rates", class: "settings" do |form| %>
       <label>Card declined at checkout % <%= form.number_field :authorization_decline_rate, value: percent(@faults.authorization_decline_rate), min: 0, max: 100 %></label>
       <label>Capture refused % <%= form.number_field :capture_refusal_rate, value: percent(@faults.capture_refusal_rate), min: 0, max: 100 %></label>
       <label>Refund refused % <%= form.number_field :refund_refusal_rate, value: percent(@faults.refund_refusal_rate), min: 0, max: 100 %></label>
@@ -46,7 +46,7 @@
       <label>Carrier delay, seconds <%= form.number_field :carrier_delay_seconds, value: @faults.carrier_delay_seconds, min: 0, max: 600 %></label>
       <%= form.submit "Apply", class: "button" %>
     <% end %>
-    <%= form_with url: faults_path, method: :patch, class: "settings inline" do |form| %>
+    <%= form_with url: faults_path, method: :patch, id: "forced-failures", class: "settings inline" do |form| %>
       <label>Make <%= form.select :job_class, @forceable_jobs, {}, class: "wide" %></label>
       <label>fail its next <%= form.number_field :count, value: 3, min: 1, max: 50 %> runs</label>
       <%= form.submit "Break it", class: "button danger" %>

@@ -56,7 +56,7 @@ module Orders
 
     test "cancelling twice changes nothing and announces nothing further" do
       order = checkout
-      Api.cancel(order.id)
+      perform_enqueued_jobs(except: FollowUpJob) { Api.cancel(order.id) }
 
       published = record_publications do
         assert_no_enqueued_jobs { Api.cancel(order.id) }
@@ -69,18 +69,31 @@ module Orders
       order = checkout
       Orders::Order.where(id: order.id).update_all(state: "cancelled", cancel_reason: "customer", cancelled_at: Time.current)
 
-      published = record_publications { Api.cancel(order.id) }
+      published = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
 
-      assert_equal [ "orders.order_cancelled" ], published.map(&:event_type)
+      assert_includes published.map(&:event_type), "orders.order_cancelled"
       assert order_record(order).cancellation_announced_at?
+    end
+
+    test "a cancellation interrupted after its announcement announces again under the same identity" do
+      order = checkout
+      clear_enqueued_jobs
+      first = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
+      Orders::Order.where(id: order.id).update_all(cancellation_announced_at: nil) # as if it crashed right after publishing
+
+      second = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
+
+      announcement = ->(published) { published.select { |publication| publication.event_type == "orders.order_cancelled" }.map(&:event_id) }
+      assert_equal 1, announcement.(first).size
+      assert_equal announcement.(first), announcement.(second)
     end
 
     test "a cancellation joins the order's flow" do
       order = checkout
 
-      published = record_publications { Api.cancel(order.id) }
+      published = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
 
-      assert_equal [ order.correlation_id ], published.map(&:correlation_id)
+      assert_equal [ order.correlation_id ], published.map(&:correlation_id).uniq
     end
   end
 end

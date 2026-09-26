@@ -27,7 +27,7 @@ class OrdersController < ApplicationController
   def create
     order = Orders::Api.checkout(
       customer: Simulation::Api.customer_snapshot(params.require(:customer_id)),
-      items: params.fetch(:items, {}).permit!.to_h.transform_values(&:to_i),
+      items: params.fetch(:items, {}).permit!.to_h, # as submitted: checkout refuses what is not a quantity
       key: params.require(:checkout_key)
     )
     respond_to do |format|

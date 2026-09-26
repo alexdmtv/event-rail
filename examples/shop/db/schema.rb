@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
   create_table "catalog_products", force: :cascade do |t|
     t.string "sku", null: false
     t.string "name", null: false
@@ -43,13 +43,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
 
   create_table "fulfillment_shipments", force: :cascade do |t|
     t.string "reference", null: false
-    t.string "recipient_name", null: false
-    t.string "address", null: false
+    t.string "recipient_name"
+    t.string "address"
     t.json "items", default: {}, null: false
     t.string "state", default: "requested", null: false
     t.string "tracking_code"
     t.datetime "dispatched_at"
     t.datetime "delivered_at"
+    t.datetime "cancelled_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["reference"], name: "index_fulfillment_shipments_on_reference", unique: true
@@ -74,8 +75,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
     t.string "subject", null: false
     t.text "body", null: false
     t.datetime "created_at", null: false
-    t.index ["event_id", "kind"], name: "index_notifications_notifications_on_event_id_and_kind", unique: true
-    t.index ["order_id"], name: "index_notifications_notifications_on_order_id"
+    t.index ["order_id", "kind"], name: "index_notifications_notifications_on_order_id_and_kind", unique: true
   end
 
   create_table "observability_attempts", force: :cascade do |t|
@@ -119,6 +119,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
   end
 
   create_table "orders_orders", force: :cascade do |t|
+    t.string "checkout_key", null: false
     t.string "reference", null: false
     t.string "basket_fingerprint", null: false
     t.string "state", null: false
@@ -142,6 +143,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
     t.datetime "refunded_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["checkout_key"], name: "index_orders_orders_on_checkout_key", unique: true
     t.index ["correlation_id"], name: "index_orders_orders_on_correlation_id"
     t.index ["customer_id"], name: "index_orders_orders_on_customer_id"
     t.index ["reference"], name: "index_orders_orders_on_reference", unique: true
@@ -155,6 +157,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
     t.string "state", null: false
     t.string "authorization_code", null: false
     t.string "failure_reason"
+    t.string "operation"
+    t.string "operation_job_id"
     t.datetime "captured_at"
     t.datetime "voided_at"
     t.datetime "refunded_at"
@@ -172,6 +176,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000008) do
     t.json "forced_failures", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "platform_staged_jobs", force: :cascade do |t|
+    t.string "job_id", null: false
+    t.string "job_class", null: false
+    t.json "payload", null: false
+    t.string "correlation_id"
+    t.string "causation_id"
+    t.datetime "created_at", null: false
+    t.index ["created_at"], name: "index_platform_staged_jobs_on_created_at"
+    t.index ["job_id"], name: "index_platform_staged_jobs_on_job_id"
   end
 
   create_table "simulation_customers", force: :cascade do |t|

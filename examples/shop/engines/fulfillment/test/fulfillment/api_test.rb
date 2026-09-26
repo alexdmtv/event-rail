@@ -32,6 +32,55 @@ module Fulfillment
       assert_equal 1, dispatches.map(&:event_id).uniq.size, "a repeated dispatch must reuse the event identity"
     end
 
+    test "a shipment cancelled before the carrier collects it never leaves" do
+      Platform::FaultSettings.current.update!(carrier_delay_seconds: 30)
+      request_shipment
+
+      published = record_publications do
+        Api.cancel_shipment(reference: "ref-1")
+        Api.cancel_shipment(reference: "ref-1")
+        work_off_queue
+      end
+
+      assert_empty published
+      assert_equal "cancelled", Api.shipment("ref-1").state
+    end
+
+    test "a dispatched shipment cannot be cancelled" do
+      Platform::FaultSettings.current.update!(carrier_delay_seconds: 30)
+      request_shipment
+      perform_enqueued_jobs(only: DispatchJob)
+
+      assert_raises(Api::AlreadyDispatched) { Api.cancel_shipment(reference: "ref-1") }
+      assert_equal "dispatched", Api.shipment("ref-1").state
+    end
+
+    test "a request arriving after the cancellation does not revive the shipment" do
+      Api.cancel_shipment(reference: "ref-1")
+
+      published = record_publications { perform_enqueued_jobs { request_shipment } }
+
+      assert_empty published
+      assert_equal "cancelled", Api.shipment("ref-1").state
+    end
+
+    test "a dispatch retried after its delivery could not be scheduled still delivers" do
+      Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
+      request_shipment
+      clear_enqueued_jobs
+      DeliveryJob.define_singleton_method(:perform_later_as) { |*| raise "queue unavailable" }
+      DispatchJob.perform_now("ref-1") # commits the dispatch, fails to schedule the delivery, retries later
+      DeliveryJob.singleton_class.remove_method(:perform_later_as)
+      assert_enqueued_jobs 1, only: DispatchJob
+      assert_equal "dispatched", Api.shipment("ref-1").state
+
+      work_off_queue
+
+      assert_equal "delivered", Api.shipment("ref-1").state
+    ensure
+      DeliveryJob.singleton_class.remove_method(:perform_later_as) if DeliveryJob.singleton_class.method_defined?(:perform_later_as, false)
+    end
+
     test "an expected return is reported when the parcel arrives" do
       published = record_publications { perform_enqueued_jobs { Api.expect_return(reference: "ref-1") } }
 

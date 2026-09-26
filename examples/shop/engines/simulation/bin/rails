@@ -1,0 +1,22 @@
+#!/usr/bin/env ruby
+# The module's own Rails command. Run inside engines/simulation, `bin/rails generate model ...`
+# writes into this module, under its namespace and with its table prefix; the host
+# application's bin/rails would write into the host instead. It boots the whole shop.
+
+ENGINE_ROOT = File.expand_path("..", __dir__)
+ENGINE_PATH = File.expand_path("../lib/simulation/engine", __dir__)
+APP_PATH = File.expand_path("../../../config/application", __dir__)
+
+ENV["BUNDLE_GEMFILE"] ||= File.expand_path("../../../Gemfile", __dir__)
+require "bundler/setup"
+
+# The frameworks config/application.rb loads, required before the engine so its generators
+# know the ORM and the test framework.
+require "rails"
+require "active_model/railtie"
+require "active_job/railtie"
+require "active_record/railtie"
+require "action_controller/railtie"
+require "action_view/railtie"
+require "rails/test_unit/railtie"
+require "rails/engine/commands"

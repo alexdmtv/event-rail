@@ -40,7 +40,8 @@ module Orders
       assert_equal "cancelled", record.state
       assert_match(/payment refused/, record.cancel_reason)
       assert_equal 10, available("MUG")
-      assert_nil Fulfillment::Api.shipment(order.reference)
+      assert_equal "cancelled", Fulfillment::Api.shipment(order.reference).state, "nothing was requested, and nothing can be now"
+      assert Payments::Api.payment(order.reference).voided_at, "the refused capture's hold is voided"
       assert_includes published.map(&:event_type), "orders.order_cancelled"
     end
 
@@ -80,6 +81,43 @@ module Orders
       event = Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)
 
       assert_redelivery_changes_nothing(MarkDeliveredJob, event)
+    end
+
+    test "a dispatch recorded before the stock could be shipped ships it on retry" do
+      slow_carrier
+      order = checkout
+      perform_due_jobs
+      dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
+      clear_enqueued_jobs
+      failing(Catalog::Api, :ship, "warehouse system down") do
+        MarkShippedJob.perform_now(dispatched) # the order is shipped; shipping the stock failed
+      end
+      assert_equal [ "shipped", 10 ], [ order_record(order).state, on_hand("MUG") ]
+
+      perform_enqueued_jobs(only: MarkShippedJob)
+
+      assert_equal 8, on_hand("MUG")
+      assert_equal 8, available("MUG")
+    end
+
+    test "a delivery heard before its dispatch waits for it and is not lost" do
+      slow_carrier
+      order = checkout
+      perform_due_jobs
+      delivered = EventRail.publish(Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)).event
+      dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
+      clear_enqueued_jobs
+
+      published = record_publications do
+        MarkDeliveredJob.perform_now(delivered) # too early: retried later
+        assert_equal "paid", order_record(order).state
+        MarkShippedJob.perform_now(dispatched)
+        perform_enqueued_jobs(only: MarkDeliveredJob)
+      end
+
+      assert_equal "delivered", order_record(order).state
+      assert_equal %w[ orders.order_delivered orders.order_shipped ], published.map(&:event_type).sort
+      assert_equal 8, on_hand("MUG")
     end
 
     private

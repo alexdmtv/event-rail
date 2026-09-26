@@ -22,4 +22,16 @@ module ShopHelpers
 
   # Makes the carrier slow enough that its steps stay queued unless a test performs them.
   def slow_carrier = Platform::FaultSettings.current.update!(carrier_delay_seconds: 3600)
+
+  # Makes a module's or class's method raise while the block runs, then restores it.
+  def failing(receiver, method_name, message = "#{method_name} failed")
+    singleton = receiver.singleton_class
+    original = :"__before_failing_#{method_name}"
+    singleton.alias_method original, method_name
+    singleton.define_method(method_name) { |*, **| raise message }
+    yield
+  ensure
+    singleton.alias_method method_name, original
+    singleton.remove_method original
+  end
 end
