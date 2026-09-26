@@ -42,12 +42,19 @@ module Notifications
       assert_includes Api.for_order("7").sole.body, "€38.70"
     end
 
-    test "the same fact published under two identities notifies once" do
-      cancelled = Orders::Events::OrderCancelled.new(order_id: "7", **CUSTOMER, reason: "customer")
-      first, second = publish(cancelled), publish(cancelled)
-      assert_not_equal first.id, second.id
+    test "the same fact under two identities notifies once" do
+      current = publish(Orders::Events::OrderCancelled.new(order_id: "7", **CUSTOMER, reason: "customer"))
+      # The same cancellation as a release before the identity change stamped it, under an ID
+      # derived the old way: a copy a subscriber can still receive across an upgrade.
+      earlier = EventRail::Envelope.new(
+        contract: EventRail::Contract.of(Orders::Events::OrderCancelled),
+        metadata: EventRail::Metadata.complete(id: "cancelled-before-the-upgrade", source: current.source,
+          occurred_at: current.occurred_at, correlation_id: current.correlation_id),
+        data: current.data
+      ).to_event(Orders::Events::OrderCancelled)
+      assert_not_equal current.id, earlier.id
 
-      [ first, second ].each { |event| NotifyCustomerJob.perform_now(event) }
+      [ current, earlier ].each { |event| NotifyCustomerJob.perform_now(event) }
 
       assert_equal [ "cancelled" ], Api.for_order("7").map(&:kind)
     end
