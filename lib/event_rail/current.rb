@@ -49,7 +49,15 @@ module EventRail
         inherited[:extensions], extensions, error: InvalidContext
       )
 
-      execution = Internal::Execution.new(scope: resolved_message_id, started_at: resolved_originated_at)
+      # A block opened inside a running job stays part of that job's execution: its
+      # publications keep the job's identity rules and its duplicate record. Only a
+      # block with no job around it is a boundary of its own.
+      running = Internal::Execution.current
+      execution = if running&.derives_identity?
+        running
+      else
+        Internal::Execution.new(scope: resolved_message_id, started_at: resolved_originated_at)
+      end
 
       # A nested scope keeps its parent's causation: the message that caused this flow
       # does not change because the application opened an inner block.

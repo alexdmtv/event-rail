@@ -14,6 +14,36 @@ EventRail::TestHelper.declare do
       identity_by :order_id
     end
 
+    # Version 2 of the same fact: a new representation, the same occurrence.
+    class OrderPlacedV2 < EventRail::Event
+      event_type "tests.pub_order_placed"
+      version 2
+      default_source "acme.orders"
+
+      attribute :order_id, :string
+      attribute :note, :string
+      identity_by :order_id
+    end
+
+    # An event type that moved from call-site identity (version 1) to a declared
+    # attribute (version 2).
+    class Migrated < EventRail::Event
+      event_type "tests.pub_migrated"
+      version 1
+      default_source "acme.orders"
+
+      attribute :order_id, :string
+    end
+
+    class MigratedV2 < EventRail::Event
+      event_type "tests.pub_migrated"
+      version 2
+      default_source "acme.orders"
+
+      attribute :order_id, :string
+      identity_by :order_id
+    end
+
     class Keyless < EventRail::Event
       event_type "tests.pub_keyless"
       version 1
@@ -34,6 +64,7 @@ end
 class PublicationStateTest < ActiveSupport::TestCase
   Publication = EventRailInternal::Stamping
   Execution = EventRailInternal::Execution
+  Identity = EventRailInternal::Identity
 
   setup { EventRail::Current.reset }
   teardown { EventRail::Current.reset }
@@ -65,12 +96,74 @@ class PublicationStateTest < ActiveSupport::TestCase
     assert_equal 2, ids.uniq.length
   end
 
-  test "distinct explicit keys distinguish repeated facts of one type" do
+  test "distinct explicit identities distinguish repeated facts of one type" do
     ids = in_job do
-      [ "a", "b" ].map { |key| Publication.prepare(PublicationFixtures::Keyless.new(note: "n"), key: key).event.id }
+      [ "a", "b" ].map { |identity| Publication.prepare(PublicationFixtures::Keyless.new(note: "n"), identity: identity).event.id }
     end
 
     assert_equal 2, ids.uniq.length
+  end
+
+  test "a declared fact has one ID whichever execution publishes it" do
+    placing = in_job(job_class: "Orders::PlaceOrderJob", scope: "job-1") { placed("o-1").id }
+    resuming = in_job(job_class: "Orders::ResumeCheckoutJob", scope: "job-2") { placed("o-1").id }
+    outside = placed("o-1").id
+
+    assert_equal [ placing ], [ resuming, outside ].uniq
+    assert_equal Identity.fact(source: "acme.orders", event_type: "tests.pub_order_placed", identity: [ "o-1" ]), placing
+  end
+
+  test "both versions of a fact share its ID" do
+    v1 = in_job { placed("o-1").id }
+    v2 = in_job(scope: "job-2") { Publication.prepare(PublicationFixtures::OrderPlacedV2.new(order_id: "o-1")).event.id }
+
+    assert_equal v1, v2
+  end
+
+  test "moving from an explicit identity to a declared string attribute keeps the fact's ID" do
+    before = Publication.prepare(PublicationFixtures::Migrated.new(order_id: "o-1"), identity: "o-1").event.id
+    after = Publication.prepare(PublicationFixtures::MigratedV2.new(order_id: "o-1")).event.id
+
+    assert_equal before, after
+  end
+
+  test "a declared fact published inside a context block has its fact ID" do
+    inside = EventRail.with_context(message_id: "req-1") { placed("o-1").id }
+
+    assert_equal placed("o-1").id, inside
+  end
+
+  test "an undeclared event inside a context block in a job keeps the job's identity rules" do
+    first = in_job { EventRail.with_context(extensions: { "step" => "a" }) { Publication.prepare(PublicationFixtures::Keyless.new(note: "n")).event.id } }
+    retried = in_job { EventRail.with_context(extensions: { "step" => "a" }) { Publication.prepare(PublicationFixtures::Keyless.new(note: "n")).event.id } }
+    assert_equal first, retried
+
+    in_job do
+      EventRail.with_context(extensions: { "step" => "a" }) do
+        Publication.succeeded!(Publication.prepare(PublicationFixtures::Keyless.new(note: "n")))
+        assert_raises(EventRail::DuplicatePublicationError) { Publication.prepare(PublicationFixtures::Keyless.new(note: "n")) }
+      end
+    end
+  end
+
+  test "an empty declared identity cannot be constructed" do
+    error = assert_raises(EventRail::InvalidEvent) { PublicationFixtures::OrderPlaced.new(order_id: "") }
+
+    assert_match(/order_id .*cannot be nil or empty/, error.message)
+  end
+
+  test "an explicit identity cannot override the identity a class declares" do
+    error = assert_raises(EventRail::PublicationError) do
+      Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), identity: "other")
+    end
+
+    assert_match(/declares order_id/, error.message)
+  end
+
+  test "publish's former key: keyword is refused with directions" do
+    error = assert_raises(ArgumentError) { EventRail.publish(PublicationFixtures::Keyless.new(note: "n"), key: "a") }
+
+    assert_match(/key: is now identity:/, error.message)
   end
 
   test "a keyless singleton publication is stable across retries of the same execution scope" do
@@ -87,13 +180,13 @@ class PublicationStateTest < ActiveSupport::TestCase
     refute_equal first.id, other.id
   end
 
-  test "an explicit key must be a string so one value cannot derive two identities" do
+  test "an explicit identity must be a string so one value cannot derive two identities" do
     in_job do
       assert_raises(EventRail::PublicationError) do
-        Publication.prepare(PublicationFixtures::Keyless.new(note: "n"), key: 1)
+        Publication.prepare(PublicationFixtures::Keyless.new(note: "n"), identity: 1)
       end
       assert_raises(EventRail::PublicationError) do
-        Publication.prepare(PublicationFixtures::Keyless.new(note: "n"), key: "")
+        Publication.prepare(PublicationFixtures::Keyless.new(note: "n"), identity: "")
       end
     end
   end
@@ -106,12 +199,19 @@ class PublicationStateTest < ActiveSupport::TestCase
     end
   end
 
-  test "publication outside a job execution assigns a random identity" do
-    one = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1")).event
-    two = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1")).event
+  test "an undeclared event outside a job execution gets a random, time-ordered identity" do
+    one = Publication.prepare(PublicationFixtures::Keyless.new(note: "n")).event
+    sleep 0.002
+    two = Publication.prepare(PublicationFixtures::Keyless.new(note: "n")).event
 
     refute_equal one.id, two.id
-    assert_match(/\A[0-9a-f-]{36}\z/, one.id)
+    assert_match(/\A\h{8}-\h{4}-7\h{3}-[89ab]\h{3}-\h{12}\z/, one.id, "a version 7 UUID")
+    assert_operator one.id, :<, two.id
+  end
+
+  test "a derived identity is a version 5 UUID" do
+    assert_match(/\A\h{8}-\h{4}-5\h{3}-[89ab]\h{3}-\h{12}\z/, placed("o-1").id)
+    assert_match(/\A\h{8}-\h{4}-5\h{3}-[89ab]\h{3}-\h{12}\z/, in_job { Publication.prepare(PublicationFixtures::Keyless.new(note: "n")).event.id })
   end
 
   test "a boundary block still assigns a random identity" do
@@ -143,18 +243,167 @@ class PublicationStateTest < ActiveSupport::TestCase
     assert_equal({ "region" => "eu" }, relayed.extensions)
   end
 
-  test "a relay records the local message as its cause only when it carries none" do
+  test "a relay keeps its lineage as it arrived, an absent causation included" do
     without_cause = in_job { Publication.prepare(external_event).event }
-    assert_equal "job-1", without_cause.causation_id
+    assert_nil without_cause.causation_id
+    assert_equal "ext-corr", without_cause.correlation_id
 
     with_cause = in_job { Publication.prepare(external_event(causation_id: "ext-cause")).event }
     assert_equal "ext-cause", with_cause.causation_id
   end
 
-  test "a publication key cannot apply to an event that already carries an identity" do
+  test "a publication identity cannot apply to an event that already carries an identity" do
     in_job do
-      assert_raises(EventRail::PublicationError) { Publication.prepare(external_event, key: "k") }
+      assert_raises(EventRail::PublicationError) { Publication.prepare(external_event, identity: "k") }
     end
+  end
+
+  test "a relay retried with a different fact is rejected" do
+    in_job do
+      Publication.prepare(external_event)
+
+      assert_raises(EventRail::RetryPayloadMismatchError) { Publication.prepare(external_event(order_id: "o-other")) }
+    end
+  end
+
+  test "a relay retried with the same fact reuses its record" do
+    in_job do
+      Publication.prepare(external_event)
+      again = Publication.prepare(external_event)
+
+      assert_equal "ext-1", again.event.id
+      Publication.succeeded!(again)
+      assert_raises(EventRail::DuplicatePublicationError) { Publication.prepare(external_event) }
+    end
+  end
+
+  test "an event whose ID is not text relays unchanged" do
+    binary_id = "\xFF\xFEid".b
+
+    [ -> { Publication.prepare(external_event(id: binary_id)).event }, -> { in_job { Publication.prepare(external_event(id: binary_id)).event } } ].each do |relay|
+      assert_equal binary_id, relay.call.id
+    end
+  end
+
+  test "publishing the stamped result of a failed local publication is its retry" do
+    in_job do
+      stamped = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1", note: "first")).event
+      changed = PublicationFixtures::OrderPlaced.send(:__reconstruct__, data: { "order_id" => "o-1", "note" => "changed" }, metadata: stamped.metadata)
+
+      assert_raises(EventRail::RetryPayloadMismatchError) { Publication.prepare(changed) }
+    end
+  end
+
+  test "publishing the stamped result again after success is a duplicate" do
+    in_job do
+      prepared = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"))
+      Publication.succeeded!(prepared)
+
+      assert_raises(EventRail::DuplicatePublicationError) { Publication.prepare(prepared.event) }
+    end
+  end
+
+  test "mutating the string passed as source moves no record" do
+    in_job do
+      source = +"north.shop"
+      Publication.succeeded!(Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: source))
+      source.replace("south.shop")
+
+      assert_raises(EventRail::DuplicatePublicationError) do
+        Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "north.shop")
+      end
+    end
+
+    in_job do
+      source = +"north.shop"
+      Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1", note: "first"), source: source)
+      source.replace("south.shop")
+
+      assert_raises(EventRail::RetryPayloadMismatchError) do
+        Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1", note: "changed"), source: "north.shop")
+      end
+    end
+  end
+
+  test "relays that share an ID but not a source are two facts" do
+    in_job do
+      Publication.succeeded!(Publication.prepare(external_event))
+      other = Publication.prepare(external_event(source: "partner.shipping"))
+
+      assert_equal [ "ext-1", "partner.shipping" ], [ other.event.id, other.event.source ]
+    end
+  end
+
+  # --- publishing on behalf of another producer --------------------------------
+
+  test "a publication source replaces the class default and names the fact" do
+    ours = placed("o-1")
+    theirs = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "partner.shop").event
+
+    assert_equal "partner.shop", theirs.source
+    assert_equal Identity.fact(source: "partner.shop", event_type: "tests.pub_order_placed", identity: [ "o-1" ]), theirs.id
+    refute_equal ours.id, theirs.id
+  end
+
+  test "a publication source must be a valid source" do
+    assert_raises(EventRail::InvalidMetadata) { Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "") }
+  end
+
+  test "a relayed event cannot be re-attributed to another source" do
+    error = assert_raises(EventRail::InvalidMetadata) { Publication.prepare(external_event, source: "acme.billing") }
+    assert_match(/re-attribute/, error.message)
+
+    assert_equal "partner.billing", Publication.prepare(external_event, source: "partner.billing").event.source
+  end
+
+  test "the publish notification reports the resolved source" do
+    sources = []
+    capture = ->(event) { sources << event.payload[:source] }
+
+    ActiveSupport::Notifications.subscribed(capture, "publish.event_rail") do
+      EventRail.publish(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "partner.shop")
+    end
+
+    assert_equal [ "partner.shop" ], sources
+  end
+
+  # --- one execution, several sources or versions ------------------------------
+
+  test "one execution publishes the same fact for two sources" do
+    in_job do
+      first = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "north.shop")
+      Publication.succeeded!(first)
+      second = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "south.shop")
+
+      refute_equal first.event.id, second.event.id
+    end
+  end
+
+  test "a failed publication for one source never lends its ID to another" do
+    in_job do
+      failed = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "north.shop")
+      other = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"), source: "south.shop")
+
+      refute_equal failed.event.id, other.event.id
+    end
+  end
+
+  test "one execution publishes both versions of a fact under one ID" do
+    in_job do
+      v1 = Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: "o-1"))
+      Publication.succeeded!(v1)
+      v2 = Publication.prepare(PublicationFixtures::OrderPlacedV2.new(order_id: "o-1"))
+
+      assert_equal v1.event.id, v2.event.id
+    end
+  end
+
+  test "a declared follow-up has one ID under any cause and records each cause" do
+    first = in_job(scope: "evt-a") { placed("o-1") }
+    second = in_job(scope: "evt-b") { placed("o-1") }
+
+    assert_equal first.id, second.id
+    assert_equal [ "evt-a", "evt-b" ], [ first.causation_id, second.causation_id ]
   end
 
   # --- 3.4 publication state is per execution attempt --------------------------
@@ -329,13 +578,17 @@ class PublicationStateTest < ActiveSupport::TestCase
   end
 
   private
-    def external_event(causation_id: nil)
+    def placed(order_id)
+      Publication.prepare(PublicationFixtures::OrderPlaced.new(order_id: order_id)).event
+    end
+
+    def external_event(causation_id: nil, order_id: "o-ext", source: "partner.billing", id: "ext-1")
       PublicationFixtures::OrderPlaced.send(
         :__reconstruct__,
-        data: { "order_id" => "o-ext" },
+        data: { "order_id" => order_id },
         metadata: EventRail::Metadata.complete(
-          id: "ext-1",
-          source: "partner.billing",
+          id: id,
+          source: source,
           occurred_at: Time.utc(2026, 8, 1),
           correlation_id: "ext-corr",
           causation_id: causation_id,
