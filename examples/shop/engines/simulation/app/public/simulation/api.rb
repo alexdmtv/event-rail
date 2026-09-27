@@ -1,13 +1,13 @@
 module Simulation
   # What the developer console controls and reads of the simulator.
   module Api
-    State = Data.define(:running, :orders_per_minute, :cancel_rate, :return_rate, :placed_count, :rejected_count, :last_rejection)
+    State = Data.define(:running, :orders_per_minute, :cancel_rate, :return_rate, :checkout_count, :refused_count, :last_refusal)
     Customer = Data.define(:id, :name, :email, :address)
 
     class << self
       def state
         settings = Simulation::Settings.current
-        State.new(**settings.slice(:running, :orders_per_minute, :cancel_rate, :return_rate, :placed_count, :rejected_count, :last_rejection).symbolize_keys)
+        State.new(**settings.slice(:running, :orders_per_minute, :cancel_rate, :return_rate, :checkout_count, :refused_count, :last_refusal).symbolize_keys)
       end
 
       def start = Simulation::Settings.current.update!(running: true)

@@ -15,10 +15,34 @@ module Orders
     test "a return within 14 days awaits the parcel" do
       slow_carrier
 
-      Api.request_return(@order.id)
+      perform_enqueued_jobs(only: RequestReturnJob) { Api.request_return(@order.id) }
 
       assert_equal "awaiting_return", order_record(@order).state
       assert_equal "expected", Fulfillment::Api.parcel_return(@order.reference).state
+    end
+
+    test "a return requested while the queue is unavailable reaches the carrier once it recovers" do
+      slow_carrier
+      queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
+      Api.request_return(@order.id)
+      queue_adapter.singleton_class.remove_method(:enqueue)
+      assert_nil Fulfillment::Api.parcel_return(@order.reference)
+
+      travel(Platform::StagedJob::GRACE + 1.second) { Platform::StagedJobRelayJob.perform_now }
+      perform_enqueued_jobs(only: RequestReturnJob)
+
+      assert_equal "expected", Fulfillment::Api.parcel_return(@order.reference).state
+    ensure
+      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
+    end
+
+    test "a return requested again after the 14 days returns the order awaiting it" do
+      slow_carrier
+      Api.request_return(@order.id)
+
+      travel 15.days do
+        assert_equal "awaiting_return", Api.request_return(@order.id).state
+      end
     end
 
     test "a return after 14 days is refused" do

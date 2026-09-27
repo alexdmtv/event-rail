@@ -130,10 +130,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.integer "total_cents", null: false
     t.string "currency", null: false
     t.string "correlation_id", null: false
+    t.string "rejection_reason"
     t.string "cancel_reason"
     t.string "attention_reason"
     t.string "tracking_code"
-    t.datetime "placed_at", null: false
+    t.datetime "placed_at"
+    t.datetime "rejected_at"
     t.datetime "paid_at"
     t.datetime "shipped_at"
     t.datetime "delivered_at"
@@ -147,7 +149,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.index ["correlation_id"], name: "index_orders_orders_on_correlation_id"
     t.index ["customer_id"], name: "index_orders_orders_on_customer_id"
     t.index ["reference"], name: "index_orders_orders_on_reference", unique: true
-    t.index ["state", "placed_at"], name: "index_orders_orders_on_state_and_placed_at"
+    t.index ["state", "created_at"], name: "index_orders_orders_on_state_and_created_at"
   end
 
   create_table "payments_payments", force: :cascade do |t|
@@ -202,9 +204,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.integer "orders_per_minute", default: 20, null: false
     t.float "cancel_rate", default: 0.1, null: false
     t.float "return_rate", default: 0.1, null: false
-    t.integer "placed_count", default: 0, null: false
-    t.integer "rejected_count", default: 0, null: false
-    t.string "last_rejection"
+    t.integer "checkout_count", default: 0, null: false
+    t.integer "refused_count", default: 0, null: false
+    t.string "last_refusal"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
   end

@@ -12,7 +12,7 @@ module Orders
     end
 
     test "cancelling before capture releases the stock and voids the authorization" do
-      order = checkout
+      order = place
 
       published = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
 
@@ -35,9 +35,8 @@ module Orders
     end
 
     test "a capture that lands after the cancellation is refunded" do
-      order = checkout
-      perform_enqueued_jobs(only: FollowUpJob) # the capture is now queued, not yet performed
-      Api.cancel(order.id)                     # the void is queued behind it
+      order = place         # the capture is now queued, not yet performed
+      Api.cancel(order.id)  # the void is queued behind it
 
       perform_due_jobs                         # the capture lands first; the void finds nothing to void
 
@@ -55,8 +54,8 @@ module Orders
     end
 
     test "cancelling twice changes nothing and announces nothing further" do
-      order = checkout
-      perform_enqueued_jobs(except: FollowUpJob) { Api.cancel(order.id) }
+      order = place
+      perform_enqueued_jobs { Api.cancel(order.id) }
 
       published = record_publications do
         assert_no_enqueued_jobs { Api.cancel(order.id) }
@@ -65,31 +64,52 @@ module Orders
       assert_empty published
     end
 
-    test "a cancellation that crashed before its announcement is announced by the next attempt" do
-      order = checkout
-      Orders::Order.where(id: order.id).update_all(state: "cancelled", cancel_reason: "customer", cancelled_at: Time.current)
+    test "a cancellation made while the queue is unavailable is completed once it recovers" do
+      order = place
+      clear_enqueued_jobs # its capture has not run
+      queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
+      Api.cancel(order.id) # the decision and its job commit together
+      queue_adapter.singleton_class.remove_method(:enqueue)
+      assert_equal "cancelled", order_record(order).state
 
-      published = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
+      published = record_publications do
+        travel(Platform::StagedJob::GRACE + 1.second) { Platform::StagedJobRelayJob.perform_now }
+        perform_due_jobs
+      end
 
-      assert_includes published.map(&:event_type), "orders.order_cancelled"
-      assert order_record(order).cancellation_announced_at?
+      assert_equal 10, available("MUG")
+      assert_equal "voided", Payments::Api.payment(order.reference).state
+      assert_equal 1, published.count { |publication| publication.event_type == "orders.order_cancelled" }
+    ensure
+      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
     end
 
     test "a cancellation interrupted after its announcement announces again under the same identity" do
-      order = checkout
-      clear_enqueued_jobs
-      first = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
-      Orders::Order.where(id: order.id).update_all(cancellation_announced_at: nil) # as if it crashed right after publishing
+      order = place
+      Api.cancel(order.id)
+      first = record_publications { interrupting_after(EventRail, :publish) { perform_enqueued_jobs(only: CancellationJob) } }
 
-      second = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
+      second = record_publications { work_off_queue } # its retry
 
-      announcement = ->(published) { published.select { |publication| publication.event_type == "orders.order_cancelled" }.map(&:event_id) }
-      assert_equal 1, announcement.(first).size
-      assert_equal announcement.(first), announcement.(second)
+      announcements = (first + second).select { |publication| publication.event_type == "orders.order_cancelled" }
+      assert_equal 2, announcements.size
+      assert_equal 1, announcements.map(&:event_id).uniq.size
+      assert order_record(order).cancellation_announced_at?
+    end
+
+    test "an order still being placed, or rejected, cannot be cancelled" do
+      pending_order = checkout
+      assert_raises(Api::NotCancellable) { Api.cancel(pending_order.id) }
+      clear_enqueued_jobs # it stays pending
+
+      Payments::Gateway.adapter = ScriptedGateway.new(authorize: [ :refuse ])
+      rejected = place(key: "key-2")
+      assert_raises(Api::NotCancellable) { Api.cancel(rejected.id) }
+      assert_nil Fulfillment::Api.shipment(rejected.reference), "Fulfillment was never asked"
     end
 
     test "a cancellation joins the order's flow" do
-      order = checkout
+      order = place
 
       published = record_publications { perform_enqueued_jobs { Api.cancel(order.id) } }
 

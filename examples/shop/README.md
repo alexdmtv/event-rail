@@ -88,15 +88,15 @@ Every interaction between two modules in this application:
 | Interaction | Mechanism | Why |
 | --- | --- | --- |
 | `Catalog::Api.quote` | sync query | checkout needs the price now |
-| `Catalog::Api.reserve` | sync command | the customer must hear "out of stock" now |
-| `Catalog::Api.release` | sync command | undoing Orders' own reservation, on a rejected checkout attempt or a cancellation |
+| `Catalog::Api.reserve` | sync command | placing an order must know now whether the stock is there |
+| `Catalog::Api.release` | sync command | undoing Orders' own reservation, for a rejected order or a cancellation |
 | `Catalog::Api.ship` | sync command | the reserved stock leaves the warehouse when the parcel is dispatched |
 | `Catalog::Api.restock` | sync command | a returned parcel goes back on the shelf |
 | `Catalog::Api.products` | sync query | the simulator picks what to buy |
 | `Catalog::Api.receive_stock` | sync command | the simulated supplier refills a low shelf |
-| `Payments::Api.authorize` | sync command, calls the provider | a declined card must show at checkout |
+| `Payments::Api.authorize` | sync command, calls the provider | placing an order must know now whether the card was declined |
 | `Payments::Api.capture` | async command | the provider is slow and flaky; Orders waits for the outcome event |
-| `Payments::Api.void` | async command | releasing the card hold a rejected checkout attempt placed |
+| `Payments::Api.void` | async command | releasing the card hold of a rejected order |
 | `Payments::Api.release` | async command | a cancellation gives back whatever the payment holds; Payments decides between void and refund, because only Payments knows whether a capture has landed |
 | `Payments::Api.refund` | async command | giving money back for a returned parcel |
 | `Fulfillment::Api.request_shipment` | async command | the carrier works on its own schedule |
@@ -120,7 +120,7 @@ Every interaction between two modules in this application:
 | `subscribes_to Orders::Events::OrderCancelled` | event (Notifications) | as above |
 | `subscribes_to Orders::Events::OrderRefunded` | event (Notifications, Loyalty) | as above |
 
-Inside a module, work with one known handler is a plain job, not an event: checkout's follow-up, the carrier's scheduled steps, the capture itself, the expiry scan, the simulator's tick. An event would add indirection and nothing else. For the same reason this shop has **no internal events**: none passed the question above, and a plain job does the same work with less machinery.
+Inside a module, work with one known handler is a plain job, not an event: placing an order, the carrier's scheduled steps, the capture itself, the expiry scan, the simulator's tick. An event would add indirection and nothing else. For the same reason this shop has **no internal events**: none passed the question above, and a plain job does the same work with less machinery.
 
 ### Anti-patterns this design avoids
 
@@ -131,17 +131,18 @@ Inside a module, work with one known handler is a plain job, not an event: check
 
 ## The flows
 
-**Checkout** decides synchronously, because the customer is waiting (`Orders::Checkout`):
+**Checkout** records the order, and a job places it (`Orders::Checkout`, `Orders::PlaceOrderJob`):
 
 ```
-quote prices → reserve stock → authorize card → commit the order with Orders::FollowUpJob staged → hand the job to the queue
+request: validate → quote prices → record the pending order with Orders::PlaceOrderJob staged → answer
+job:     reserve stock → authorize card → placed or rejected → announce and capture, or give back
 ```
 
-Each run under a checkout key is an **attempt** with a reference of its own, `<key>/<attempt id>`, which is what Orders gives Catalog and Payments. A failure before the commit gives back what *this attempt* took — its reservation, its authorization — and is reported to the caller, so a rejected checkout leaves nothing held, and a retry starts clean: it cannot trip over a released reservation or a void still in the queue. Two submissions of the same key at once both run as attempts; the unique key lets one order through, and the other gives back its own reservation and authorization and returns that order. The follow-up job announces `OrderPlaced` and asks Payments to capture.
+The request refuses only what it can tell at once — an empty basket, a quantity that is not a whole number, an unknown product — before anything outside Orders has changed. Everything that touches another module happens in the job, under the order's own reference: it reserves the stock and authorizes the card, records the order as placed or rejected, and then makes what the shop holds match — announcing a placed order with `OrderPlaced` and asking Payments to capture, or releasing a rejected order's stock and voiding its hold. Every step is idempotent on the reference, so a retry, or a crash at any point, runs the job again to the same end. The order's page shows the order being placed, then placed or rejected with the reason, usually within a second. That is the trade-off: the customer hears "declined" a moment after the response rather than in it, as with the many real checkouts that show a processing step.
 
 **Payment before shipping.** The card is *authorized* at checkout: a hold on the customer's balance, no money moved. It is *captured* — the charge itself — once the order is confirmed, and only a paid order is shipped. A temporary provider failure is retried inside Payments; a refused capture cancels the order before anything leaves the warehouse. (Capturing close to fulfilment is common card practice; the rules vary by card network and region.)
 
-**Cancellation** asks the module that knows. Fulfillment is asked to cancel the shipment and refuses once the carrier has the parcel — even if Orders has not heard yet — and the customer is pointed to a return. Otherwise the order is cancelled and a job gives back the stock and asks Payments to *release* the payment: Payments voids the hold if nothing was captured and refunds if something was, deciding from its own state when the job runs. An order still `placed` can have a capture that landed before Orders heard of it; asking Orders' own state would have voided nothing and left the customer charged. **Abandoned orders** — still unpaid 30 minutes after checkout — are cancelled by a scheduled business rule, the same way.
+**Cancellation** asks the module that knows. Fulfillment is asked to cancel the shipment and refuses once the carrier has the parcel — even if Orders has not heard yet — and the customer is pointed to a return. Otherwise the order is cancelled, in the same transaction as the job that gives back the stock and asks Payments to *release* the payment: Payments voids the hold if nothing was captured and refunds if something was, deciding from its own state when the job runs. An order still `placed` can have a capture that landed before Orders heard of it; asking Orders' own state would have voided nothing and left the customer charged. **Abandoned orders** — still unpaid 30 minutes after checkout — are cancelled by a scheduled business rule, the same way. The same rule rejects an order still being placed 30 minutes after checkout, whose placement failed for good, and gives back whatever it took.
 
 **Carrier reports arrive in any order.** The workers run in parallel and EventRail promises no ordering, so a delivery can be handled before the dispatch it follows. Orders' delivery subscriber then raises and is retried until the dispatch is recorded, rather than succeeding without effect and losing the delivery.
 
@@ -149,9 +150,11 @@ Each run under a checkout key is an **attempt** with a reference of its own, `<k
 
 ## Errors, retries and idempotency
 
-**At the boundary, the caller decides.** A checkout that fails tells its caller, and the caller retries. For that to be safe the operation must be idempotent: the checkout form carries a **checkout key**, and there is at most one order per key. A repeated checkout finds the order and returns it; one that finds none, because every earlier attempt was rejected, is a fresh attempt. A repeat never runs anything again: the order's follow-up was committed with the order, so there is nothing to resume.
+**At a boundary, record the decision and stage what follows.** Every boundary in the shop follows this one rule: checkout, a cancellation, a return request, the expiry scan. The request writes its decision and the job that carries it out in one transaction, and returns; the job does everything that touches another module, and retries until the shop matches the decision. Nothing that could need undoing happens inside a request, so a request that fails has changed nothing but its own, rolled-back transaction.
 
-**Work started at a boundary is staged with the data.** A web request that writes an order and must also start its follow-up has a dual write: the queue is a separate database, so enqueuing cannot join the order's transaction. Staging can. `FollowUpJob.stage_later` writes the job, in Active Job's own serialized form, to `platform_staged_jobs` in the same transaction as the order, and they commit or roll back together. After the commit the job is handed to the queue at once; if that fails, `Platform::StagedJobRelayJob`, running every second, hands it over shortly after. An accepted order always proceeds, whether or not the customer hears the answer. Handing a job over twice is harmless: it is the same command, and its events carry the same IDs because each declares its identity. Only boundaries stage — inside a job, the job's own retry repeats a lost enqueue — and the staging table must live in the store of the data it commits with. Every module shares one database here, so there is one table; a module moved to a database of its own would need a staging table there, and `stage_later` and the relay taught to use it, while the queue keeps its own database.
+**Checkout is idempotent on its key.** The checkout form carries a **checkout key**, new each time the form is shown, and there is one order per key, recorded before anything is reserved or authorized. A repeat returns that order, whatever its state, and runs nothing again. Two submissions at once meet at the key's unique index, and the one that loses has touched nothing. A customer trying again after a rejection submits the form again, under its new key: a new order.
+
+**Work started at a boundary is staged with the data.** A web request that writes an order and must also start placing it has a dual write: the queue is a separate database, so enqueuing cannot join the order's transaction. Staging can. `PlaceOrderJob.stage_later` writes the job, in Active Job's own serialized form, to `platform_staged_jobs` in the same transaction as the order, and they commit or roll back together. After the commit the job is handed to the queue at once; if that fails, `Platform::StagedJobRelayJob`, running every second, hands it over shortly after. A recorded order is always placed or rejected, whether or not the customer hears the answer. Handing a job over twice is harmless: it is the same command, and its events carry the same IDs because each declares its identity. Only boundaries stage — inside a job, the job's own retry repeats a lost enqueue — and the staging table must live in the store of the data it commits with. Every module shares one database here, so there is one table; a module moved to a database of its own would need a staging table there, and `stage_later` and the relay taught to use it, while the queue keeps its own database.
 
 **Every event declares what it is about.** Each event class names the attributes that identify its fact — `identity_by :order_id` for an order's `OrderPlaced`, `identity_by :reference` for a payment's `PaymentCaptured` — and EventRail derives the event's ID from them. The same fact has one ID however often, and from whichever job, it is published, so every subscriber recognises a repetition. The shop leans on this:
 
@@ -159,9 +162,9 @@ Each run under a checkout key is an **attempt** with a reference of its own, `<k
 - A step started outside a job hands anything it must see published to a job, because only a job retries a publication that failed: cancellation's announcement comes from `Orders::CancellationJob`.
 - A job that exhausts its retries reports the outcome inside `perform`, on its last attempt, not from a `retry_on` block: the block runs after EventRail's context has closed, and the outcome would drop out of the order's flow.
 
-**Every reaction is idempotent** — a conditional state transition, or a unique index on the order and the kind of fact — because delivery is at least once. A handler repeated after an interruption takes every step its state calls for, not only the ones that follow a transition it made itself. And every handler an order depends on retries a failure on its own schedule, so one failed attempt never strands an order.
+**Every reaction is idempotent** — a conditional state transition, or a unique index on the order and the kind of fact — because delivery is at least once. A handler repeated after an interruption takes every step its state calls for, not only the ones that follow a transition it made itself. And every handler an order depends on retries a failure on its own schedule, so one failed attempt never strands an order. A job whose worker dies mid-run is failed by Solid Queue outside any `retry_on`; `Platform::RetryInterruptedJobsJob` runs such jobs again every minute.
 
-The patterns, in short: **compensate by your own attempt's reference**; **ask the module that owns a step for its state before undoing it**; **identify each event by its fact, and publish what must happen from jobs**; **take the next step whenever the state calls for it**; **retry an unmet prerequisite rather than dropping the fact**.
+The patterns, in short: **record the decision and stage what follows**; **ask the module that owns a step for its state before undoing it**; **identify each event by its fact, and publish what must happen from jobs**; **take the next step whenever the state calls for it**; **retry an unmet prerequisite rather than dropping the fact**.
 
 **Lineage.** A checkout opens EventRail's context with a message ID derived from its key; every job that includes `EventRail::JobContext` carries it on, and every event records its correlation and causation. That is all the console needs to draw an order's tree. Jobs that *start* flows — the simulator's tick, the expiry scan — deliberately carry no context, like a web request; jobs that *continue* flows do.
 
@@ -214,7 +217,8 @@ Both run in CI. `test/boundaries` plants rule-breaking files into a copy of the 
 - **One shared package for every event.** No cycles, but ownership becomes a folder convention and every team edits one package. The reference modular monoliths we studied give each module its own contracts package instead, which is what `app/public/<module>/events` is.
 - **Jobs and business data in one database**, to enqueue atomically with the commit. It couples job storage to business storage — the opposite of where per-module storage would go. A staging table and a relay give the same atomicity and keep the queue separate.
 - **Letting the caller's retry recover a lost enqueue** (the first version). It is consistent — the caller is told "placed" only after the hand-off — but a repeat had to re-enqueue whenever the order still looked unstarted, which it also did on every double submission: the whole flow ran twice, every step a no-op the second time.
-- **An idempotency-key table with stored responses and a 409 for a concurrent duplicate**, as payment APIs do. With the follow-up committed alongside the order, the order row and its unique key are idempotency enough.
+- **An idempotency-key table with stored responses and a 409 for a concurrent duplicate**, as payment APIs do. With the order recorded before anything else happens, the order row and its unique key are idempotency enough.
+- **Deciding checkout within the request** (the first version). The customer heard "declined" in the response, but every undo — releasing the stock, voiding the hold — ran in a request that could not repeat it: a failed release left stock held for good, a void the queue refused left the card's hold for days, and a crash left both. And each attempt under a key needed a reference of its own, so that a late undo could not touch a retry's. Recording the order first and placing it in a job removed both.
 
 ## Tests
 

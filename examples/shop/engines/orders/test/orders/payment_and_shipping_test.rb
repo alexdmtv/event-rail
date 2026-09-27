@@ -47,8 +47,7 @@ module Orders
 
     test "no shipment is requested before the payment is captured" do
       slow_carrier
-      order = checkout
-      perform_enqueued_jobs(only: FollowUpJob)
+      order = place
 
       assert_nil Fulfillment::Api.shipment(order.reference)
     end

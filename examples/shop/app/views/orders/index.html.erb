@@ -34,7 +34,7 @@
             <td><%= state_pill(@payments[order.reference]&.state) %></td>
             <td><%= state_pill(@shipments[order.reference]&.state) %></td>
             <td class="number"><%= @points.fetch(order.id.to_s, "—") %></td>
-            <td class="muted small"><%= ago(order.placed_at) %></td>
+            <td class="muted small"><%= ago(order.created_at) %></td>
           </tr>
         <% end %>
       </tbody>

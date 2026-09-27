@@ -2,8 +2,9 @@
 
 <section class="intro">
   <h1>Place an order</h1>
-  <p>Checkout prices the basket, reserves the stock and authorizes the card before it answers -- synchronously, because
-    the customer is waiting. The form carries a checkout key: submit it twice and you still get one order.</p>
+  <p>Checkout records the order and answers at once. Placing it -- reserving the stock, authorizing the card -- runs in a
+    job, and the order's page shows it placed or rejected a moment later. The form carries a checkout key, new each time
+    the form is shown: submit it twice and you still get one order.</p>
 </section>
 
 <section class="card">
@@ -20,7 +21,7 @@
             <td><%= product.name %> <span class="muted small"><%= product.sku %></span></td>
             <td class="number"><%= money(product.price_cents) %></td>
             <td class="number"><%= product.available %></td>
-            <td class="number"><%= number_field_tag "items[#{product.sku}]", index.zero? ? 1 : 0, min: 0, max: product.available, class: "quantity" %></td>
+            <td class="number"><%= number_field_tag "items[#{product.sku}]", index.zero? ? 1 : 0, min: 0, class: "quantity" %></td>
           </tr>
         <% end %>
       </tbody>

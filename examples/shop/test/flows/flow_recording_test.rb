@@ -7,14 +7,14 @@ class FlowRecordingTest < FlowTestCase
     order, = place_and_settle
     roots = Observability::Api.flow(order.correlation_id)
 
-    follow_up = roots.sole
-    assert_equal "Orders::FollowUpJob", follow_up.name
+    placement = roots.sole
+    assert_equal "Orders::PlaceOrderJob", placement.name
 
-    placed = follow_up.children.find { |step| step.name == "orders.order_placed" }
+    placed = placement.children.find { |step| step.name == "orders.order_placed" }
     assert_equal 2, placed.version
     assert_includes placed.children.map(&:name), "Notifications::NotifyCustomerJob"
 
-    capture = follow_up.children.find { |step| step.name == "Payments::CaptureJob" }
+    capture = placement.children.find { |step| step.name == "Payments::CaptureJob" }
     assert_equal %w[ failed failed succeeded ], capture.attempts.map(&:outcome)
     assert_equal "Payments::Gateway::TemporaryFailure", capture.attempts.first.error_class
 

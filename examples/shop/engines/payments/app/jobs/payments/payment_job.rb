@@ -20,8 +20,10 @@ module Payments
     retry_on Busy, wait: 1.second, attempts: 30
     retry_on Gateway::TemporaryFailure, wait: 2.seconds, attempts: ATTEMPTS
 
+    # A reference with no payment has nothing to capture, void, release or refund: its
+    # authorization was declined, or never reached the provider.
     def perform(reference)
-      payment = Payment.find_by!(reference: reference)
+      payment = Payment.find_by(reference: reference) or return
 
       if operation_for(payment)
         raise Busy, "payment #{reference} is busy with another #{payment.operation}" unless payment.claim!(self.class.name, job_id)

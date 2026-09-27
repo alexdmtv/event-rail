@@ -43,6 +43,18 @@ class LivePagesTest < ApplicationSystemTestCase
     assert_selector "#feed a", text: "orders.order_placed v2"
   end
 
+  test "an order checked out beyond the stock shows as rejected without a reload" do
+    Simulation::Engine.load_seed
+    visit new_order_path
+    fill_in "items[MUG]", with: "99"
+
+    click_on "Place order"
+    assert_text "Being placed"
+    work_off_queue(due_only: true) # what the workers do
+
+    assert_text "Rejected: MUG is out of stock", wait: 5
+  end
+
   test "submitting the checkout form twice at once places one order" do
     Simulation::Engine.load_seed
     visit new_order_path

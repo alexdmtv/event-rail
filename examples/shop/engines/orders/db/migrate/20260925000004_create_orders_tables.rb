@@ -1,11 +1,11 @@
 class CreateOrdersTables < ActiveRecord::Migration[8.1]
   def change
     create_table :orders_orders do |t|
-      # The checkout key the caller supplied: one order per key, whichever attempt placed it.
+      # The checkout key the caller supplied: one order per key. The order is recorded, pending,
+      # before anything is reserved or authorized, so a duplicate stops here.
       t.string :checkout_key, null: false, index: { unique: true }
-      # The attempt that placed the order, `<checkout key>/<attempt id>`. It is the reference
-      # Orders gives Catalog, Payments and Fulfillment, so every attempt's reservation and
-      # authorization are its own.
+      # The order's own reference, generated when it is recorded: what Orders gives Catalog,
+      # Payments and Fulfillment, and what their events name the order by.
       t.string :reference, null: false, index: { unique: true }
       t.string :basket_fingerprint, null: false
       t.string :state, null: false
@@ -16,10 +16,12 @@ class CreateOrdersTables < ActiveRecord::Migration[8.1]
       t.integer :total_cents, null: false
       t.string :currency, null: false
       t.string :correlation_id, null: false, index: true
+      t.string :rejection_reason
       t.string :cancel_reason
       t.string :attention_reason
       t.string :tracking_code
-      t.datetime :placed_at, null: false
+      t.datetime :placed_at
+      t.datetime :rejected_at
       t.datetime :paid_at
       t.datetime :shipped_at
       t.datetime :delivered_at
@@ -28,7 +30,7 @@ class CreateOrdersTables < ActiveRecord::Migration[8.1]
       t.datetime :return_requested_at
       t.datetime :refunded_at
       t.timestamps
-      t.index [ :state, :placed_at ]
+      t.index [ :state, :created_at ]
     end
 
     create_table :orders_line_items do |t|

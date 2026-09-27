@@ -78,7 +78,7 @@ class OrderLifecycleTest < FlowTestCase
     submitted_twice = jobs_run { 2.times { checkout(key: "twice") } }
 
     assert_equal submitted_once, submitted_twice
-    assert_equal 1, submitted_twice["Orders::FollowUpJob"]
+    assert_equal 1, submitted_twice["Orders::PlaceOrderJob"]
   end
 
   private

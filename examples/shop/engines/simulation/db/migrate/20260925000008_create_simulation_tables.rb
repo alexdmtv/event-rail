@@ -12,9 +12,9 @@ class CreateSimulationTables < ActiveRecord::Migration[8.1]
       t.integer :orders_per_minute, null: false, default: 20
       t.float :cancel_rate, null: false, default: 0.1
       t.float :return_rate, null: false, default: 0.1
-      t.integer :placed_count, null: false, default: 0
-      t.integer :rejected_count, null: false, default: 0
-      t.string :last_rejection
+      t.integer :checkout_count, null: false, default: 0
+      t.integer :refused_count, null: false, default: 0
+      t.string :last_refusal
       t.timestamps
     end
   end

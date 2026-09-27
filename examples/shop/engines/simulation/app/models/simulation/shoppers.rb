@@ -28,9 +28,9 @@ module Simulation
       def place_an_order
         customer = Customer.order("RANDOM()").first or return
         Orders::Api.checkout(customer: customer.snapshot, items: basket, key: "sim-#{SecureRandom.hex(8)}")
-        @settings.increment!(:placed_count)
-      rescue Orders::Api::Error => rejection
-        @settings.update!(rejected_count: @settings.rejected_count + 1, last_rejection: rejection.message)
+        @settings.increment!(:checkout_count)
+      rescue Orders::Api::Error => refusal # an order placing rejects later shows in Orders' own counts
+        @settings.update!(refused_count: @settings.refused_count + 1, last_refusal: refusal.message)
       end
 
       def basket

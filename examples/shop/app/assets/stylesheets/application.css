@@ -123,7 +123,7 @@ select.wide, input.wide { width: auto; min-width: 16rem; }
 }
 .version { font-size: 0.72rem; color: var(--muted); }
 .state-delivered, .state-captured, .state-refunded, .state-running, .state-received, .state-succeeded { --pill: var(--ok); }
-.state-cancelled, .state-capture-failed, .state-refund-failed, .state-needs-attention, .state-voided, .state-failed, .state-not-enqueued { --pill: var(--danger); }
+.state-rejected, .state-cancelled, .state-capture-failed, .state-refund-failed, .state-needs-attention, .state-voided, .state-failed, .state-not-enqueued { --pill: var(--danger); }
 .state-placed, .state-authorized, .state-requested, .state-expected, .state-awaiting-return { --pill: var(--warn); }
 .state-paid, .state-shipped, .state-dispatched { --pill: var(--accent); }
 

@@ -35,8 +35,8 @@ module Simulation
 
       orders = Orders::Api.recent
       assert_equal 2, orders.size
-      assert orders.all? { |order| order.reference.start_with?("sim-") }
-      assert_equal 2, Api.state.placed_count
+      assert orders.all? { |order| order.checkout_key.start_with?("sim-") }
+      assert_equal 2, Api.state.checkout_count
     end
 
     test "each simulated checkout starts its own flow" do
@@ -56,23 +56,36 @@ module Simulation
       assert_operator Catalog::Api.product("TEA").on_hand, :>=, 150
     end
 
-    test "a rejected checkout is counted, not raised" do
+    test "a checkout refused at once is counted, not raised" do
+      Catalog::Api.reserve(reservation_id: "everything", items: { "MUG" => 500 }) # nothing left to put in a basket
+      Api.start
+
+      Api.tick
+
+      assert_equal 2, Api.state.refused_count
+      assert_match(/at least one item/, Api.state.last_refusal)
+    end
+
+    test "a declined card leaves a rejected order, as for any client" do
       Platform::FaultSettings.current.update!(authorization_decline_rate: 1.0)
       Api.start
 
       Api.tick
+      work_off_queue
 
-      assert_equal 2, Api.state.rejected_count
-      assert_match(/declined/, Api.state.last_rejection)
+      assert_equal %w[ rejected rejected ], Orders::Api.recent.map(&:state)
+      assert_equal 0, Api.state.refused_count
     end
 
     test "cancellations keep pace with orders at the cancel rate" do
-      Api.configure(orders_per_minute: 120, cancel_rate: 1.0, return_rate: 0)
       Api.start
+      Api.tick
+      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::PlaceOrderJob" })
+      Api.configure(orders_per_minute: 120, cancel_rate: 1.0, return_rate: 0)
 
       Api.tick
 
-      assert_equal %w[ cancelled cancelled ], Orders::Api.recent.map(&:state)
+      assert_equal 2, Orders::Api.recent.count { |order| order.state == "cancelled" }
     end
 
     test "returns keep pace with orders at the return rate" do

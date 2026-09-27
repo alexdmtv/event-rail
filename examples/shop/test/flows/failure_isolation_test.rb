@@ -47,7 +47,7 @@ class FailureIsolationTest < FlowTestCase
 
       JOURNEYS.each do |name, journey|
         Payments::Gateway.adapter = ScriptedGateway.new(**journey.fetch(:provider, {}))
-        order = checkout(key: "#{job}: #{name}")
+        order = place(key: "#{job}: #{name}")
         Orders::Api.cancel(order.id) if journey[:first] == :cancel
         work_off_queue
         Orders::Api.request_return(order.id) if journey[:then] == :return

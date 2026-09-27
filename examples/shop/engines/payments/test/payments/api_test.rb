@@ -217,6 +217,44 @@ module Payments
       assert_equal capture_job_id, failure.causation_id
     end
 
+    test "two authorizations racing for one reference end with one payment" do
+      # The other call inserts its payment while this one waits for the provider.
+      Gateway.adapter = racing = ScriptedGateway.new
+      racing.define_singleton_method(:authorize) do |**|
+        Payments::Payment.create!(reference: "ref-1", amount_cents: 4990, currency: "EUR", state: "authorized", authorization_code: "auth_winner")
+        "auth_loser"
+      end
+
+      payment = authorize
+
+      assert_equal "authorized", payment.state
+      assert_equal [ "auth_winner" ], Payments::Payment.where(reference: "ref-1").pluck(:authorization_code)
+    end
+
+    test "a command for a reference with no payment does nothing" do
+      Gateway.adapter = gateway = ScriptedGateway.new
+
+      published = record_publications do
+        Api.void(reference: "never-authorized")
+        Api.release(reference: "never-authorized")
+        Api.capture(reference: "never-authorized")
+        perform_enqueued_jobs
+      end
+
+      assert_empty published
+      assert_equal 0, gateway.calls.values.sum
+      assert_no_enqueued_jobs # no retry of a command that found nothing
+    end
+
+    test "a command the queue refuses raises rather than returning" do
+      authorize
+      queue_adapter.define_singleton_method(:enqueue) { |*| raise ActiveJob::EnqueueError, "queue full" }
+
+      assert_raises(ActiveJob::EnqueueError) { Api.void(reference: "ref-1") }
+    ensure
+      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
+    end
+
     test "payments are looked up for many references at once" do
       authorize("ref-1")
       authorize("ref-2")

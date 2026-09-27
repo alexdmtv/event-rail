@@ -1,17 +1,21 @@
 module Orders
   class Order < ApplicationRecord
-    STATES = %w[ placed paid shipped delivered awaiting_return refunded cancelled needs_attention ].freeze
+    STATES = %w[ pending rejected placed paid shipped delivered awaiting_return refunded cancelled needs_attention ].freeze
     ABANDONED_AFTER = 30.minutes
     RETURN_WINDOW = 14.days
 
     has_many :line_items, dependent: :destroy
 
+    # What Orders gives Catalog, Payments and Fulfillment, generated when the order is recorded.
+    has_secure_token :reference
+
     validates :state, inclusion: { in: STATES }
 
     STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
 
-    scope :recent, -> { order(placed_at: :desc) }
+    scope :recent, -> { order(created_at: :desc, id: :desc) }
     scope :abandoned, -> { where(state: "placed").where(placed_at: ...ABANDONED_AFTER.ago) }
+    scope :unplaced, -> { where(state: "pending").where(created_at: ...ABANDONED_AFTER.ago) }
 
     # Moves from one of `from` to `to` unless another process already did; true if this
     # call made the move. Every lifecycle step goes through here, which is what makes a
@@ -21,6 +25,9 @@ module Orders
       reload
       moved == 1
     end
+
+    # Records that a pending order will not be placed; true if this call recorded it.
+    def reject!(reason) = transition!(from: "pending", to: "rejected", rejected_at: Time.current, rejection_reason: reason)
 
     def delivered_or_later? = state.in?(%w[ delivered awaiting_return refunded ]) || (needs_attention? && delivered_at?)
     def shipped_or_later? = shipped? || delivered_or_later?

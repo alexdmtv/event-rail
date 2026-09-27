@@ -13,8 +13,8 @@ module Orders
     end
     Order = Data.define(
       :id, :checkout_key, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address,
-      :total_cents, :currency, :lines, :correlation_id, :cancel_reason, :attention_reason, :tracking_code,
-      :placed_at, :paid_at, :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
+      :total_cents, :currency, :lines, :correlation_id, :rejection_reason, :cancel_reason, :attention_reason, :tracking_code,
+      :created_at, :placed_at, :rejected_at, :paid_at, :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
     ) do
       def cancellable? = state.in?(%w[ placed paid ])
       def returnable? = state == "delivered" && delivered_at > Orders::Order::RETURN_WINDOW.ago
@@ -24,15 +24,14 @@ module Orders
     class EmptyBasket < Error; end
     class InvalidQuantity < Error; end
     class UnknownProduct < Error; end
-    class OutOfStock < Error; end
-    class PaymentDeclined < Error; end
-    class PaymentUnavailable < Error; end
     class ConflictingKey < Error; end
     class NotCancellable < Error; end
     class NotReturnable < Error; end
 
     class << self
-      # items: { "sku" => quantity }, each a whole number. Idempotent on key: see Orders::Checkout.
+      # Records the order, pending, and returns it; whether it is placed or rejected follows
+      # in Orders::PlaceOrderJob. items: { "sku" => quantity }, each a whole number. Idempotent
+      # on key: see Orders::Checkout.
       def checkout(customer:, items:, key:)
         value(Orders::Checkout.new(customer: customer, items: items, key: key).call)
       end
@@ -45,14 +44,22 @@ module Orders
         value(Orders::ReturnRequest.new(Orders::Order.find(order_id)).call)
       end
 
-      # Cancels every order still placed and unpaid 30 minutes after checkout. Run every
-      # minute by Orders::ExpireAbandonedOrdersJob; returns how many were cancelled.
+      # Cancels every order still placed and unpaid 30 minutes after checkout, and rejects
+      # every order still pending then, staging its placement again to give back whatever it
+      # took. Run every minute by Orders::ExpireAbandonedOrdersJob; returns how many orders it
+      # ended.
       def expire_abandoned_orders
-        Orders::Order.abandoned.find_each.count do |order|
+        rejected = Orders::Order.unplaced.find_each.count do |order|
+          Orders::Flow.continue(order, step: "expire") do
+            Orders::Order.transaction { Orders::PlaceOrderJob.stage_later(order.id) if order.reject!("not placed in time") }
+          end
+        end
+        cancelled = Orders::Order.abandoned.find_each.count do |order|
           cancel(order.id, reason: "abandoned")
         rescue NotCancellable
           false # it moved on while the scan ran
         end
+        rejected + cancelled
       end
 
       def order(id)
@@ -76,8 +83,8 @@ module Orders
           Order.new(
             **order.slice(
               :id, :checkout_key, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address, :total_cents,
-              :currency, :correlation_id, :cancel_reason, :attention_reason, :tracking_code, :placed_at, :paid_at,
-              :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
+              :currency, :correlation_id, :rejection_reason, :cancel_reason, :attention_reason, :tracking_code, :created_at, :placed_at,
+              :rejected_at, :paid_at, :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
             ).symbolize_keys,
             lines: order.line_items.map { |line| Line.new(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents) }
           )

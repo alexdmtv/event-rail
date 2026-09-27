@@ -35,7 +35,7 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     patch faults_path, params: { authorization_decline_rate: 100, capture_refusal_rate: 0, refund_refusal_rate: 0, temporary_failure_rate: 0, carrier_delay_seconds: 2 }
 
     assert_redirected_to root_path
-    assert_raises(Orders::Api::PaymentDeclined) { checkout }
+    assert_equal "rejected", place.state
   end
 
   test "a chosen job fails its next runs" do
@@ -55,7 +55,9 @@ class ConsoleTest < ActionDispatch::IntegrationTest
   test "the orders page shows each module's view of an order as it moves on" do
     slow_carrier
     order = checkout
+    assert_columns order, "pending", nil, nil, "—"
 
+    place
     assert_columns order, "placed", "authorized", nil, "—"
 
     work_off_queue(due_only: true)
@@ -178,13 +180,28 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     assert_equal 1, Orders::Api.recent.size
   end
 
-  test "a rejected checkout says why" do
+  test "an order rejected while it was being placed says why on its page" do
     Simulation::Engine.load_seed
 
     post orders_path, params: { customer_id: "cus_1", checkout_key: "too-many", items: { "MUG" => 99 } }
+    order = Orders::Api.recent.sole
+    assert_redirected_to order_path(order.id)
+    follow_redirect!
+    assert_select "p", text: /Being placed/
+
+    work_off_queue
+    get order_path(order.id)
+
+    assert_select "p", text: /Rejected: MUG is out of stock/
+  end
+
+  test "a checkout refused at once says why" do
+    Simulation::Engine.load_seed
+
+    post orders_path, params: { customer_id: "cus_1", checkout_key: "nothing", items: { "MUG" => 0 } }
 
     assert_redirected_to new_order_path
-    assert_match(/Checkout rejected/, flash[:alert])
+    assert_match(/Checkout refused: a basket needs at least one item/, flash[:alert])
   end
 
   test "a quantity that is not a whole number is refused, whichever way the form is sent" do

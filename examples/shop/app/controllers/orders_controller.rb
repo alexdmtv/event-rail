@@ -23,7 +23,8 @@ class OrdersController < ApplicationController
   end
 
   # Checkout, from a form that carries its checkout key. Submitting the same form again --
-  # a double click, a retry after a timeout -- returns the same order.
+  # a double click, a retry after a timeout -- returns the same order. Checkout answers once
+  # the order is recorded; its page shows it placed or rejected a moment later.
   def create
     order = Orders::Api.checkout(
       customer: Simulation::Api.customer_snapshot(params.require(:customer_id)),
@@ -31,12 +32,12 @@ class OrdersController < ApplicationController
       key: params.require(:checkout_key)
     )
     respond_to do |format|
-      format.html { redirect_to order_path(order.id), notice: "Order ##{order.id} placed." }
-      format.json { render json: { order_id: order.id, url: order_path(order.id) } }
+      format.html { redirect_to order_path(order.id), notice: "Order ##{order.id} received." }
+      format.json { render json: { order_id: order.id, state: order.state, url: order_path(order.id) } }
     end
   rescue Orders::Api::Error => rejection
     respond_to do |format|
-      format.html { redirect_to new_order_path, alert: "Checkout rejected: #{rejection.message}" }
+      format.html { redirect_to new_order_path, alert: "Checkout refused: #{rejection.message}" }
       format.json { render json: { error: rejection.message }, status: :unprocessable_content }
     end
   end
