@@ -19,11 +19,12 @@ module Platform
       def perform(error_class) = raise(error_class.constantize.new)
     end
 
-    # Fails as Active Job does when a record among its arguments no longer exists.
+    # Fails as Active Job does when it cannot load a record among its arguments -- deleted, or
+    # the database briefly unreachable.
     class OrphanedJob < ApplicationJob
       def perform
-        raise ActiveRecord::RecordNotFound
-      rescue ActiveRecord::RecordNotFound
+        raise ActiveRecord::ConnectionNotEstablished
+      rescue ActiveRecord::ConnectionNotEstablished
         raise ActiveJob::DeserializationError
       end
     end
@@ -60,9 +61,10 @@ module Platform
       assert_operator soon, :<, enqueued_jobs.sole[:at]
     end
 
-    test "a job whose own subject is gone is discarded" do
-      assert_nothing_raised { OrphanedJob.perform_now }
-      assert_no_enqueued_jobs
+    test "a job whose arguments cannot be loaded is retried, not discarded" do
+      OrphanedJob.perform_now
+
+      assert_enqueued_jobs 1, only: OrphanedJob
     end
 
     test "an unclassified error is reported with the flow it happened in; an outcome is not" do

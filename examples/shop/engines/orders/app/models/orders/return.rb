@@ -11,6 +11,8 @@ module Orders
 
     STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
 
+    # The return for a reference Fulfillment or Payments reports, or nil: they serve any caller,
+    # and a refund for a cancelled order has no return.
     def self.for_reference(reference) = joins(:order).find_by(orders_orders: { reference: reference })
 
     def collect_later = CollectReturnJob.stage_later(self)

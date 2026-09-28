@@ -3,6 +3,6 @@ module Orders
   class MarkDeliveredJob < ApplicationJob
     subscribes_to Fulfillment::Events::ShipmentDelivered
 
-    def perform(event) = Order.find_by(reference: event.reference)&.mark_delivered
+    def perform(event) = Order.for_reference(event.reference)&.mark_delivered
   end
 end

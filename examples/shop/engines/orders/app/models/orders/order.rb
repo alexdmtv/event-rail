@@ -27,6 +27,11 @@ module Orders
 
     scope :recent, -> { order(created_at: :desc, id: :desc) }
 
+    # The order a reference names, or nil. Payments and Fulfillment serve any caller and know
+    # nothing of orders, so a fact they report may be about another caller's reference: not
+    # Orders' business.
+    def self.for_reference(reference) = find_by(reference: reference)
+
     # The rules that span the order's traits, each stated once. Every verb that could break one
     # checks it under the order's lock. The steps and verbs that span them live here too.
     def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?
