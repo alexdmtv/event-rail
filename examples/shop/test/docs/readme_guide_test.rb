@@ -9,7 +9,7 @@ class ReadmeGuideTest < ActiveSupport::TestCase
     assert guide, "README.md has no \"What goes where\" section"
 
     interactions = cross_module_interactions
-    assert_includes interactions, "Payments::Api.capture", "the extraction found no cross-module calls"
+    assert_includes interactions, "Payments::Api.request_capture", "the extraction found no cross-module calls"
     assert_includes interactions, "subscribes_to Orders::Events::OrderDelivered", "the extraction found no subscriptions"
 
     missing = interactions.reject { |interaction| guide.include?("| `#{interaction}` |") }

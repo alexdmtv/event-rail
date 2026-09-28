@@ -41,17 +41,18 @@ class OrderLifecycleTest < FlowTestCase
     assert_one_flow(order, published)
   end
 
-  test "a capture that keeps timing out cancels the order, within the order's flow" do
-    Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout ] * 5)
+  test "a capture that never succeeds leaves the order to its payment deadline, within the order's flow" do
+    Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout ] * 10)
 
     order, published = place_and_settle
+    assert_equal [ "Payments::CaptureJob" ], @job_failures.map(&:job_class), "the capture ends in the failed jobs"
+    published += travel(31.minutes) { record_publications { Orders::Api.expire_abandoned_orders; settle } }
 
-    assert_equal 5, gateway.calls[:capture]
+    assert_equal 10, gateway.calls[:capture]
+    order = Orders::Api.order(order.id)
     assert_equal "cancelled", order.state
-    payment = Payments::Api.payment(order.reference)
-    assert_equal "capture_failed", payment.state
-    assert payment.voided_at, "the hold is voided"
-    assert_includes published.map(&:event_type), "payments.capture_failed"
+    assert_equal "abandoned", order.cancel_reason
+    assert Payments::Api.payment(order.reference).voided_at, "the hold is voided"
     assert_equal %w[ cancelled placed ], notified_kinds(order)
     assert_one_flow(order, published)
   end

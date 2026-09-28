@@ -15,9 +15,17 @@ module Platform
         refused << job
         raise error.call
       end
+      queue_adapter.define_singleton_method(:enqueue_at) do |job, timestamp|
+        next super(job, timestamp) if classes.any? && classes.exclude?(job.class.name)
+
+        refused << job
+        raise error.call
+      end
       yield refused
     ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
+      %i[ enqueue enqueue_at ].each do |method|
+        queue_adapter.singleton_class.remove_method(method) if queue_adapter.singleton_class.method_defined?(method, false)
+      end
     end
 
     # Runs the relay once the staged jobs are old enough for it to hand over.

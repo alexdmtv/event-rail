@@ -166,7 +166,7 @@ module Orders
 
     test "placing interrupted after the announcement announces again under the same identity" do
       order = checkout
-      first = record_publications { failing(Payments::Api, :capture) { perform_enqueued_jobs(only: PlaceOrderJob) } }
+      first = record_publications { failing(Payments::Api, :request_capture) { perform_enqueued_jobs(only: PlaceOrderJob) } }
 
       again = record_publications { work_off_queue }
 

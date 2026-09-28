@@ -1,8 +1,6 @@
 module Payments
-  # Takes the money an authorization holds. Enqueued by Api.capture.
-  class CaptureJob < PaymentJob
-    private
-      def operation_for(payment) = (:capture if payment.capturable?)
-      def report(payment) = report_capture(payment)
+  # Takes the money an authorization holds. Accepted by Api.request_capture.
+  class CaptureJob < ApplicationJob
+    def perform(reference) = Payment.find_by(reference: reference)&.capture(claimant: job_id)
   end
 end

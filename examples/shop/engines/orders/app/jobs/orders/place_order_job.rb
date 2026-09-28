@@ -15,7 +15,7 @@ module Orders
     AUTHORIZATION_ATTEMPTS = 3
 
     # Later declarations are consulted first.
-    retry_on Payments::Api::Unavailable, wait: 2.seconds, attempts: AUTHORIZATION_ATTEMPTS
+    retry_on Payments::Unavailable, wait: 2.seconds, attempts: AUTHORIZATION_ATTEMPTS
 
     def perform(order_id)
       order = Order.find(order_id)
@@ -30,9 +30,9 @@ module Orders
         order.transition!(from: "pending", to: "placed", placed_at: Time.current)
       rescue Catalog::OutOfStock => out_of_stock
         order.reject!(out_of_stock.message)
-      rescue Payments::Api::Declined => declined
+      rescue Payments::Declined => declined
         order.reject!("payment declined: #{declined.message}")
-      rescue Payments::Api::Unavailable => unavailable
+      rescue Payments::Unavailable => unavailable
         # Decided here, inside perform, so that the rejection's give-back runs in the order's
         # flow; a retry_on block would run after the job's EventRail context has closed.
         raise if executions < AUTHORIZATION_ATTEMPTS
@@ -56,14 +56,14 @@ module Orders
             { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
           end
         ))
-        Payments::Api.capture(reference: order.reference) if order.placed?
+        Payments::Api.request_capture(reference: order.reference) if order.placed?
       end
 
       # Both are attempted even if one fails, and both are safe to repeat whether or not
       # anything was reserved or authorized; the job's retry finishes what is left.
       def give_back(order)
         failure = nil
-        [ -> { Catalog::Api.release(reservation_id: order.reference) }, -> { Payments::Api.void(reference: order.reference) } ].each do |step|
+        [ -> { Catalog::Api.release(reservation_id: order.reference) }, -> { Payments::Api.request_void(reference: order.reference) } ].each do |step|
           step.call
         rescue => error
           failure ||= error

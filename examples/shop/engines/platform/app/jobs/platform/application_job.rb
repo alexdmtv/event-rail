@@ -45,15 +45,24 @@ module Platform
       block.call
     end
 
-    # Starts a job as part of the surrounding transaction, for code at a boundary that has
-    # just written business records: the job is staged in their store and commits, or rolls
-    # back, with them (see Platform::StagedJob). Once the transaction has committed, the job
-    # is handed to the queue at once; if that fails, Platform::StagedJobRelayJob hands it over
-    # shortly after. Inside a job, call perform_later instead: the job's own retry repeats a
-    # lost enqueue.
+    # Enqueues the job, and raises if the queue refuses it. Active Job's perform_later returns
+    # false instead, and a caller that does not check has lost the job without knowing; raising
+    # lets the caller's own retry send it again. options: wait:, wait_until:, queue:.
+    def self.perform_later!(*arguments, **options)
+      job = new(*arguments)
+      job.enqueue(options) or raise(job.enqueue_error || ActiveJob::EnqueueError.new("#{name} was not enqueued"))
+      job
+    end
+
+    # Starts a job as part of the surrounding transaction, for a domain method that has just
+    # written its records: the job is staged in their store and commits, or rolls back, with
+    # them (see Platform::StagedJob). Once the transaction has committed, the job is handed to
+    # the queue at once; if that fails, Platform::StagedJobRelayJob hands it over shortly
+    # after. It is right wherever the method runs: in a request, which has no retry, and in a
+    # job, where it costs a row and saves nothing but is never wrong.
     def self.stage_later(*arguments)
       transaction = StagedJob.current_transaction
-      raise ArgumentError, "stage_later needs a surrounding transaction to commit with; use perform_later" unless transaction.open?
+      raise ArgumentError, "stage_later needs a surrounding transaction to commit with" unless transaction.open?
 
       job = new(*arguments)
       staged = StagedJob.stage(job)

@@ -95,10 +95,10 @@ Every interaction between two modules in this application:
 | `Catalog::Api.products` | sync query | the simulator picks what to buy |
 | `Catalog::Api.receive_stock` | sync command | the simulated supplier refills a low shelf |
 | `Payments::Api.authorize` | sync command, calls the provider | placing an order must know now whether the card was declined |
-| `Payments::Api.capture` | async command | the provider is slow and flaky; Orders waits for the outcome event |
-| `Payments::Api.void` | async command | releasing the card hold of a rejected order |
-| `Payments::Api.release` | async command | a cancellation gives back whatever the payment holds; Payments decides between void and refund, because only Payments knows whether a capture has landed |
-| `Payments::Api.refund` | async command | giving money back for a returned parcel |
+| `Payments::Api.request_capture` | async command | the provider is slow and flaky; Orders waits for the outcome event |
+| `Payments::Api.request_void` | async command | releasing the card hold of a rejected order |
+| `Payments::Api.request_release` | async command | a cancellation gives back whatever the payment holds; Payments decides between void and refund, because only Payments knows whether a capture has landed |
+| `Payments::Api.request_refund` | async command | giving money back for a returned parcel |
 | `Fulfillment::Api.request_shipment` | async command | the carrier works on its own schedule |
 | `Fulfillment::Api.cancel_shipment` | sync command | a cancellation must know now whether the parcel has left, and only Fulfillment knows |
 | `Fulfillment::Api.request_return_pickup` | request | the carrier brings the parcel back when it does |
