@@ -17,9 +17,6 @@ module Simulation
         Simulation::Settings.current.update!(orders_per_minute: orders_per_minute, cancel_rate: cancel_rate, return_rate: return_rate)
       end
 
-      # One second of simulated customers, now.
-      def tick = Simulation::TickJob.perform_now
-
       def customers
         Simulation::Customer.order(:name).map { |customer| Customer.new(id: customer.customer_id, name: customer.name, email: customer.email, address: customer.address) }
       end

@@ -32,6 +32,19 @@ module Orders
     # Orders' business.
     def self.for_reference(reference) = find_by(reference: reference)
 
+    # Cancels every order past a deadline: placed and not confirmed in time (Confirmable), or
+    # confirmed and not paid in time (Payable). Run every minute by DeadlineSweepJob; returns
+    # how many cancellations it requested.
+    def self.cancel_overdue
+      [ [ unconfirmed_past_deadline, "not confirmed in time" ], [ unpaid_past_deadline, "not paid in time" ] ].sum do |overdue, reason|
+        overdue.find_each.count do |order|
+          order.request_cancellation(reason: reason)
+        rescue NotCancellable
+          false # it shipped while the sweep ran
+        end
+      end
+    end
+
     # The rules that span the order's traits, each stated once. Every verb that could break one
     # checks it under the order's lock. The steps and verbs that span them live here too.
     def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?

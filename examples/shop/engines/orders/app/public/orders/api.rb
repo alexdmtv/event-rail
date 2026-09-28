@@ -48,19 +48,6 @@ module Orders
       # Raises NotReturnable unless the order was delivered within its return window.
       def request_return(order_id) = Orders::Order.find(order_id).request_return.then { order(order_id) }
 
-      # Cancels every order past a deadline: placed and not confirmed in time, or confirmed and
-      # not paid in time. Run every minute by Orders::DeadlineSweepJob; returns how many
-      # cancellations it requested.
-      def enforce_deadlines
-        [ [ Orders::Order.unconfirmed_past_deadline, "not confirmed in time" ], [ Orders::Order.unpaid_past_deadline, "not paid in time" ] ].sum do |overdue, reason|
-          overdue.find_each.count do |order|
-            order.request_cancellation(reason: reason)
-          rescue NotCancellable
-            false # it shipped while the sweep ran
-          end
-        end
-      end
-
       def order(id)
         order = Orders::Order.includes(:line_items, :returns).find_by(id: id)
         order && value(order)

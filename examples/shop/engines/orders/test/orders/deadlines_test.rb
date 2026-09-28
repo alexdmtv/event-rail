@@ -50,7 +50,7 @@ module Orders
       # The sweep runs while confirming is between the reservation and the authorization.
       Payments::Api.singleton_class.alias_method :__authorize_before_deadline, :authorize
       Payments::Api.define_singleton_method(:authorize) do |**options|
-        test.travel(3.minutes) { Orders::Api.enforce_deadlines; test.perform_enqueued_jobs(only: CancelJob) }
+        test.travel(3.minutes) { DeadlineSweepJob.perform_now; test.perform_enqueued_jobs(only: CancelJob) }
         __authorize_before_deadline(**options)
       end
 

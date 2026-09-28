@@ -62,11 +62,13 @@ class CancellationFlowTest < FlowTestCase
 
   test "an unpaid order whose capture had in fact landed is refunded" do
     order = place
-    Platform::FaultSettings.force_failures("Orders::MarkPaidJob", 1)
-    work_off_queue(due_only: true)
+    Platform::FaultSettings.force_failures("Orders::MarkPaidJob", 10) # every attempt
+    failures = work_off_queue(due_only: true)
+    failures += work_off_queue # its retries, until it ends in the failed jobs
+    assert_equal [ "Orders::MarkPaidJob" ], failures.map(&:job_class)
 
     travel(31.minutes) do
-      Orders::Api.enforce_deadlines
+      enqueue_scheduled(:enforce_order_deadlines)
       work_off_queue
     end
 
@@ -106,7 +108,7 @@ class CancellationFlowTest < FlowTestCase
 
     published = travel(31.minutes) do
       record_publications do
-        Orders::Api.enforce_deadlines
+        enqueue_scheduled(:enforce_order_deadlines)
         work_off_queue
       end
     end

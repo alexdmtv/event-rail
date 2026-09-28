@@ -10,6 +10,6 @@ module Orders
   class DeadlineSweepJob < ActiveJob::Base
     queue_as :orders
 
-    def perform = Api.enforce_deadlines
+    def perform = Order.cancel_overdue
   end
 end
