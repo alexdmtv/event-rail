@@ -217,7 +217,7 @@ bin/packwerk validate   # the dependency graph has no cycle
 bin/packwerk check      # no module references another's internals or an undeclared module
 ```
 
-Both run in CI. `test/boundaries` plants rule-breaking files into a copy of the application — a private model reached from outside, an undeclared dependency, a transitive one, an upward call, a published event reaching into its module, another module subscribing to an internal event, a declared cycle — and asserts each is caught. The rules apply to tests too.
+Both run in CI. `test/boundaries` plants rule-breaking files into a copy of the application — a private model reached from outside, an undeclared dependency, a transitive one, an upward call, a published event reaching into its module, another module subscribing to an internal event, a declared cycle — and asserts each is caught. The rules apply to tests too. `test/boundaries` also checks the design rules packwerk cannot see: every error has a category, no job declares a retry policy of its own, every event lives in its module's published events, and every domain job's `perform` is one line.
 
 ## Alternatives we tried and rejected
 
