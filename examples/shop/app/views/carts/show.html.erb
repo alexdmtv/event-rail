@@ -1,0 +1,33 @@
+<% content_for :title, "Cart ##{@cart.id}" %>
+
+<section class="intro">
+  <h1>Cart #<%= @cart.id %></h1>
+  <p>Placing the order records it and answers at once. Confirming it -- holding the stock, authorizing the card -- runs
+    in a job, and the order's page shows it confirmed or cancelled a moment later.</p>
+</section>
+
+<section class="card">
+  <table class="products">
+    <thead><tr><th>Product</th><th class="number">Price</th><th class="number">Quantity</th></tr></thead>
+    <tbody>
+      <% @cart.items.each do |sku, quantity| %>
+        <tr>
+          <td><%= @products[sku]&.name || sku %> <span class="muted small"><%= sku %></span></td>
+          <td class="number"><%= @products[sku] ? money(@products[sku].price_cents) : "—" %></td>
+          <td class="number"><%= quantity %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <% if @cart.order_id %>
+    <p>Ordered: <%= link_to "order ##{@cart.order_id}", order_path(@cart.order_id) %>.</p>
+  <% else %>
+    <%= form_with url: order_cart_path(@cart.id), data: { controller: "double-submit" } do |form| %>
+      <div class="actions">
+        <%= form.submit "Place order", class: "button primary" %>
+        <button type="button" class="button" data-action="double-submit#submit">Place it twice at once</button>
+        <span class="result" data-double-submit-target="result"></span>
+      </div>
+    <% end %>
+  <% end %>
+</section>

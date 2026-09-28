@@ -35,7 +35,9 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     patch faults_path, params: { authorization_decline_rate: 100, capture_refusal_rate: 0, refund_refusal_rate: 0, temporary_failure_rate: 0, carrier_delay_seconds: 2 }
 
     assert_redirected_to root_path
-    assert_equal "rejected", place.state
+    order = place
+    assert_equal "cancelled", order.state
+    assert_match(/\Apayment declined/, order.cancel_reason)
   end
 
   test "a chosen job fails its next runs" do
@@ -55,10 +57,10 @@ class ConsoleTest < ActionDispatch::IntegrationTest
   test "the orders page shows each module's view of an order as it moves on" do
     slow_carrier
     order = checkout
-    assert_columns order, "pending", nil, nil, "—"
+    assert_columns order, "placed", nil, nil, "—"
 
-    place
-    assert_columns order, "placed", "authorized", nil, "—"
+    perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::ConfirmJob" })
+    assert_columns order, "confirmed", "authorized", nil, "—"
 
     work_off_queue(due_only: true)
     assert_columns order, "paid", "captured", "requested", "—"
@@ -91,28 +93,30 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     work_off_queue(due_only: true)
 
     get order_path(order.id)
-    assert_select "form[action=?]", cancel_order_path(order.id)
+    assert_select "form[action=?]", cancellation_order_path(order.id)
 
-    post cancel_order_path(order.id)
-    work_off_queue(due_only: true)
-
+    post cancellation_order_path(order.id)
     assert_redirected_to order_path(order.id)
     follow_redirect!
+    assert_select "p", text: /Cancellation requested/
+
+    work_off_queue(due_only: true)
+    get order_path(order.id)
     assert_select "h1 .pill", "cancelled"
     assert_select ".step.event", text: /orders.order_cancelled/
-    assert_select "form[action=?]", cancel_order_path(order.id), count: 0
+    assert_select "form[action=?]", cancellation_order_path(order.id), count: 0
   end
 
-  test "a dispatched order cannot be cancelled" do
+  test "a shipped order cannot be cancelled" do
     slow_carrier
     order = checkout
     work_off_queue(due_only: true)
     next_carrier_step
 
-    post cancel_order_path(order.id)
+    post cancellation_order_path(order.id)
 
     assert_redirected_to order_path(order.id)
-    assert_match(/has been dispatched; request a return instead/, flash[:alert])
+    assert_match(/has shipped; request a return instead/, flash[:alert])
   end
 
   test "a delivered order can be returned from its flow page" do
@@ -126,7 +130,7 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     post return_order_path(order.id)
     work_off_queue
 
-    assert_equal "refunded", Orders::Api.order(order.id).state
+    assert_equal "refunded", Orders::Api.order(order.id).status
     follow_redirect!
     assert_select ".step.event", text: /orders.order_refunded/
     assert_select "form[action=?]", return_order_path(order.id), count: 0
@@ -140,12 +144,12 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     assert_redirected_to order_path(order.id)
   end
 
-  test "an order's page shows its checkout key and the attempt that placed it" do
-    order = checkout(key: "the-key")
+  test "an order's page shows its cart and its reference" do
+    order = checkout
 
     get order_path(order.id)
 
-    assert_select "code", text: "the-key"
+    assert_select "a[href=?]", cart_path(order.cart_id)
     assert_select "code", text: order.reference
   end
 
@@ -155,62 +159,66 @@ class ConsoleTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
   end
 
-  test "the new order form carries a fresh checkout key" do
+  test "the new cart form lists the customers and the products" do
     Simulation::Engine.load_seed
 
-    get new_order_path
+    get new_cart_path
 
     assert_response :success
-    assert_select "input[name=checkout_key][value]"
     assert_select "select[name=customer_id] option", 12
     assert_select "input[name='items[MUG]']"
-    assert_select "[data-action='double-submit#submit']"
   end
 
-  test "submitting the same checkout form twice returns the same order" do
+  test "a cart is filled, reviewed and placed, and placing it twice returns the same order" do
     Simulation::Engine.load_seed
-    form = { customer_id: "cus_1", checkout_key: "form-key", items: { "MUG" => 1, "TEA" => 0 } }
+    post carts_path, params: { customer_id: "cus_1", items: { "MUG" => 1, "TEA" => 0 } }
+    cart_id = response.location[%r{/carts/(\d+)}, 1]
+    follow_redirect!
+    assert_select "[data-action='double-submit#submit']"
 
-    post orders_path(format: :json), params: form
+    post order_cart_path(cart_id, format: :json)
     first = response.parsed_body
-    post orders_path(format: :json), params: form
+    post order_cart_path(cart_id, format: :json)
     second = response.parsed_body
 
     assert_equal first, second
     assert_equal 1, Orders::Api.recent.size
   end
 
-  test "an order rejected while it was being placed says why on its page" do
+  test "an order cancelled while it was being confirmed says why on its page" do
     Simulation::Engine.load_seed
-
-    post orders_path, params: { customer_id: "cus_1", checkout_key: "too-many", items: { "MUG" => 99 } }
+    post carts_path, params: { customer_id: "cus_1", items: { "MUG" => 99 } }
+    post order_cart_path(response.location[%r{/carts/(\d+)}, 1])
     order = Orders::Api.recent.sole
     assert_redirected_to order_path(order.id)
     follow_redirect!
-    assert_select "p", text: /Being placed/
+    assert_select "p", text: /Being confirmed/
 
     work_off_queue
     get order_path(order.id)
 
-    assert_select "p", text: /Rejected: MUG is out of stock/
+    assert_select "h1 .pill", "cancelled"
+    assert_select "p", text: /cancelled: MUG is out of stock/
   end
 
-  test "a checkout refused at once says why" do
+  test "an empty cart cannot be placed, and says why" do
     Simulation::Engine.load_seed
+    post carts_path, params: { customer_id: "cus_1", items: { "MUG" => 0 } }
+    cart_id = response.location[%r{/carts/(\d+)}, 1]
 
-    post orders_path, params: { customer_id: "cus_1", checkout_key: "nothing", items: { "MUG" => 0 } }
+    post order_cart_path(cart_id)
 
-    assert_redirected_to new_order_path
-    assert_match(/Checkout refused: a basket needs at least one item/, flash[:alert])
+    assert_redirected_to cart_path(cart_id)
+    assert_match(/Order refused: a cart needs at least one item/, flash[:alert])
   end
 
-  test "a quantity that is not a whole number is refused, whichever way the form is sent" do
+  test "a quantity that is not a whole number is refused before a cart is opened" do
     Simulation::Engine.load_seed
 
     [ "-2", "1.5" ].each do |quantity|
-      post orders_path(format: :json), params: { customer_id: "cus_1", checkout_key: "bad-#{quantity}", items: { "MUG" => quantity } }
-      assert_response :unprocessable_content
-      assert_match(/not a quantity/, response.parsed_body["error"])
+      post carts_path, params: { customer_id: "cus_1", items: { "MUG" => quantity } }
+      assert_redirected_to new_cart_path
+      assert_match(/not a quantity/, flash[:alert])
     end
 
     assert_empty Orders::Api.recent

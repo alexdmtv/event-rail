@@ -10,7 +10,7 @@ class ReturnFlowTest < FlowTestCase
       work_off_queue
     end
 
-    assert_equal "refunded", Orders::Api.order(order.id).state
+    assert_equal "refunded", Orders::Api.order(order.id).status
     assert_equal "refunded", Payments::Api.payment(order.reference).state
     assert_equal "received", Fulfillment::Api.parcel_return(order.reference).state
     assert_equal 10, on_hand("MUG")
@@ -27,8 +27,7 @@ class ReturnFlowTest < FlowTestCase
     work_off_queue
 
     reloaded = Orders::Api.order(order.id)
-    assert_equal "needs_attention", reloaded.state
-    assert_match(/refund refused/, reloaded.attention_reason)
+    assert_equal [ "needs_attention", "refund_failed" ], [ reloaded.status, reloaded.return_state ]
     assert_equal 38, points(order)
   end
 end

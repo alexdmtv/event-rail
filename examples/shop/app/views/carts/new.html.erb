@@ -1,0 +1,31 @@
+<% content_for :title, "New cart" %>
+
+<section class="intro">
+  <h1>Fill a cart</h1>
+  <p>A cart is the customer's list of what they mean to buy. Placing it turns it into an order, once: the order holds the
+    cart's ID, so a cart placed twice still gives one order.</p>
+</section>
+
+<section class="card">
+  <%= form_with url: carts_path, class: "checkout" do |form| %>
+    <label>Customer
+      <%= form.select :customer_id, @customers.map { |customer| [ "#{customer.name} (#{customer.email})", customer.id ] }, {}, class: "wide" %>
+    </label>
+    <table class="products">
+      <thead><tr><th>Product</th><th class="number">Price</th><th class="number">Available</th><th class="number">Quantity</th></tr></thead>
+      <tbody>
+        <% @products.each_with_index do |product, index| %>
+          <tr>
+            <td><%= product.name %> <span class="muted small"><%= product.sku %></span></td>
+            <td class="number"><%= money(product.price_cents) %></td>
+            <td class="number"><%= product.available %></td>
+            <td class="number"><%= number_field_tag "items[#{product.sku}]", index.zero? ? 1 : 0, class: "quantity" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+    <div class="actions">
+      <%= form.submit "Review the cart", class: "button primary" %>
+    </div>
+  <% end %>
+</section>

@@ -8,7 +8,7 @@ class FlowRecordingTest < FlowTestCase
     roots = Observability::Api.flow(order.correlation_id)
 
     placement = roots.sole
-    assert_equal "Orders::PlaceOrderJob", placement.name
+    assert_equal "Orders::ConfirmJob", placement.name
 
     placed = placement.children.find { |step| step.name == "orders.order_placed" }
     assert_equal 2, placed.version

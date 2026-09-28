@@ -27,7 +27,7 @@
       <nav>
         <%= link_to "Console", root_path, class: ("current" if current_page?(root_path)) %>
         <%= link_to "Orders", orders_path, class: ("current" if controller_name == "orders" && action_name != "new") %>
-        <%= link_to "New order", new_order_path, class: ("current" if current_page?(new_order_path)) %>
+        <%= link_to "New cart", new_cart_path, class: ("current" if current_page?(new_cart_path)) %>
         <%= link_to "Architecture", architecture_path, class: ("current" if current_page?(architecture_path)) %>
         <%= link_to "Jobs ↗", "/jobs", target: "_blank", rel: "noopener" %>
       </nav>

@@ -3,7 +3,7 @@ class ConsoleController < ApplicationController
     @simulation = Simulation::Api.state
     @faults = Platform::FaultSettings.current
     @feed = Observability::Api.recent_publications(limit: 25)
-    @counts = Orders::Api.count_by_state
+    @counts = Orders::Api.status_counts
     @forceable_jobs = ForceableJobs.names
   end
 end

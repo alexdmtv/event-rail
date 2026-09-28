@@ -15,9 +15,9 @@ module Orders
     test "a return within 14 days awaits the parcel" do
       slow_carrier
 
-      perform_enqueued_jobs(only: RequestReturnJob) { Api.request_return(@order.id) }
+      perform_enqueued_jobs(only: CollectReturnJob) { Api.request_return(@order.id) }
 
-      assert_equal "awaiting_return", order_record(@order).state
+      assert_equal "returning", order_record(@order).status
       assert_equal "expected", Fulfillment::Api.parcel_return(@order.reference).state
     end
 
@@ -27,36 +27,36 @@ module Orders
       assert_nil Fulfillment::Api.parcel_return(@order.reference)
 
       relay_staged_jobs
-      perform_enqueued_jobs(only: RequestReturnJob)
+      perform_enqueued_jobs(only: CollectReturnJob)
 
       assert_equal "expected", Fulfillment::Api.parcel_return(@order.reference).state
     end
 
-    test "a return requested again after the 14 days returns the order awaiting it" do
+    test "a return requested again after the 14 days returns the return already under way" do
       slow_carrier
       Api.request_return(@order.id)
 
       travel 15.days do
-        assert_equal "awaiting_return", Api.request_return(@order.id).state
+        assert_equal "returning", Api.request_return(@order.id).status
       end
     end
 
     test "a return after 14 days is refused" do
       travel 15.days do
-        assert_raises(Api::NotReturnable) { Api.request_return(@order.id) }
+        assert_raises(NotReturnable) { Api.request_return(@order.id) }
       end
     end
 
     test "an order that was not delivered cannot be returned" do
-      order = checkout(key: "key-2")
+      order = checkout
 
-      assert_raises(Api::NotReturnable) { Api.request_return(order.id) }
+      assert_raises(NotReturnable) { Api.request_return(order.id) }
     end
 
     test "the returned parcel is restocked, refunded, and the order refunded" do
       published = record_publications { perform_enqueued_jobs { Api.request_return(@order.id) } }
 
-      assert_equal "refunded", order_record(@order).state
+      assert_equal "refunded", order_record(@order).status
       assert_equal 10, on_hand("MUG")
       assert_equal "refunded", Payments::Api.payment(@order.reference).state
       assert_includes published.map(&:event_type), "orders.order_refunded"
@@ -68,8 +68,8 @@ module Orders
       perform_enqueued_jobs { Api.request_return(@order.id) }
 
       record = order_record(@order)
-      assert_equal "needs_attention", record.state
-      assert_match(/refund refused/, record.attention_reason)
+      assert_equal "needs_attention", record.status
+      assert_match(/refund refused/, record.returns.sole.failure_reason)
     end
   end
 end

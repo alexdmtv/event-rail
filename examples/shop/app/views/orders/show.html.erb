@@ -2,21 +2,24 @@
 <% content_for :live, true %>
 
 <section class="intro">
-  <h1>Order #<%= @order.id %> <%= state_pill(@order.state) %></h1>
+  <h1>Order #<%= @order.id %> <%= state_pill(@order.status) %></h1>
   <p><%= @order.customer_name %> · <%= money(@order.total_cents, @order.currency) %> ·
     <%= @order.lines.map { |line| "#{line.quantity} × #{line.name}" }.to_sentence %></p>
-  <% if @order.state == "pending" %>
-    <p class="muted">Being placed: reserving the stock and authorizing the card.</p>
-  <% elsif @order.rejection_reason %>
-    <p><strong>Rejected:</strong> <%= @order.rejection_reason %></p>
+  <% if @order.state == "placed" %>
+    <p class="muted">Being confirmed: holding the stock and authorizing the card.</p>
   <% end %>
-  <p class="muted small">Checkout key <code><%= @order.checkout_key %></code> · reference <code><%= @order.reference %></code> ·
+  <% if @order.cancellation_refused_at %>
+    <p><strong>Cancellation refused:</strong> the parcel had already left. Request a return once it arrives.</p>
+  <% elsif @order.cancellation_requested_at && !@order.cancelled_at %>
+    <p class="muted">Cancellation requested: checking whether the parcel has left.</p>
+  <% end %>
+  <p class="muted small">Cart <%= link_to "##{@order.cart_id}", cart_path(@order.cart_id) %> · reference <code><%= @order.reference %></code> ·
     correlation <code><%= @order.correlation_id %></code>
     <% if @order.cancel_reason %> · cancelled: <%= @order.cancel_reason %><% end %>
     <% if @order.attention_reason %> · <strong>needs attention:</strong> <%= @order.attention_reason %><% end %></p>
   <div class="actions">
     <% if @order.cancellable? %>
-      <%= button_to "Cancel order", cancel_order_path(@order.id), class: "button" %>
+      <%= button_to "Request cancellation", cancellation_order_path(@order.id), class: "button" %>
     <% end %>
     <% if @order.returnable? %>
       <%= button_to "Request a return", return_order_path(@order.id), class: "button" %>
@@ -25,7 +28,7 @@
 </section>
 
 <div class="grid-4">
-  <div class="card mini"><h3 class="<%= module_class("Orders") %>">Orders</h3><%= state_pill(@order.state) %></div>
+  <div class="card mini"><h3 class="<%= module_class("Orders") %>">Orders</h3><%= state_pill(@order.status) %></div>
   <div class="card mini"><h3 class="<%= module_class("Payments") %>">Payments</h3><%= state_pill(@payment&.state) %></div>
   <div class="card mini"><h3 class="<%= module_class("Fulfillment") %>">Fulfillment</h3><%= state_pill(@shipment&.state) %>
     <% if @shipment&.tracking_code %><span class="muted small"><%= @shipment.tracking_code %></span><% end %></div>

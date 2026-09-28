@@ -7,19 +7,22 @@ module ShopHelpers
     Catalog::Api.add_product(sku: "TEA", name: "Green tea", price_cents: 890, on_hand: 10)
   end
 
-  def checkout(key: "key-1", items: { "MUG" => 2, "TEA" => 1 }, customer: CUSTOMER)
-    Orders::Api.checkout(customer: customer, items: items, key: key)
+  # Opens a cart with the items and places it; returns the order, placed.
+  def checkout(items: { "MUG" => 2, "TEA" => 1 }, customer: CUSTOMER)
+    Orders::Api.place_order(Orders::Api.open_cart(customer: customer, items: items).id)
   end
 
-  # Checks out and runs the order's placement, retries included, leaving what the placement
-  # started -- the capture -- queued. Returns the order as placing left it: placed, or
-  # rejected. (The job is named rather than referenced: it is private to Orders.)
+  # Checks out and runs the order's confirmation -- and, when confirming it cancelled it, the
+  # cancellation -- retries included, leaving what confirming started (the capture) queued.
+  # Returns the order as that left it: confirmed, or cancelled. (The jobs are named rather than
+  # referenced: they are private to Orders.)
   def place(**options)
     order = checkout(**options)
+    confirming = ->(job) { %w[ Orders::ConfirmJob Orders::CancelJob ].include?(job.fetch(:job).name) }
     10.times do
-      break unless Orders::Api.order(order.id).state == "pending"
+      break if enqueued_jobs.none? { |job| %w[ Orders::ConfirmJob Orders::CancelJob ].include?(job["job_class"]) }
 
-      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::PlaceOrderJob" })
+      perform_enqueued_jobs(only: confirming)
     end
     Orders::Api.order(order.id)
   end

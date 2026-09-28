@@ -109,6 +109,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.index ["parent_id"], name: "index_observability_nodes_on_parent_id"
   end
 
+  create_table "orders_cart_items", force: :cascade do |t|
+    t.integer "cart_id", null: false
+    t.string "sku", null: false
+    t.integer "quantity", null: false
+    t.index ["cart_id", "sku"], name: "index_orders_cart_items_on_cart_id_and_sku", unique: true
+    t.index ["cart_id"], name: "index_orders_cart_items_on_cart_id"
+    t.check_constraint "quantity > 0", name: "orders_cart_items_quantity_positive"
+  end
+
+  create_table "orders_carts", force: :cascade do |t|
+    t.string "customer_id", null: false
+    t.string "customer_name", null: false
+    t.string "customer_email", null: false
+    t.string "shipping_address", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["customer_id"], name: "index_orders_carts_on_customer_id"
+  end
+
   create_table "orders_line_items", force: :cascade do |t|
     t.integer "order_id", null: false
     t.string "sku", null: false
@@ -119,9 +138,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
   end
 
   create_table "orders_orders", force: :cascade do |t|
-    t.string "checkout_key", null: false
+    t.integer "cart_id", null: false
     t.string "reference", null: false
-    t.string "basket_fingerprint", null: false
     t.string "state", null: false
     t.string "customer_id", null: false
     t.string "customer_name", null: false
@@ -130,26 +148,35 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.integer "total_cents", null: false
     t.string "currency", null: false
     t.string "correlation_id", null: false
-    t.string "rejection_reason"
-    t.string "cancel_reason"
-    t.string "attention_reason"
-    t.string "tracking_code"
-    t.datetime "placed_at"
-    t.datetime "rejected_at"
+    t.datetime "confirmed_at"
     t.datetime "paid_at"
     t.datetime "shipped_at"
+    t.string "tracking_code"
     t.datetime "delivered_at"
+    t.datetime "cancellation_requested_at"
+    t.string "cancel_reason"
+    t.datetime "cancellation_refused_at"
     t.datetime "cancelled_at"
-    t.datetime "cancellation_announced_at"
-    t.datetime "return_requested_at"
-    t.datetime "refunded_at"
+    t.string "attention_reason"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["checkout_key"], name: "index_orders_orders_on_checkout_key", unique: true
+    t.index ["cart_id"], name: "index_orders_orders_on_cart_id", unique: true
     t.index ["correlation_id"], name: "index_orders_orders_on_correlation_id"
     t.index ["customer_id"], name: "index_orders_orders_on_customer_id"
     t.index ["reference"], name: "index_orders_orders_on_reference", unique: true
+    t.index ["state", "confirmed_at"], name: "index_orders_orders_on_state_and_confirmed_at"
     t.index ["state", "created_at"], name: "index_orders_orders_on_state_and_created_at"
+  end
+
+  create_table "orders_returns", force: :cascade do |t|
+    t.integer "order_id", null: false
+    t.string "state", null: false
+    t.datetime "received_at"
+    t.datetime "refunded_at"
+    t.string "failure_reason"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["order_id"], name: "index_orders_returns_on_order_id", unique: true
   end
 
   create_table "payments_payments", force: :cascade do |t|
@@ -212,5 +239,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
   end
 
   add_foreign_key "catalog_reservations", "catalog_products", column: "product_id"
+  add_foreign_key "orders_cart_items", "orders_carts", column: "cart_id"
   add_foreign_key "orders_line_items", "orders_orders", column: "order_id"
+  add_foreign_key "orders_orders", "orders_carts", column: "cart_id"
+  add_foreign_key "orders_returns", "orders_orders", column: "order_id"
 end

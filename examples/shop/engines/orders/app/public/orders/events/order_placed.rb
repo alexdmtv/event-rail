@@ -1,6 +1,7 @@
 module Orders
   module Events
-    # An order was placed: its stock is reserved and its payment authorized.
+    # The customer placed an order: its items and prices, as they were then. Whether it is
+    # confirmed or cancelled follows.
     #
     # Version 2. Version 1 carried the total as an integer `total_cents`; version 2 carries a
     # Money with its currency. Retyping a field breaks every reader, which is what a new

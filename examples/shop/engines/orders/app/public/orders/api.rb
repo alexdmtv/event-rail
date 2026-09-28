@@ -1,103 +1,97 @@
 module Orders
-  # Orders' public surface: checkout, the customer's actions on an order, and queries.
-  # Every method is synchronous; what happens next arrives as Orders::Events.
+  # Orders' public surface: carts, placing an order, the customer's requests about an order,
+  # and queries. Placing, cancelling and returning record the request and return; what happens
+  # next arrives as Orders::Events.
   module Api
     CURRENCY = "EUR"
-    STATES = Orders::Order::STATES
+    STATUSES = %w[ placed confirmed paid shipped delivered returning refunded cancelled needs_attention ].freeze
 
-    # A snapshot of the customer, kept on the order. The shop has no customer module; the
-    # caller supplies who is buying.
+    # A snapshot of the customer, kept on the cart and the order. The shop has no customer
+    # module; the caller supplies who is buying.
     Customer = Data.define(:id, :name, :email, :address)
+    Cart = Data.define(:id, :customer_id, :items, :order_id)
     Line = Data.define(:sku, :name, :quantity, :unit_price_cents) do
       def total_cents = quantity * unit_price_cents
     end
+    # state is the order's lifecycle; status is what to show a person, derived from the state
+    # and what has happened since.
     Order = Data.define(
-      :id, :checkout_key, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address,
-      :total_cents, :currency, :lines, :correlation_id, :rejection_reason, :cancel_reason, :attention_reason, :tracking_code,
-      :created_at, :placed_at, :rejected_at, :paid_at, :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
+      :id, :cart_id, :reference, :state, :status, :customer_id, :customer_name, :customer_email, :shipping_address,
+      :total_cents, :currency, :lines, :correlation_id, :cancel_reason, :attention_reason, :tracking_code,
+      :created_at, :confirmed_at, :paid_at, :shipped_at, :delivered_at, :cancellation_requested_at, :cancellation_refused_at,
+      :cancelled_at, :return_state, :cancellable, :returnable
     ) do
-      def cancellable? = state.in?(%w[ placed paid ])
-      def returnable? = state == "delivered" && delivered_at > Orders::Order::RETURN_WINDOW.ago
-    end
-
-    class Error < StandardError; end
-    class EmptyBasket < Error
-      include Platform::InvalidArgument
-    end
-    class InvalidQuantity < Error
-      include Platform::InvalidArgument
-    end
-    class UnknownProduct < Error
-      include Platform::InvalidArgument
-    end
-    class ConflictingKey < Error
-      include Platform::FailedPrecondition
-    end
-    class NotCancellable < Error
-      include Platform::FailedPrecondition
-    end
-    class NotReturnable < Error
-      include Platform::FailedPrecondition
+      def cancellable? = cancellable
+      def returnable? = returnable
     end
 
     class << self
-      # Records the order, pending, and returns it; whether it is placed or rejected follows
-      # in Orders::PlaceOrderJob. items: { "sku" => quantity }, each a whole number. Idempotent
-      # on key: see Orders::Checkout.
-      def checkout(customer:, items:, key:)
-        value(Orders::Checkout.new(customer: customer, items: items, key: key).call)
+      # Opens a cart with its items: { "sku" => quantity }, each a whole number above zero, as
+      # an Integer or the digits a form submits. Raises InvalidQuantity or UnknownProduct.
+      def open_cart(customer:, items:)
+        quantities = items.to_h.to_h { |sku, quantity| [ sku.to_s, quantity.to_s == "0" ? nil : Orders::Quantity.parse(quantity) ] }.compact
+        cart = Orders::Cart.open(customer: customer)
+        quantities.each { |sku, quantity| cart.add(sku, quantity) }
+        cart_value(cart)
       end
 
-      def cancel(order_id, reason: "customer")
-        value(Orders::Cancellation.new(Orders::Order.find(order_id), reason: reason).call)
-      end
+      def cart(id) = cart_value(Orders::Cart.find(id))
 
-      def request_return(order_id)
-        value(Orders::ReturnRequest.new(Orders::Order.find(order_id)).call)
-      end
+      # Places the cart's order and returns it, placed; whether it is confirmed or cancelled
+      # follows. Placing a cart again returns the same order. Raises EmptyCart.
+      def place_order(cart_id) = value(Orders::Cart.find(cart_id).place_order)
 
-      # Cancels every order still placed and unpaid 30 minutes after checkout, and rejects
-      # every order still pending then, staging its placement again to give back whatever it
-      # took. Run every minute by Orders::ExpireAbandonedOrdersJob; returns how many orders it
-      # ended.
-      def expire_abandoned_orders
-        rejected = Orders::Order.unplaced.find_each.count do |order|
-          Orders::Flow.continue(order, step: "expire") do
-            Orders::Order.transaction { Orders::PlaceOrderJob.stage_later(order.id) if order.reject!("not placed in time") }
+      # Records the request and returns; the order is cancelled, or the cancellation refused
+      # because the parcel has left, a moment later. Raises NotCancellable once it has shipped.
+      def request_cancellation(order_id, reason: "customer") = value(Orders::Order.find(order_id).request_cancellation(reason: reason))
+
+      # Raises NotReturnable unless the order was delivered within its return window.
+      def request_return(order_id) = Orders::Order.find(order_id).request_return.then { order(order_id) }
+
+      # Cancels every order past a deadline: placed and not confirmed in time, or confirmed and
+      # not paid in time. Run every minute by Orders::DeadlineSweepJob; returns how many
+      # cancellations it requested.
+      def enforce_deadlines
+        [ [ Orders::Order.unconfirmed_past_deadline, "not confirmed in time" ], [ Orders::Order.unpaid_past_deadline, "not paid in time" ] ].sum do |overdue, reason|
+          overdue.find_each.count do |order|
+            order.request_cancellation(reason: reason)
+          rescue NotCancellable
+            false # it shipped while the sweep ran
           end
         end
-        cancelled = Orders::Order.abandoned.find_each.count do |order|
-          cancel(order.id, reason: "abandoned")
-        rescue NotCancellable
-          false # it moved on while the scan ran
-        end
-        rejected + cancelled
       end
 
       def order(id)
-        order = Orders::Order.includes(:line_items).find_by(id: id)
+        order = Orders::Order.includes(:line_items, :returns).find_by(id: id)
         order && value(order)
       end
 
       # The order whose flow a correlation belongs to: every event of an order's flow carries
-      # the correlation its checkout opened.
+      # the correlation its placement opened.
       def order_for_correlation(correlation_id)
-        order = Orders::Order.includes(:line_items).find_by(correlation_id: correlation_id)
+        order = Orders::Order.includes(:line_items, :returns).find_by(correlation_id: correlation_id)
         order && value(order)
       end
 
-      def recent(limit: 50) = Orders::Order.includes(:line_items).recent.limit(limit).map { |order| value(order) }
+      def recent(limit: 50) = Orders::Order.includes(:line_items, :returns).recent.limit(limit).map { |order| value(order) }
 
-      def count_by_state = Orders::Order.group(:state).count
+      # How many orders show each status.
+      def status_counts = Orders::Order.includes(:returns).find_each.map(&:status).tally
 
       private
+        def cart_value(cart)
+          Cart.new(id: cart.id, customer_id: cart.customer_id, items: cart.items.to_h { |item| [ item.sku, item.quantity ] }, order_id: cart.order&.id)
+        end
+
         def value(order)
           Order.new(
             **order.slice(
-              :id, :checkout_key, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address, :total_cents,
-              :currency, :correlation_id, :rejection_reason, :cancel_reason, :attention_reason, :tracking_code, :created_at, :placed_at,
-              :rejected_at, :paid_at, :shipped_at, :delivered_at, :cancelled_at, :return_requested_at, :refunded_at
+              :id, :cart_id, :reference, :state, :customer_id, :customer_name, :customer_email, :shipping_address, :total_cents,
+              :currency, :correlation_id, :cancel_reason, :attention_reason, :tracking_code, :created_at, :confirmed_at, :paid_at,
+              :shipped_at, :delivered_at, :cancellation_requested_at, :cancellation_refused_at, :cancelled_at
             ).symbolize_keys,
+            status: order.status, return_state: order.returns.first&.state,
+            cancellable: order.cancellable?, returnable: order.returnable?,
             lines: order.line_items.map { |line| Line.new(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents) }
           )
         end

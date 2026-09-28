@@ -10,8 +10,8 @@ shop: &shop
   retry_interrupted_jobs:
     class: Platform::RetryInterruptedJobsJob
     schedule: every minute
-  expire_abandoned_orders:
-    class: Orders::ExpireAbandonedOrdersJob
+  enforce_order_deadlines:
+    class: Orders::DeadlineSweepJob
     schedule: every minute
   prune_flow_records:
     class: Observability::PruneJob
