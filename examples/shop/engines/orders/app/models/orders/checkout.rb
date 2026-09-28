@@ -42,7 +42,7 @@ module Orders
 
       def quote_items
         Catalog::Api.quote(@items)
-      rescue Catalog::Api::UnknownProduct => unknown
+      rescue Catalog::UnknownProduct => unknown
         raise Api::UnknownProduct, unknown.message
       end
 

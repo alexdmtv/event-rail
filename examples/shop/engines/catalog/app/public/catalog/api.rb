@@ -11,30 +11,10 @@ module Catalog
       def total_cents = lines.sum(&:total_cents)
     end
 
-    class Error < StandardError; end
-    class UnknownProduct < Error
-      include Platform::NotFound
-    end
-    class InvalidQuantity < Error
-      include Platform::InvalidArgument
-    end
-    class OutOfStock < Error
-      include Platform::FailedPrecondition
-
-      attr_reader :sku
-
-      def initialize(sku)
-        @sku = sku
-        super("#{sku} is out of stock")
-      end
-    end
-
     class << self
-      def products
-        Catalog::Product.order(:name).map { |product| product_value(product) }
-      end
+      def products = Catalog::Product.order(:name).map { |product| product_value(product) }
 
-      def product(sku) = product_value(find!(sku))
+      def product(sku) = product_value(Catalog::Product.find_by_sku!(sku))
 
       # Adds a product to the catalog with its opening stock.
       def add_product(sku:, name:, price_cents:, on_hand:)
@@ -44,68 +24,29 @@ module Catalog
       # items: { "sku" => quantity }
       def quote(items)
         Quote.new(lines: items.map do |sku, quantity|
-          product = find!(sku)
+          product = Catalog::Product.find_by_sku!(sku)
           Line.new(sku: product.sku, name: product.name, quantity: Integer(quantity), unit_price_cents: product.price_cents)
         end)
       end
 
       # Holds stock for every item or for none; items: { "sku" => positive Integer }.
       # Repeating a reservation ID holds nothing more, so a repeated command cannot
-      # double-reserve.
-      def reserve(reservation_id:, items:)
-        Catalog::Product.transaction do
-          return true if Catalog::Reservation.exists?(reservation_id: reservation_id)
-
-          items.each do |sku, quantity|
-            # A caller's mistake must not become stock: a negative reservation would add some.
-            raise InvalidQuantity, "#{sku}: #{quantity.inspect} is not a positive quantity" unless quantity.is_a?(Integer) && quantity.positive?
-
-            product = find!(sku).lock!
-            raise OutOfStock, sku if product.available < quantity
-
-            product.reservations.create!(reservation_id: reservation_id, quantity: quantity)
-          end
-        end
-        true
-      end
+      # double-reserve. Raises OutOfStock or InvalidQuantity.
+      def reserve(reservation_id:, items:) = Catalog::Reservation.hold(reservation_id, items).then { true }
 
       # A delivery from a supplier arrived.
-      def receive_stock(sku:, quantity:)
-        Catalog::Product.transaction { find!(sku).lock!.increment!(:on_hand, Integer(quantity)) }
-        true
-      end
+      def receive_stock(sku:, quantity:) = Catalog::Product.find_by_sku!(sku).receive(quantity).then { true }
 
       # Gives held stock back. Releasing twice, or releasing nothing, changes nothing.
-      def release(reservation_id:)
-        Catalog::Reservation.held.where(reservation_id: reservation_id).update_all(state: "released", updated_at: Time.current)
-        true
-      end
+      def release(reservation_id:) = Catalog::Reservation.for(reservation_id).release.then { true }
 
-      # Turns a reservation into goods that left the warehouse.
-      def ship(reservation_id:)
-        Catalog::Product.transaction do
-          Catalog::Reservation.held.where(reservation_id: reservation_id).find_each do |reservation|
-            reservation.product.lock!.decrement!(:on_hand, reservation.quantity)
-            reservation.update!(state: "shipped")
-          end
-        end
-        true
-      end
+      # Turns a reservation into goods that left the warehouse. Shipping twice changes nothing.
+      def ship(reservation_id:) = Catalog::Reservation.for(reservation_id).ship.then { true }
 
       # Puts goods that came back into the warehouse. Restocking twice changes nothing.
-      def restock(reservation_id:)
-        Catalog::Product.transaction do
-          Catalog::Reservation.where(reservation_id: reservation_id, state: "shipped").find_each do |reservation|
-            reservation.product.lock!.increment!(:on_hand, reservation.quantity)
-            reservation.update!(state: "restocked")
-          end
-        end
-        true
-      end
+      def restock(reservation_id:) = Catalog::Reservation.for(reservation_id).restock.then { true }
 
       private
-        def find!(sku) = Catalog::Product.find_by(sku: sku) || raise(UnknownProduct, "unknown product #{sku}")
-
         def product_value(product)
           Product.new(sku: product.sku, name: product.name, price_cents: product.price_cents, on_hand: product.on_hand, available: product.available)
         end
