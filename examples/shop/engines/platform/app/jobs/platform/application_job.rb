@@ -21,9 +21,9 @@ module Platform
     retry_on Unavailable, ResourceExhausted, *ErrorCategory.framework_errors(Unavailable), wait: BACKOFF, attempts: 10
     # A lost race is settled within seconds: the other party finishes, and this run finds it done.
     retry_on Aborted, *ErrorCategory.framework_errors(Aborted), wait: 1.second, attempts: 30
-    # An outcome reaching the job's edge means the code did not handle it: it fails at once,
+    # An expected failure reaching the job's edge means the code did not handle it: it fails at once,
     # into the failed-jobs list, rather than retrying what cannot change.
-    rescue_from(*ErrorCategory::OUTCOMES, *ErrorCategory::OUTCOMES.flat_map { |category| ErrorCategory.framework_errors(category) }) { |error| raise error }
+    rescue_from(*ErrorCategory::EXPECTED, *ErrorCategory::EXPECTED.flat_map { |category| ErrorCategory.framework_errors(category) }) { |error| raise error }
     # Only the job's own subject being gone discards it. Any other missing record is a failure
     # to see, not to drop.
     discard_on ActiveJob::DeserializationError

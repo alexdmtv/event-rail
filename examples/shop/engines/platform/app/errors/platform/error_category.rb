@@ -9,8 +9,9 @@ module Platform
   module ErrorCategory
     ALL = [ InvalidArgument, NotFound, FailedPrecondition, Aborted, Unavailable, ResourceExhausted, Unauthenticated, PermissionDenied ].freeze
 
-    # Outcomes a caller handles; never retried, never reported as failures.
-    OUTCOMES = [ InvalidArgument, NotFound, FailedPrecondition, Unauthenticated, PermissionDenied ].freeze
+    # Expected failures: the shop worked and the answer is no -- bad input, a refusal, nothing
+    # found. A caller handles them; they are never retried and never reported as failures.
+    EXPECTED = [ InvalidArgument, NotFound, FailedPrecondition, Unauthenticated, PermissionDenied ].freeze
 
     FRAMEWORK = {
       "ActiveRecord::RecordNotFound" => NotFound,
@@ -31,6 +32,6 @@ module Platform
     # The framework error classes of a category, for handlers that must name classes.
     def self.framework_errors(category) = FRAMEWORK.filter_map { |name, listed| name.safe_constantize if listed == category }
 
-    def self.outcome?(error) = OUTCOMES.include?(of(error))
+    def self.expected?(error) = EXPECTED.include?(of(error))
   end
 end
