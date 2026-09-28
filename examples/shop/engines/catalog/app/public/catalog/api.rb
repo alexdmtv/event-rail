@@ -12,9 +12,15 @@ module Catalog
     end
 
     class Error < StandardError; end
-    class UnknownProduct < Error; end
-    class InvalidQuantity < Error; end
+    class UnknownProduct < Error
+      include Platform::NotFound
+    end
+    class InvalidQuantity < Error
+      include Platform::InvalidArgument
+    end
     class OutOfStock < Error
+      include Platform::FailedPrecondition
+
       attr_reader :sku
 
       def initialize(sku)

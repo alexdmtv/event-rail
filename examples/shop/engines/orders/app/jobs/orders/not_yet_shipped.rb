@@ -3,5 +3,7 @@ module Orders
   # order between deliveries, and the workers run in parallel, so this happens; the
   # subscriber raises this to be retried once the dispatch has been recorded, rather than
   # succeed without effect and lose the delivery.
-  class NotYetShipped < StandardError; end
+  class NotYetShipped < StandardError
+    include Platform::Aborted
+  end
 end

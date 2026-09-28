@@ -21,12 +21,24 @@ module Orders
     end
 
     class Error < StandardError; end
-    class EmptyBasket < Error; end
-    class InvalidQuantity < Error; end
-    class UnknownProduct < Error; end
-    class ConflictingKey < Error; end
-    class NotCancellable < Error; end
-    class NotReturnable < Error; end
+    class EmptyBasket < Error
+      include Platform::InvalidArgument
+    end
+    class InvalidQuantity < Error
+      include Platform::InvalidArgument
+    end
+    class UnknownProduct < Error
+      include Platform::InvalidArgument
+    end
+    class ConflictingKey < Error
+      include Platform::FailedPrecondition
+    end
+    class NotCancellable < Error
+      include Platform::FailedPrecondition
+    end
+    class NotReturnable < Error
+      include Platform::FailedPrecondition
+    end
 
     class << self
       # Records the order, pending, and returns it; whether it is placed or rejected follows

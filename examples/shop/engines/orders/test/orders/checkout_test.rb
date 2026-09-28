@@ -179,17 +179,11 @@ module Orders
     test "a rejection whose stock release fails and whose void is not enqueued gives both back on its retry" do
       Payments::Gateway.adapter = ScriptedGateway.new(authorize: [ :refuse ])
       order = checkout
-      void_attempts = 0
-      queue_adapter.define_singleton_method(:enqueue) do |job|
-        next super(job) unless job.class.name == "Payments::VoidJob"
 
-        void_attempts += 1
-        raise ActiveJob::EnqueueError, "queue full"
+      refusing_enqueue(only: "Payments::VoidJob") do |refused|
+        failing(Catalog::Api, :release) { perform_enqueued_jobs(only: PlaceOrderJob) }
+        assert_equal 1, refused.size, "the void was attempted although the release failed first"
       end
-
-      failing(Catalog::Api, :release) { perform_enqueued_jobs(only: PlaceOrderJob) }
-      queue_adapter.singleton_class.remove_method(:enqueue)
-      assert_equal 1, void_attempts, "the void was attempted although the release failed first"
       assert_equal 8, available("MUG")
 
       work_off_queue
@@ -198,22 +192,16 @@ module Orders
       assert_equal "rejected", record.state
       assert_match(/\Apayment declined/, record.rejection_reason, "the rejection keeps its reason")
       assert_equal 10, available("MUG")
-    ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
     end
 
     test "an order whose placement the queue could not take at the commit is delivered without a retry" do
-      queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
-      order = checkout # recorded: the placement is staged with the order
-      queue_adapter.singleton_class.remove_method(:enqueue)
+      order = refusing_enqueue { checkout } # recorded: the placement is staged with the order
       assert_no_enqueued_jobs
 
-      travel(Platform::StagedJob::GRACE + 1.second) { Platform::StagedJobRelayJob.perform_now }
+      relay_staged_jobs
       work_off_queue
 
       assert_equal "delivered", order_record(order).state
-    ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
     end
 
     test "a placement handed to the queue twice announces the order under one event identity" do

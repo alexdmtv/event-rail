@@ -57,20 +57,16 @@ class OrderLifecycleTest < FlowTestCase
   end
 
   test "an order whose follow-up the queue could not take at the commit is delivered without the caller retrying" do
-    queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
-    order = checkout
-    queue_adapter.singleton_class.remove_method(:enqueue)
+    order = refusing_enqueue { checkout }
 
     published = record_publications do
-      travel(Platform::StagedJob::GRACE + 1.second) { Platform::StagedJobRelayJob.perform_now }
+      relay_staged_jobs
       work_off_queue
     end
 
     assert_equal "delivered", Orders::Api.order(order.id).state
     assert_equal 1, published.count { |publication| publication.event_type == "orders.order_placed" }
     assert_one_flow(order, published)
-  ensure
-    queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
   end
 
   test "a double submission runs exactly the jobs a single submission runs" do

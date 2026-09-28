@@ -23,17 +23,13 @@ module Orders
 
     test "a return requested while the queue is unavailable reaches the carrier once it recovers" do
       slow_carrier
-      queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
-      Api.request_return(@order.id)
-      queue_adapter.singleton_class.remove_method(:enqueue)
+      refusing_enqueue { Api.request_return(@order.id) }
       assert_nil Fulfillment::Api.parcel_return(@order.reference)
 
-      travel(Platform::StagedJob::GRACE + 1.second) { Platform::StagedJobRelayJob.perform_now }
+      relay_staged_jobs
       perform_enqueued_jobs(only: RequestReturnJob)
 
       assert_equal "expected", Fulfillment::Api.parcel_return(@order.reference).state
-    ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
     end
 
     test "a return requested again after the 14 days returns the order awaiting it" do

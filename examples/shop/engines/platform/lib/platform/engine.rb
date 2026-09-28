@@ -9,5 +9,10 @@ module Platform
 
     isolate_namespace Platform
     share_migrations
+
+    initializer "platform.error_subscriber" do
+      require_relative "error_subscriber"
+      Rails.error.subscribe(Platform::ErrorSubscriber.new)
+    end
   end
 end

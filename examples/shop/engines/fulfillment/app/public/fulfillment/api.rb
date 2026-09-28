@@ -9,7 +9,9 @@ module Fulfillment
     ParcelReturn = Data.define(:reference, :state, :received_at)
 
     # The carrier already has the parcel.
-    class AlreadyDispatched < StandardError; end
+    class AlreadyDispatched < StandardError
+      include Platform::FailedPrecondition
+    end
 
     class << self
       # items: { "sku" => quantity }. A shipment cancelled before this request arrives stays

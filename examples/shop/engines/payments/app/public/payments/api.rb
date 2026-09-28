@@ -11,9 +11,13 @@ module Payments
 
     class Error < StandardError; end
     # The card issuer declined the authorization.
-    class Declined < Error; end
+    class Declined < Error
+      include Platform::FailedPrecondition
+    end
     # The provider did not answer; the caller may try again.
-    class Unavailable < Error; end
+    class Unavailable < Error
+      include Platform::Unavailable
+    end
 
     class << self
       # Places a hold of the amount on the customer's card. Repeating it for the same

@@ -72,12 +72,13 @@ module Observability
       end
     end
 
-    test "a failed attempt is recorded with its error" do
+    test "a failed attempt is recorded with its error, and retried" do
       with_subscribers(Probe::FirstJob) do
         publish_in_a_flow
         Probe::FirstJob.define_method(:perform) { |_event| raise "boom" }
 
-        assert_raises(RuntimeError) { perform_enqueued_jobs }
+        perform_enqueued_jobs
+        assert_enqueued_jobs 1, only: Probe::FirstJob
 
         attempt = Attempt.find_by!(job_class: "Observability::Probe::FirstJob")
         assert_equal [ "failed", "RuntimeError", "boom" ], [ attempt.outcome, attempt.error_class, attempt.error_message ]

@@ -6,10 +6,14 @@ module Payments
   module Gateway
     # The provider refused, definitively: a declined authorization, a refused capture or
     # refund. Retrying will not help.
-    class Refused < StandardError; end
+    class Refused < StandardError
+      include Platform::FailedPrecondition
+    end
 
     # The provider could not answer this time: a timeout, a 503. Retrying is the right move.
-    class TemporaryFailure < StandardError; end
+    class TemporaryFailure < StandardError
+      include Platform::Unavailable
+    end
 
     class << self
       attr_writer :adapter

@@ -41,35 +41,27 @@ module Platform
     end
 
     test "a job the queue could not take at the commit is handed over by the relay" do
-      queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
-      job = stage
-      queue_adapter.singleton_class.remove_method(:enqueue)
+      job = refusing_enqueue { stage }
       assert_equal 1, StagedJob.count
       assert_no_enqueued_jobs
 
-      travel(StagedJob::GRACE + 1.second) { StagedJobRelayJob.perform_now }
+      relay_staged_jobs
 
       assert_equal 0, StagedJob.count
       perform_enqueued_jobs
       assert_equal [ [ "staged", job.job_id, "checkout-k" ] ], ProbeJob.runs, "the relayed job keeps its ID and its flow"
-    ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
     end
 
     test "a job the queue declined without raising stays staged until the relay hands it over" do
-      queue_adapter.define_singleton_method(:enqueue) { |*| raise ActiveJob::EnqueueError, "queue full" }
-      job = stage
-      queue_adapter.singleton_class.remove_method(:enqueue)
+      job = refusing_enqueue { stage }
       assert_equal 1, StagedJob.count
       assert_no_enqueued_jobs
 
-      travel(StagedJob::GRACE + 1.second) { StagedJobRelayJob.perform_now }
+      relay_staged_jobs
 
       assert_equal 0, StagedJob.count
       perform_enqueued_jobs
       assert_equal [ [ "staged", job.job_id, "checkout-k" ] ], ProbeJob.runs
-    ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
     end
 
     test "a job whose own enqueue callback aborts is dropped, not retried" do

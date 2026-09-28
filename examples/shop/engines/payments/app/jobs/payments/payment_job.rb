@@ -7,7 +7,9 @@ module Payments
   # under the same identity.
   class PaymentJob < ApplicationJob
     # Another job is calling the provider for this payment; wait for its answer.
-    class Busy < StandardError; end
+    class Busy < StandardError
+      include Platform::Aborted
+    end
 
     # A provider that keeps timing out is, eventually, a refusal: the caller learns about it
     # through the failure event rather than waiting forever.
@@ -15,9 +17,6 @@ module Payments
 
     queue_as :payments
 
-    # Later declarations are consulted first.
-    retry_on StandardError, wait: 2.seconds, attempts: 10
-    retry_on Busy, wait: 1.second, attempts: 30
     retry_on Gateway::TemporaryFailure, wait: 2.seconds, attempts: ATTEMPTS
 
     # A reference with no payment has nothing to capture, void, release or refund: its

@@ -248,11 +248,8 @@ module Payments
 
     test "a command the queue refuses raises rather than returning" do
       authorize
-      queue_adapter.define_singleton_method(:enqueue) { |*| raise ActiveJob::EnqueueError, "queue full" }
 
-      assert_raises(ActiveJob::EnqueueError) { Api.void(reference: "ref-1") }
-    ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
+      assert_raises(ActiveJob::EnqueueError) { refusing_enqueue { Api.void(reference: "ref-1") } }
     end
 
     test "payments are looked up for many references at once" do

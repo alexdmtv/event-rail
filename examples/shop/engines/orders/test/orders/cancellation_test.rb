@@ -67,21 +67,17 @@ module Orders
     test "a cancellation made while the queue is unavailable is completed once it recovers" do
       order = place
       clear_enqueued_jobs # its capture has not run
-      queue_adapter.define_singleton_method(:enqueue) { |*| raise "queue unavailable" }
-      Api.cancel(order.id) # the decision and its job commit together
-      queue_adapter.singleton_class.remove_method(:enqueue)
+      refusing_enqueue { Api.cancel(order.id) } # the decision and its job commit together
       assert_equal "cancelled", order_record(order).state
 
       published = record_publications do
-        travel(Platform::StagedJob::GRACE + 1.second) { Platform::StagedJobRelayJob.perform_now }
+        relay_staged_jobs
         perform_due_jobs
       end
 
       assert_equal 10, available("MUG")
       assert_equal "voided", Payments::Api.payment(order.reference).state
       assert_equal 1, published.count { |publication| publication.event_type == "orders.order_cancelled" }
-    ensure
-      queue_adapter.singleton_class.remove_method(:enqueue) if queue_adapter.singleton_class.method_defined?(:enqueue, false)
     end
 
     test "a cancellation interrupted after its announcement announces again under the same identity" do
