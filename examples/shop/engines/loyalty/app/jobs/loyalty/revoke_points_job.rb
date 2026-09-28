@@ -3,7 +3,7 @@ module Loyalty
     subscribes_to Orders::Events::OrderRefunded
 
     def perform(event)
-      Entry.record(event, kind: "revoke", points: -Entry.points_for(event.total))
+      Entry.revoke(event)
     end
   end
 end

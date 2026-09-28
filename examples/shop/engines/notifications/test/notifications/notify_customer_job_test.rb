@@ -31,9 +31,13 @@ module Notifications
     end
 
     test "a version 1 delivery still queued from before the upgrade is handled" do
-      ActiveJob::Base.execute(NotifyCustomerJob.new.serialize.merge("arguments" => [ QUEUED_V1_DELIVERY ]))
+      # Performed soon after it was published, as a delivery left in the queue by the release
+      # before is.
+      travel_to(Time.utc(2026, 9, 20, 10, 5)) do
+        ActiveJob::Base.execute(NotifyCustomerJob.new.serialize.merge("arguments" => [ QUEUED_V1_DELIVERY ]))
 
-      assert_includes Api.for_order("7").sole.body, "€38.70"
+        assert_includes Api.for_order("7").sole.body, "€38.70"
+      end
     end
 
     test "a version 1 event is still handled when published" do
@@ -79,17 +83,13 @@ module Notifications
       assert_equal %w[ cancelled delivered placed refunded shipped ], Api.for_order("7").map(&:kind).sort
     end
 
-    test "a notification that keeps failing is given up after three attempts" do
-      event = publish(placed_v2)
+    test "a notice about something that happened over an hour ago is not sent" do
+      event = travel(-2.hours) { publish(placed_v2) }
       clear_enqueued_jobs
-      Notification.define_singleton_method(:insert) { |*, **| raise "mail relay down" }
 
-      perform_enqueued_jobs { NotifyCustomerJob.perform_later(event) }
+      NotifyCustomerJob.perform_now(event)
 
-      assert_performed_jobs 3
-      assert_no_enqueued_jobs
-    ensure
-      Notification.singleton_class.remove_method(:insert)
+      assert_empty Api.for_order("7")
     end
   end
 end
