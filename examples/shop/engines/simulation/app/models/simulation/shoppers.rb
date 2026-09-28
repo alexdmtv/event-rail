@@ -27,10 +27,12 @@ module Simulation
 
       def place_an_order
         customer = Customer.order("RANDOM()").first or return
-        Orders::Api.checkout(customer: customer.snapshot, items: basket, key: "sim-#{SecureRandom.hex(8)}")
+        cart = Orders::Api.open_cart(customer: customer.snapshot, items: basket)
+        Orders::Api.place_order(cart.id)
         @settings.increment!(:checkout_count)
-      rescue Orders::Api::Error => refusal # an order placing rejects later shows in Orders' own counts
-        @settings.update!(refused_count: @settings.refused_count + 1, last_refusal: refusal.message)
+      rescue Orders::Error => refusal # an order cancelled later shows in Orders' own counts
+        @settings.increment!(:refused_count)
+        @settings.update!(last_refusal: refusal.message)
       end
 
       def basket
@@ -41,8 +43,8 @@ module Simulation
 
       def cancel_an_order
         order = Orders::Api.recent(limit: 30).select(&:cancellable?).sample or return
-        Orders::Api.cancel(order.id, reason: "customer changed their mind")
-      rescue Orders::Api::NotCancellable
+        Orders::Api.request_cancellation(order.id, reason: "customer changed their mind")
+      rescue Orders::NotCancellable
         nil # it shipped while the customer was deciding
       end
 

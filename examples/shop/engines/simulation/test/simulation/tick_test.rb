@@ -28,14 +28,14 @@ module Simulation
       assert_empty Orders::Api.recent
     end
 
-    test "a tick while the simulator is on places orders like any client, with checkout keys" do
+    test "a tick while the simulator is on places orders like any client, each from a cart of its own" do
       Api.start
 
       Api.tick
 
       orders = Orders::Api.recent
       assert_equal 2, orders.size
-      assert orders.all? { |order| order.checkout_key.start_with?("sim-") }
+      assert_equal 2, orders.map(&:cart_id).uniq.size
       assert_equal 2, Api.state.checkout_count
     end
 
@@ -66,38 +66,39 @@ module Simulation
       assert_match(/at least one item/, Api.state.last_refusal)
     end
 
-    test "a declined card leaves a rejected order, as for any client" do
+    test "a declined card leaves a cancelled order, as for any client" do
       Platform::FaultSettings.current.update!(authorization_decline_rate: 1.0)
       Api.start
 
       Api.tick
       work_off_queue
 
-      assert_equal %w[ rejected rejected ], Orders::Api.recent.map(&:state)
+      assert_equal %w[ cancelled cancelled ], Orders::Api.recent.map(&:state)
       assert_equal 0, Api.state.refused_count
     end
 
     test "cancellations keep pace with orders at the cancel rate" do
       Api.start
       Api.tick
-      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::PlaceOrderJob" })
+      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::ConfirmJob" })
       Api.configure(orders_per_minute: 120, cancel_rate: 1.0, return_rate: 0)
 
       Api.tick
+      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::CancelJob" })
 
       assert_equal 2, Orders::Api.recent.count { |order| order.state == "cancelled" }
     end
 
     test "returns keep pace with orders at the return rate" do
       Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
-      Orders::Api.checkout(customer: Customer.sole.snapshot, items: { "MUG" => 1 }, key: "delivered-earlier")
+      delivered = Orders::Api.place_order(Orders::Api.open_cart(customer: Customer.sole.snapshot, items: { "MUG" => 1 }).id)
       work_off_queue
       Api.configure(orders_per_minute: 60, cancel_rate: 0, return_rate: 1.0)
       Api.start
 
       Api.tick
 
-      assert_equal "awaiting_return", Orders::Api.recent.find { |order| order.checkout_key == "delivered-earlier" }.state
+      assert_equal "returning", Orders::Api.order(delivered.id).status
     end
   end
 end

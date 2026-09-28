@@ -8,7 +8,7 @@ class CancellationFlowTest < FlowTestCase
     clear_enqueued_jobs # its capture has not run
 
     published = record_publications do
-      Orders::Api.cancel(order.id)
+      Orders::Api.request_cancellation(order.id)
       @job_failures = work_off_queue(due_only: true)
     end
 
@@ -22,11 +22,12 @@ class CancellationFlowTest < FlowTestCase
   test "cancelling a paid order before dispatch refunds it" do
     order = place
     published = record_publications { work_off_queue(due_only: true) }
-    assert_equal "paid", Orders::Api.order(order.id).state
+    assert_equal "paid", Orders::Api.order(order.id).status
 
     published += record_publications do
-      Orders::Api.cancel(order.id)
-      work_off_queue # every job, the carrier's too: nothing may leave
+      Orders::Api.request_cancellation(order.id)
+      work_off_queue(due_only: true) # the cancellation, before the carrier comes
+      work_off_queue # and then every job, the carrier's too: nothing may leave
     end
 
     assert_equal "cancelled", Orders::Api.order(order.id).state
@@ -44,10 +45,10 @@ class CancellationFlowTest < FlowTestCase
     order = place
     Platform::FaultSettings.force_failures("Orders::MarkPaidJob", 1)
     work_off_queue(due_only: true) # captured; recording it on the order failed and waits to retry
-    assert_equal [ "placed", "captured" ], [ Orders::Api.order(order.id).state, Payments::Api.payment(order.reference).state ]
+    assert_equal [ "confirmed", "captured" ], [ Orders::Api.order(order.id).state, Payments::Api.payment(order.reference).state ]
 
     published = record_publications do
-      Orders::Api.cancel(order.id)
+      Orders::Api.request_cancellation(order.id)
       work_off_queue
     end
 
@@ -59,32 +60,34 @@ class CancellationFlowTest < FlowTestCase
     assert_one_flow(order, published)
   end
 
-  test "an abandoned order whose capture had in fact landed is refunded" do
+  test "an unpaid order whose capture had in fact landed is refunded" do
     order = place
     Platform::FaultSettings.force_failures("Orders::MarkPaidJob", 1)
     work_off_queue(due_only: true)
 
     travel(31.minutes) do
-      Orders::Api.expire_abandoned_orders
+      Orders::Api.enforce_deadlines
       work_off_queue
     end
 
     reloaded = Orders::Api.order(order.id)
-    assert_equal [ "cancelled", "abandoned" ], [ reloaded.state, reloaded.cancel_reason ]
+    assert_equal [ "cancelled", "not paid in time" ], [ reloaded.state, reloaded.cancel_reason ]
     assert_equal "refunded", Payments::Api.payment(order.reference).state
   end
 
-  test "an order the carrier has dispatched cannot be cancelled, even before the order has heard" do
+  test "a cancellation of an order the carrier has dispatched, before the order has heard, is refused and the order carries on" do
     Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
     order = place
     Platform::FaultSettings.force_failures("Orders::MarkShippedJob", 1)
     work_off_queue(due_only: true) # dispatched and delivered; the order still thinks it is paid
-    assert_equal "paid", Orders::Api.order(order.id).state
+    assert_equal "paid", Orders::Api.order(order.id).status
 
-    assert_raises(Orders::Api::NotCancellable) { Orders::Api.cancel(order.id) }
-
+    Orders::Api.request_cancellation(order.id)
     work_off_queue
-    assert_equal "delivered", Orders::Api.order(order.id).state
+
+    reloaded = Orders::Api.order(order.id)
+    assert reloaded.cancellation_refused_at, "Fulfillment refused it: the parcel had left"
+    assert_equal "delivered", reloaded.status
     assert_equal "captured", Payments::Api.payment(order.reference).state
     assert_equal 8, on_hand("MUG")
   end
@@ -93,24 +96,24 @@ class CancellationFlowTest < FlowTestCase
     Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
     order, = place_and_settle
 
-    assert_raises(Orders::Api::NotCancellable) { Orders::Api.cancel(order.id) }
-    assert_equal "delivered", Orders::Api.order(order.id).state
+    assert_raises(Orders::NotCancellable) { Orders::Api.request_cancellation(order.id) }
+    assert_equal "delivered", Orders::Api.order(order.id).status
   end
 
-  test "an abandoned checkout is cancelled after 30 minutes and gives everything back" do
+  test "a confirmed order not paid within 30 minutes is cancelled and gives everything back" do
     order = place
     clear_enqueued_jobs # its capture never ran
 
     published = travel(31.minutes) do
       record_publications do
-        Orders::Api.expire_abandoned_orders
+        Orders::Api.enforce_deadlines
         work_off_queue
       end
     end
 
     reloaded = Orders::Api.order(order.id)
     assert_equal "cancelled", reloaded.state
-    assert_equal "abandoned", reloaded.cancel_reason
+    assert_equal "not paid in time", reloaded.cancel_reason
     assert_equal "voided", Payments::Api.payment(order.reference).state
     assert_equal 10, available("MUG")
     assert_equal %w[ cancelled ], notified_kinds(order)

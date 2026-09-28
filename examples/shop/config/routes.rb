@@ -4,9 +4,13 @@ Rails.application.routes.draw do
   resource :simulation, only: :update
   resource :faults, only: :update
 
-  resources :orders, only: %i[ index show new create ] do
+  # A cart is filled in one form, then placed: placing a cart again returns its order.
+  resources :carts, only: %i[ new create show ] do
+    post :order, on: :member
+  end
+  resources :orders, only: %i[ index show ] do
     member do
-      post :cancel
+      post :cancellation
       post :return
     end
   end

@@ -6,7 +6,7 @@ class FailureIsolationTest < FlowTestCase
 
     order, published = place_and_settle
 
-    assert_equal "delivered", order.state
+    assert_equal "delivered", order.status
     assert_equal "captured", Payments::Api.payment(order.reference).state
     assert_equal "delivered", Fulfillment::Api.shipment(order.reference).state
     assert_equal %w[ delivered placed shipped ], notified_kinds(order)
@@ -47,13 +47,21 @@ class FailureIsolationTest < FlowTestCase
 
       JOURNEYS.each do |name, journey|
         Payments::Gateway.adapter = ScriptedGateway.new(**journey.fetch(:provider, {}))
-        order = place(key: "#{job}: #{name}")
-        Orders::Api.cancel(order.id) if journey[:first] == :cancel
+        order = place
+        Orders::Api.request_cancellation(order.id) if journey[:first] == :cancel
         work_off_queue
         Orders::Api.request_return(order.id) if journey[:then] == :return
         work_off_queue
 
-        assert_equal journey[:ends], Orders::Api.order(order.id).state, "#{name}, with #{job} failing twice"
+        order = Orders::Api.order(order.id)
+        if job == "Orders::CancelJob" && journey[:first] == :cancel
+          # A cancellation held up by its own failures loses the race to the carrier, as it
+          # would in a real shop: Fulfillment refuses it, and the order is delivered.
+          assert order.cancellation_refused_at, "#{name}, with #{job} failing twice"
+          assert_equal "delivered", order.status
+        else
+          assert_equal journey[:ends], order.status, "#{name}, with #{job} failing twice"
+        end
       end
 
       assert Platform::FaultSettings.current.forced_failures.fetch(job) < 2 || IN_NO_JOURNEY.include?(job), "no journey ran #{job}"

@@ -1,8 +1,8 @@
 import { Controller } from "@hotwired/stimulus"
 import { Turbo } from "@hotwired/turbo-rails"
 
-// Submits the checkout form twice at once, with the same checkout key -- a double click, or
-// a retry racing the first submission -- and shows that both submissions got the same order.
+// Places the cart twice at once -- a double click, or a retry racing the first submission --
+// and shows that both got the same order.
 export default class extends Controller {
   static targets = [ "result" ]
 

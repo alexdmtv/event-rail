@@ -1,6 +1,7 @@
 module Orders
   module Events
-    # The order was cancelled before it shipped; its stock and payment were released.
+    # The order was cancelled before it shipped, and the reason; its stock and payment were
+    # released.
     class OrderCancelled < EventRail::Event
       event_type "orders.order_cancelled"
       version 1

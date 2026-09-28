@@ -12,7 +12,7 @@ module Orders
       order = nil
       published = record_publications { perform_enqueued_jobs { order = checkout } }
 
-      assert_equal "delivered", order_record(order).state
+      assert_equal "delivered", order_record(order).status
       # EventRail promises no ordering, and inline test jobs finish nested publications first.
       assert_equal %w[ fulfillment.shipment_delivered fulfillment.shipment_dispatched orders.order_delivered orders.order_placed
         orders.order_shipped payments.payment_captured ], published.map(&:event_type).sort
@@ -27,7 +27,7 @@ module Orders
       perform_enqueued_jobs { order = checkout }
 
       assert_equal 3, gateway.calls[:capture]
-      assert_equal "delivered", order_record(order).state
+      assert_equal "delivered", order_record(order).status
     end
 
     test "a refused capture cancels the order and nothing ships" do
@@ -54,7 +54,7 @@ module Orders
 
     test "a redelivered capture does not pay or ship the order twice" do
       slow_carrier
-      order = checkout
+      order = place
       perform_due_jobs
       event = Payments::Events::PaymentCaptured.new(reference: order.reference, amount_cents: order.total_cents, currency: "EUR")
 
@@ -64,7 +64,7 @@ module Orders
 
     test "a redelivered dispatch does not ship the stock twice" do
       slow_carrier
-      order = checkout
+      order = place
       perform_due_jobs
       event = Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")
 
@@ -74,7 +74,7 @@ module Orders
 
     test "a redelivered delivery does not deliver twice" do
       slow_carrier
-      order = checkout
+      order = place
       perform_due_jobs
       MarkShippedJob.perform_now(EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event)
       event = Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)
@@ -84,14 +84,14 @@ module Orders
 
     test "a dispatch recorded before the stock could be shipped ships it on retry" do
       slow_carrier
-      order = checkout
+      order = place
       perform_due_jobs
       dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
       clear_enqueued_jobs
       failing(Catalog::Api, :ship, "warehouse system down") do
         MarkShippedJob.perform_now(dispatched) # the order is shipped; shipping the stock failed
       end
-      assert_equal [ "shipped", 10 ], [ order_record(order).state, on_hand("MUG") ]
+      assert_equal [ "shipped", 10 ], [ order_record(order).status, on_hand("MUG") ]
 
       perform_enqueued_jobs(only: MarkShippedJob)
 
@@ -101,7 +101,7 @@ module Orders
 
     test "a delivery heard before its dispatch waits for it and is not lost" do
       slow_carrier
-      order = checkout
+      order = place
       perform_due_jobs
       delivered = EventRail.publish(Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)).event
       dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
@@ -109,12 +109,12 @@ module Orders
 
       published = record_publications do
         MarkDeliveredJob.perform_now(delivered) # too early: retried later
-        assert_equal "paid", order_record(order).state
+        assert_equal "paid", order_record(order).status
         MarkShippedJob.perform_now(dispatched)
         perform_enqueued_jobs(only: MarkDeliveredJob)
       end
 
-      assert_equal "delivered", order_record(order).state
+      assert_equal "delivered", order_record(order).status
       assert_equal %w[ orders.order_delivered orders.order_shipped ], published.map(&:event_type).sort
       assert_equal 8, on_hand("MUG")
     end

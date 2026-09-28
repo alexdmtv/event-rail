@@ -4,7 +4,7 @@ class OrderLifecycleTest < FlowTestCase
   test "an order is placed, paid, shipped and delivered, and every module agrees" do
     order, published = place_and_settle
 
-    assert_equal "delivered", order.state
+    assert_equal "delivered", order.status
     assert_equal "captured", Payments::Api.payment(order.reference).state
     assert_equal "delivered", Fulfillment::Api.shipment(order.reference).state
     assert_equal 8, on_hand("MUG")
@@ -19,7 +19,7 @@ class OrderLifecycleTest < FlowTestCase
 
     order, published = place_and_settle
 
-    assert_equal "delivered", order.state
+    assert_equal "delivered", order.status
     assert_equal 3, gateway.calls[:capture]
     assert_equal %w[ delivered placed shipped ], notified_kinds(order)
     assert_one_flow(order, published)
@@ -46,12 +46,12 @@ class OrderLifecycleTest < FlowTestCase
 
     order, published = place_and_settle
     assert_equal [ "Payments::CaptureJob" ], @job_failures.map(&:job_class), "the capture ends in the failed jobs"
-    published += travel(31.minutes) { record_publications { Orders::Api.expire_abandoned_orders; settle } }
+    published += travel(31.minutes) { record_publications { Orders::Api.enforce_deadlines; settle } }
 
     assert_equal 10, gateway.calls[:capture]
     order = Orders::Api.order(order.id)
     assert_equal "cancelled", order.state
-    assert_equal "abandoned", order.cancel_reason
+    assert_equal "not paid in time", order.cancel_reason
     assert Payments::Api.payment(order.reference).voided_at, "the hold is voided"
     assert_equal %w[ cancelled placed ], notified_kinds(order)
     assert_one_flow(order, published)
@@ -65,17 +65,18 @@ class OrderLifecycleTest < FlowTestCase
       work_off_queue
     end
 
-    assert_equal "delivered", Orders::Api.order(order.id).state
+    assert_equal "delivered", Orders::Api.order(order.id).status
     assert_equal 1, published.count { |publication| publication.event_type == "orders.order_placed" }
     assert_one_flow(order, published)
   end
 
-  test "a double submission runs exactly the jobs a single submission runs" do
-    submitted_once = jobs_run { checkout(key: "once") }
-    submitted_twice = jobs_run { 2.times { checkout(key: "twice") } }
+  test "a cart placed twice runs exactly the jobs a cart placed once runs" do
+    placed_once = jobs_run { checkout }
+    cart = Orders::Api.open_cart(customer: ShopHelpers::CUSTOMER, items: { "MUG" => 2, "TEA" => 1 })
+    placed_twice = jobs_run { 2.times { Orders::Api.place_order(cart.id) } }
 
-    assert_equal submitted_once, submitted_twice
-    assert_equal 1, submitted_twice["Orders::PlaceOrderJob"]
+    assert_equal placed_once, placed_twice
+    assert_equal 1, placed_twice["Orders::ConfirmJob"]
   end
 
   private

@@ -25,10 +25,10 @@
       <%= form.submit "Apply", class: "button" %>
     <% end %>
     <dl class="stats">
-      <div><dt>Simulated checkouts</dt><dd><%= @simulation.checkout_count %></dd></div>
-      <div><dt>Refused at checkout</dt><dd><%= @simulation.refused_count %></dd></div>
-      <% Orders::Api::STATES.each do |state| %>
-        <div><dt><%= state.humanize %></dt><dd><%= @counts.fetch(state, 0) %></dd></div>
+      <div><dt>Simulated orders</dt><dd><%= @simulation.checkout_count %></dd></div>
+      <div><dt>Refused carts</dt><dd><%= @simulation.refused_count %></dd></div>
+      <% Orders::Api::STATUSES.each do |status| %>
+        <div><dt><%= status.humanize %></dt><dd><%= @counts.fetch(status, 0) %></dd></div>
       <% end %>
     </dl>
     <% if @simulation.last_refusal %>
@@ -64,7 +64,7 @@
 <section class="card" id="feed">
   <header><h2>Live feed</h2><span class="muted small">the latest events published, newest first</span></header>
   <% if @feed.empty? %>
-    <p class="empty">Nothing published yet. Start the simulator, or <%= link_to "place an order", new_order_path %>.</p>
+    <p class="empty">Nothing published yet. Start the simulator, or <%= link_to "fill a cart", new_cart_path %>.</p>
   <% else %>
     <ol class="feed">
       <% @feed.each do |publication| %>

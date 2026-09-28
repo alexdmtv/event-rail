@@ -2,6 +2,6 @@ module Orders
   class LineItem < ApplicationRecord
     belongs_to :order
 
-    def total_cents = quantity * unit_price_cents
+    def total = Money.new(cents: quantity * unit_price_cents, currency: order.currency)
   end
 end
