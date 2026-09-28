@@ -3,7 +3,7 @@ module Loyalty
     subscribes_to Orders::Events::OrderDelivered
 
     def perform(event)
-      Entry.record(event, kind: "award", points: Entry.points_for(event.total))
+      Entry.award(event)
     end
   end
 end
