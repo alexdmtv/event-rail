@@ -48,7 +48,7 @@ module Orders
     private
       def stop_shipment
         Fulfillment::Api.cancel_shipment(reference: @order.reference)
-      rescue Fulfillment::Api::AlreadyDispatched
+      rescue Fulfillment::AlreadyDispatched
         raise not_cancellable
       end
 

@@ -5,7 +5,7 @@ module Orders
   class RequestReturnJob < ApplicationJob
     def perform(order_id)
       order = Order.find(order_id)
-      Fulfillment::Api.expect_return(reference: order.reference) if order.awaiting_return?
+      Fulfillment::Api.request_return_pickup(reference: order.reference) if order.awaiting_return?
     end
   end
 end
