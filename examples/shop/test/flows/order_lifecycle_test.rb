@@ -46,7 +46,7 @@ class OrderLifecycleTest < FlowTestCase
 
     order, published = place_and_settle
     assert_equal [ "Payments::CaptureJob" ], @job_failures.map(&:job_class), "the capture ends in the failed jobs"
-    published += travel(31.minutes) { record_publications { Orders::Api.enforce_deadlines; settle } }
+    published += travel(31.minutes) { record_publications { enqueue_scheduled(:enforce_order_deadlines); settle } }
 
     assert_equal 10, gateway.calls[:capture]
     order = Orders::Api.order(order.id)

@@ -23,7 +23,7 @@ module Simulation
     end
 
     test "a tick while the simulator is off places nothing" do
-      Api.tick
+      TickJob.perform_now
 
       assert_empty Orders::Api.recent
     end
@@ -31,7 +31,7 @@ module Simulation
     test "a tick while the simulator is on places orders like any client, each from a cart of its own" do
       Api.start
 
-      Api.tick
+      TickJob.perform_now
 
       orders = Orders::Api.recent
       assert_equal 2, orders.size
@@ -42,7 +42,7 @@ module Simulation
     test "each simulated checkout starts its own flow" do
       Api.start
 
-      Api.tick
+      TickJob.perform_now
 
       assert_equal 2, Orders::Api.recent.map(&:correlation_id).uniq.size
     end
@@ -51,7 +51,7 @@ module Simulation
       Catalog::Api.add_product(sku: "TEA", name: "Green tea", price_cents: 890, on_hand: 3)
       Api.start
 
-      Api.tick
+      TickJob.perform_now
 
       assert_operator Catalog::Api.product("TEA").on_hand, :>=, 150
     end
@@ -60,7 +60,7 @@ module Simulation
       Catalog::Api.reserve(reservation_id: "everything", items: { "MUG" => 500 }) # nothing left to put in a basket
       Api.start
 
-      Api.tick
+      TickJob.perform_now
 
       assert_equal 2, Api.state.refused_count
       assert_match(/at least one item/, Api.state.last_refusal)
@@ -70,7 +70,7 @@ module Simulation
       Platform::FaultSettings.current.update!(authorization_decline_rate: 1.0)
       Api.start
 
-      Api.tick
+      TickJob.perform_now
       work_off_queue
 
       assert_equal %w[ cancelled cancelled ], Orders::Api.recent.map(&:state)
@@ -79,11 +79,11 @@ module Simulation
 
     test "cancellations keep pace with orders at the cancel rate" do
       Api.start
-      Api.tick
+      TickJob.perform_now
       perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::ConfirmJob" })
       Api.configure(orders_per_minute: 120, cancel_rate: 1.0, return_rate: 0)
 
-      Api.tick
+      TickJob.perform_now
       perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Orders::CancelJob" })
 
       assert_equal 2, Orders::Api.recent.count { |order| order.state == "cancelled" }
@@ -96,7 +96,7 @@ module Simulation
       Api.configure(orders_per_minute: 60, cancel_rate: 0, return_rate: 1.0)
       Api.start
 
-      Api.tick
+      TickJob.perform_now
 
       assert_equal "returning", Orders::Api.order(delivered.id).status
     end

@@ -32,6 +32,13 @@ class DesignRulesTest < ActiveSupport::TestCase
     assert_empty long.map(&:name), "a job whose perform is more than one line"
   end
 
+  # Every task in config/recurring.yml names a job that exists, or a command, and a schedule
+  # Solid Queue can parse. Solid Queue refuses to start with an invalid schedule; this finds a
+  # renamed job in CI rather than at deploy.
+  test "the recurring schedule is valid" do
+    assert_empty schedule_problems
+  end
+
   private
     def shop_jobs = shop_classes(Platform::ApplicationJob).select { |job| job.descendants.empty? }
 

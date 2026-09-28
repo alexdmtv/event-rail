@@ -26,5 +26,9 @@ shop: &shop
 development:
   <<: *shop
 
+# Nothing runs the schedule in tests; they enqueue a task by its key (see test/support/schedule.rb).
+test:
+  <<: *shop
+
 production:
   <<: *shop

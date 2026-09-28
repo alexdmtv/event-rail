@@ -36,7 +36,7 @@ class LivePagesTest < ApplicationSystemTestCase
     click_on "Start"
     assert_selector "#simulator", text: "running"
     Simulation::Api.configure(orders_per_minute: 120, cancel_rate: 0, return_rate: 0)
-    3.times { Simulation::Api.tick } # what the recurring schedule does every second
+    3.times { enqueue_scheduled(:simulation_tick) } # what the schedule does every second
     work_off_queue(due_only: true) # what the workers do
 
     assert_selector "#feed li", minimum: 2, wait: 5
