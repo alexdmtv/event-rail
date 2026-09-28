@@ -9,24 +9,25 @@ module Platform
     # A job declares none of its own: giving up is a business decision, taken in the domain,
     # usually as a deadline a sweep enforces, never by counting a job's attempts.
     #
-    # Waits double from two seconds up to a minute. That is short for production and chosen for
-    # the demonstration: a retry is something to watch in the console.
-    BACKOFF = ->(executions) { [ 2**executions, 60 ].min.seconds }
-
+    # Nothing is discarded by policy: a job that vanished without a trace would hide a bug, or a
+    # blip -- Active Job raises DeserializationError for a database hiccup while loading a job's
+    # arguments, not only for a deleted record. A subject the domain can legitimately delete is
+    # an explicit branch in the job instead.
+    #
     # Later declarations are consulted first.
     #
     # An error with no category is a bug, or a failure nobody has classified yet: it is retried,
-    # and left in the failed-jobs list once the attempts run out.
-    retry_on StandardError, wait: BACKOFF, attempts: 10
-    retry_on Unavailable, ResourceExhausted, *ErrorCategory.framework_errors(Unavailable), wait: BACKOFF, attempts: 10
+    # and left in the failed-jobs list once the attempts run out. Active Job's polynomial backoff
+    # (3 s, 18 s, 83 s, ... hours by the tenth attempt) adds jitter; a custom wait: formula would
+    # have to add its own. Its window outlasts every deadline in the shop, so only a deadline
+    # ever gives up on an order.
+    retry_on StandardError, wait: :polynomially_longer, attempts: 10
+    retry_on Unavailable, ResourceExhausted, *ErrorCategory.framework_errors(Unavailable), wait: :polynomially_longer, attempts: 10
     # A lost race is settled within seconds: the other party finishes, and this run finds it done.
     retry_on Aborted, *ErrorCategory.framework_errors(Aborted), wait: 1.second, attempts: 30
-    # An expected failure reaching the job's edge means the code did not handle it: it fails at once,
-    # into the failed-jobs list, rather than retrying what cannot change.
+    # An expected failure reaching the job's edge means the code did not handle it: it fails at
+    # once, into the failed-jobs list, rather than retrying what cannot change.
     rescue_from(*ErrorCategory::EXPECTED, *ErrorCategory::EXPECTED.flat_map { |category| ErrorCategory.framework_errors(category) }) { |error| raise error }
-    # Only the job's own subject being gone discards it. Any other missing record is a failure
-    # to see, not to drop.
-    discard_on ActiveJob::DeserializationError
 
     # Every error a job reports carries the flow it happened in, so it leads to the order's
     # tree in the console.

@@ -4,6 +4,6 @@ module Orders
   class FlagRefusedRefundJob < ApplicationJob
     subscribes_to Payments::Events::RefundFailed
 
-    def perform(event) = Order.find_by(reference: event.reference)&.flag_refused_refund(event.reason)
+    def perform(event) = Order.for_reference(event.reference)&.flag_refused_refund(event.reason)
   end
 end
