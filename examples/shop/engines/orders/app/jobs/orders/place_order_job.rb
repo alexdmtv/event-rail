@@ -28,7 +28,7 @@ module Orders
         Catalog::Api.reserve(reservation_id: order.reference, items: order.items)
         Payments::Api.authorize(reference: order.reference, amount_cents: order.total_cents, currency: order.currency)
         order.transition!(from: "pending", to: "placed", placed_at: Time.current)
-      rescue Catalog::Api::OutOfStock => out_of_stock
+      rescue Catalog::OutOfStock => out_of_stock
         order.reject!(out_of_stock.message)
       rescue Payments::Api::Declined => declined
         order.reject!("payment declined: #{declined.message}")

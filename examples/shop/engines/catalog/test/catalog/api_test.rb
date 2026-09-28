@@ -17,14 +17,14 @@ module Catalog
 
     test "a reservation refuses a quantity that is not a positive integer" do
       [ -2, 0, "1", 1.5 ].each do |quantity|
-        assert_raises(Api::InvalidQuantity, quantity.inspect) { Api.reserve(reservation_id: "r-#{quantity}", items: { "TEA" => quantity }) }
+        assert_raises(InvalidQuantity, quantity.inspect) { Api.reserve(reservation_id: "r-#{quantity}", items: { "TEA" => quantity }) }
       end
 
       assert_equal 10, Api.product("TEA").available
     end
 
     test "a reservation holds stock for every item or for none" do
-      assert_raises(Api::OutOfStock) { Api.reserve(reservation_id: "r-1", items: { "TEA" => 1, "MUG" => 4 }) }
+      assert_raises(OutOfStock) { Api.reserve(reservation_id: "r-1", items: { "TEA" => 1, "MUG" => 4 }) }
 
       assert_equal 10, Api.product("TEA").available
       assert_equal 3, Api.product("MUG").available
@@ -52,8 +52,20 @@ module Catalog
       assert_equal 3, Catalog::Product.find_by!(sku: "MUG").on_hand
     end
 
+    test "two reservations sharing products hold them in the same order, so neither deadlocks the other" do
+      locked = []
+      Catalog::Product.class_eval { alias_method :__lock_before_test, :lock! }
+      Catalog::Product.define_method(:lock!) { |*args| locked << sku; __lock_before_test(*args) }
+
+      Api.reserve(reservation_id: "r-1", items: { "TEA" => 1, "MUG" => 1 })
+
+      assert_equal %w[ MUG TEA ], locked
+    ensure
+      Catalog::Product.class_eval { alias_method :lock!, :__lock_before_test; remove_method :__lock_before_test }
+    end
+
     test "an unknown product is refused" do
-      assert_raises(Api::UnknownProduct) { Api.quote("NOPE" => 1) }
+      assert_raises(UnknownProduct) { Api.quote("NOPE" => 1) }
     end
   end
 end
