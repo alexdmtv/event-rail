@@ -101,7 +101,7 @@ Every interaction between two modules in this application:
 | `Payments::Api.refund` | async command | giving money back for a returned parcel |
 | `Fulfillment::Api.request_shipment` | async command | the carrier works on its own schedule |
 | `Fulfillment::Api.cancel_shipment` | sync command | a cancellation must know now whether the parcel has left, and only Fulfillment knows |
-| `Fulfillment::Api.expect_return` | async command | the carrier brings the parcel back when it does |
+| `Fulfillment::Api.request_return_pickup` | request | the carrier brings the parcel back when it does |
 | `Orders::Api.checkout` | sync command | the simulator is a client placing orders |
 | `Orders::Api.cancel` | sync command | a simulated customer changing their mind |
 | `Orders::Api.request_return` | sync command | a simulated customer sending an order back |

@@ -51,7 +51,7 @@ module Fulfillment
       request_shipment
       perform_enqueued_jobs(only: DispatchJob)
 
-      assert_raises(Api::AlreadyDispatched) { Api.cancel_shipment(reference: "ref-1") }
+      assert_raises(AlreadyDispatched) { Api.cancel_shipment(reference: "ref-1") }
       assert_equal "dispatched", Api.shipment("ref-1").state
     end
 
@@ -82,7 +82,7 @@ module Fulfillment
     end
 
     test "an expected return is reported when the parcel arrives" do
-      published = record_publications { perform_enqueued_jobs { Api.expect_return(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs { Api.request_return_pickup(reference: "ref-1") } }
 
       assert_equal [ "fulfillment.return_received" ], published.map(&:event_type).uniq
     end
