@@ -86,7 +86,7 @@ module Platform
 
     test "staging outside a transaction is refused" do
       error = assert_raises(ArgumentError) { ProbeJob.stage_later("alone") }
-      assert_match(/perform_later/, error.message)
+      assert_match(/surrounding transaction/, error.message)
     end
   end
 end

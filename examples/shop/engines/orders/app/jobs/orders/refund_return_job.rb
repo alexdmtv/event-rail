@@ -9,7 +9,7 @@ module Orders
       return unless order.awaiting_return?
 
       Catalog::Api.restock(reservation_id: order.reference)
-      Payments::Api.refund(reference: order.reference)
+      Payments::Api.request_refund(reference: order.reference)
     end
   end
 end

@@ -68,17 +68,14 @@ module Fulfillment
       Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
       request_shipment
       clear_enqueued_jobs
-      DeliveryJob.define_singleton_method(:set) { |*| raise "queue unavailable" }
-      DispatchJob.perform_now("ref-1") # commits the dispatch, fails to schedule the delivery, retries later
-      DeliveryJob.singleton_class.remove_method(:set)
+      # Commits the dispatch, fails to schedule the delivery, and retries later.
+      refusing_enqueue(only: DeliveryJob) { DispatchJob.perform_now("ref-1") }
       assert_enqueued_jobs 1, only: DispatchJob
       assert_equal "dispatched", Api.shipment("ref-1").state
 
       work_off_queue
 
       assert_equal "delivered", Api.shipment("ref-1").state
-    ensure
-      DeliveryJob.singleton_class.remove_method(:set) if DeliveryJob.singleton_class.method_defined?(:set, false)
     end
 
     test "an expected return is reported when the parcel arrives" do

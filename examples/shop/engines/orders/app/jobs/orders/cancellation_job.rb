@@ -12,7 +12,7 @@ module Orders
       return unless order.cancelled?
 
       Catalog::Api.release(reservation_id: order.reference)
-      Payments::Api.release(reference: order.reference)
+      Payments::Api.request_release(reference: order.reference)
       EventRail.publish(Events::OrderCancelled.new(**order.event_attributes, reason: order.cancel_reason))
       order.update_columns(cancellation_announced_at: Time.current) unless order.cancellation_announced_at?
     end
