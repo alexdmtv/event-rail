@@ -13,7 +13,7 @@ module Orders
             raise NotCancellable, "order #{id} has shipped; request a return instead" unless cancellable?
 
             update!(cancellation_requested_at: Time.current, cancel_reason: reason)
-            CancelJob.stage_later(self)
+            CancelJob.stage(self)
           end
         end
         self

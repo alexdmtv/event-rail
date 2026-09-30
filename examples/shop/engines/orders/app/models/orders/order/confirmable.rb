@@ -14,7 +14,7 @@ module Orders
         scope :unconfirmed_past_deadline, -> { where(state: "placed").where(created_at: ...CONFIRMATION_DEADLINE.ago) }
       end
 
-      def confirm_later = ConfirmJob.stage_later(self)
+      def confirm_later = ConfirmJob.stage(self)
 
       def confirm
         announce_placement
