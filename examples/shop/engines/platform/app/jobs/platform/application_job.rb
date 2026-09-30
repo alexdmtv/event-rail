@@ -60,8 +60,8 @@ module Platform
     # them (see Platform::StagedJob, the same stager EventRail.stage uses). Once the transaction
     # has committed, the job is handed to the queue at once; if that fails,
     # Platform::StagedJobRelayJob hands it over shortly after. It is right wherever the method
-    # runs: in a request, which has no retry, and in a job, where it costs a row and saves
-    # nothing but is never wrong.
+    # runs: in a request, which has no retry, and in a job, where it costs a row and spares the
+    # job from having to be replayed to recover a lost enqueue.
     def self.stage(*arguments)
       job = new(*arguments)
       StagedJob.stage([ job ])

@@ -213,6 +213,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.json "payload", null: false
     t.string "correlation_id"
     t.string "causation_id"
+    t.string "event_id"
     t.datetime "created_at", null: false
     t.index ["created_at"], name: "index_platform_staged_jobs_on_created_at"
     t.index ["job_id"], name: "index_platform_staged_jobs_on_job_id"

@@ -44,7 +44,7 @@ module Payments
       assert_equal "captured", Api.payment("ref-1").state
     end
 
-    test "a repeated capture command captures once and reports again under the same identity" do
+    test "a repeated capture command captures once and reports once: the report was staged with the capture" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new
 
@@ -52,7 +52,8 @@ module Payments
       second = record_publications { Api.request_capture(reference: "ref-1"); perform_enqueued_jobs }
 
       assert_equal 1, gateway.calls[:capture]
-      assert_equal first.map(&:event_id), second.map(&:event_id)
+      assert_equal [ "payments.payment_captured" ], first.map(&:event_type)
+      assert_empty second
     end
 
     test "captures enqueued by separate callers under random job IDs report one PaymentCaptured" do
@@ -65,8 +66,7 @@ module Payments
       end
 
       assert_equal 1, gateway.calls[:capture]
-      assert_equal [ "payments.payment_captured" ] * 2, published.map(&:event_type), "each run reports the capture"
-      assert_equal 1, published.map(&:event_id).uniq.size, "the fact has one ID whichever job reports it"
+      assert_equal [ "payments.payment_captured" ], published.map(&:event_type), "the run that captured reports it"
     end
 
     test "temporary provider failures are retried until the capture succeeds" do
@@ -142,7 +142,7 @@ module Payments
       assert_equal [ "payments.refund_failed" ], published.map(&:event_type)
     end
 
-    test "a refused capture's hold is voided at the provider, and the refusal still reported" do
+    test "a refused capture's hold is voided at the provider, and repeating the capture reports nothing new" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :refuse ])
       perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
@@ -155,7 +155,7 @@ module Payments
       payment = Api.payment("ref-1")
       assert_equal "capture_failed", payment.state
       assert payment.voided_at
-      assert_equal [ "payments.capture_failed" ], again.map(&:event_type)
+      assert_empty again, "the refusal was reported when it was recorded"
     end
 
     test "release refunds a captured payment and voids an uncaptured one" do

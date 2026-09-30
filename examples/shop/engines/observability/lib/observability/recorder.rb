@@ -2,7 +2,12 @@ module Observability
   # Turns instrumentation into flow records.
   #
   #   publish.event_rail            an event node, whose parent is its causation
+  #   stage.event_rail              the same, for an event staged in a transaction. It fires
+  #                                 before the commit; the node is inserted in that transaction,
+  #                                 since the flow tables share the database, so an event whose
+  #                                 transaction rolls back leaves no node
   #   enqueue_subscriber.event_rail marks the event a subscriber job is being enqueued for
+  #   hand_over.platform            the same, for a staged subscriber job handed to the queue
   #   enqueue(_at).active_job       a job node, whose parent is the message that enqueued it --
   #                                 read from EventRail::Current, which at enqueue time is
   #                                 still the enqueuing code's context
@@ -21,8 +26,9 @@ module Observability
       def subscribe
         return if @subscribed
 
-        ActiveSupport::Notifications.subscribe("publish.event_rail") { |event| record { record_event(event.payload) } }
+        ActiveSupport::Notifications.subscribe(/\A(publish|stage)\.event_rail\z/) { |event| record { record_event(event.payload) } }
         ActiveSupport::Notifications.subscribe("enqueue_subscriber.event_rail", Scoped.new(:event_id) { |payload| record { record_refused_delivery(payload) } })
+        ActiveSupport::Notifications.subscribe("hand_over.platform", Scoped.new(:event_id) { })
         # A job scheduled for later -- the carrier's next step, a retry -- is reported as
         # enqueue_at rather than enqueue.
         ActiveSupport::Notifications.subscribe(/\Aenqueue(_at)?\.active_job\z/) { |event| record { record_job(event.payload) } }

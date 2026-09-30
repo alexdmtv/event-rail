@@ -46,6 +46,7 @@ module Orders
           quote.lines.each do |line|
             order.line_items.create!(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
           end
+          order.announce_placement
           order.confirm_later
           order
         end

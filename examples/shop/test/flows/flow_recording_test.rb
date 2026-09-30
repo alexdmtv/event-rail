@@ -7,10 +7,11 @@ class FlowRecordingTest < FlowTestCase
     order, = place_and_settle
     roots = Observability::Api.flow(order.correlation_id)
 
-    placement = roots.sole
-    assert_equal "Orders::ConfirmJob", placement.name
+    # Placing the order staged both its announcement and its confirmation.
+    assert_equal %w[ Orders::ConfirmJob orders.order_placed ], roots.map(&:name).sort
+    placement = roots.find { |step| step.name == "Orders::ConfirmJob" }
 
-    placed = placement.children.find { |step| step.name == "orders.order_placed" }
+    placed = roots.find { |step| step.name == "orders.order_placed" }
     assert_equal 2, placed.version
     assert_includes placed.children.map(&:name), "Notifications::NotifyCustomerJob"
 

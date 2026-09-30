@@ -16,8 +16,17 @@ module Orders
 
       def confirm_later = ConfirmJob.stage(self)
 
+      # Announces the order, in the transaction that records it.
+      def announce_placement
+        EventRail.stage(Events::OrderPlaced.new(
+          **event_attributes, total: event_total,
+          line_items: line_items.map do |line|
+            { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
+          end
+        ))
+      end
+
       def confirm
-        announce_placement
         hold_and_authorize if placed?
         if confirmed?
           Payments::Api.request_capture(reference: reference)
@@ -33,17 +42,6 @@ module Orders
       end
 
       private
-        # Every run announces the order, placed however long ago: the announcement carries the
-        # same identity each time (OrderPlaced is identified by its order).
-        def announce_placement
-          EventRail.publish(Events::OrderPlaced.new(
-            **event_attributes, total: event_total,
-            line_items: line_items.map do |line|
-              { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
-            end
-          ))
-        end
-
         def hold_and_authorize
           Catalog::Api.reserve(reservation_id: reference, items: items)
           Payments::Api.authorize(reference: reference, amount_cents: total_cents, currency: currency)

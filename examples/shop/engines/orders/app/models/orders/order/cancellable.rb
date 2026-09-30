@@ -19,16 +19,17 @@ module Orders
         self
       end
 
-      # Stops the shipment if Fulfillment still can, and then cancels the order, gives back its
-      # stock and its payment, and announces it -- every run, so that a run retried after the
-      # cancellation committed still finishes it, and republishes under the same identity.
+      # Stops the shipment if Fulfillment still can, and then cancels the order, announcing it
+      # in the same transaction, and gives back its stock and its payment -- every run, so that
+      # a run retried after the cancellation committed still gives them back.
       def cancel
         Fulfillment::Api.cancel_shipment(reference: reference)
-        update_if({ state: %w[ placed confirmed ] }, state: "cancelled", cancelled_at: Time.current)
+        update_if({ state: %w[ placed confirmed ] }, state: "cancelled", cancelled_at: Time.current) do
+          EventRail.stage(Events::OrderCancelled.new(**event_attributes, reason: cancel_reason))
+        end
         return unless cancelled?
 
         release_holds
-        EventRail.publish(Events::OrderCancelled.new(**event_attributes, reason: cancel_reason))
       rescue Fulfillment::AlreadyDispatched
         update_if({ cancellation_refused_at: nil }, cancellation_refused_at: Time.current)
       end

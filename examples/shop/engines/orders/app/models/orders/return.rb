@@ -31,8 +31,9 @@ module Orders
     end
 
     def complete_refund
-      update_if({ state: "received" }, state: "refunded", refunded_at: Time.current)
-      EventRail.publish(Events::OrderRefunded.new(**order.event_attributes, total: order.event_total)) if refunded?
+      update_if({ state: "received" }, state: "refunded", refunded_at: Time.current) do
+        EventRail.stage(Events::OrderRefunded.new(**order.event_attributes, total: order.event_total))
+      end
     end
 
     # Retrying will not change the issuer's mind, and the customer is owed money.

@@ -44,8 +44,8 @@ module Payments
     def voidable? = (authorized? || capture_failed?) && voided_at.nil?
     def refundable? = captured?
 
-    # Each command runs under the claim of the one taking it, and reports the payment's state
-    # afterwards whether or not this run changed it.
+    # Each command runs under the claim of the one taking it, and reports the change it made, in
+    # the transaction that records it.
     def capture(claimant:) = ProviderCall.new(self, claimant).capture
     def void(claimant:) = ProviderCall.new(self, claimant).void
     def refund(claimant:) = ProviderCall.new(self, claimant).refund
@@ -66,7 +66,13 @@ module Payments
     # Gives up a claim the claimant still holds, without an answer.
     def give_up_claim(claimant) = self.class.where(id: id, operation_job_id: claimant).update_all(operation: nil, operation_job_id: nil, updated_at: Time.current)
 
-    # Records the provider's answer, if any, and gives the claim up.
-    def settle(**attributes) = update!(**attributes, operation: nil, operation_job_id: nil)
+    # Records the provider's answer, if any, and gives the claim up. A block commits with the
+    # answer: the event reporting it.
+    def settle(**attributes)
+      transaction do
+        update!(**attributes, operation: nil, operation_job_id: nil)
+        yield if block_given?
+      end
+    end
   end
 end

@@ -81,30 +81,33 @@ module Orders
       assert_equal "delivered", order_record(order).status
     end
 
-    test "every run announces the placement under the same identity" do
-      order = checkout
-      first = record_publications { failing(Payments::Api, :request_capture) { perform_enqueued_jobs(only: ConfirmJob) } }
-      again = record_publications { work_off_queue }
+    test "the placement is announced once, in the transaction that records the order" do
+      order = nil
+      placed = record_publications { order = checkout }
+      later = record_publications do
+        failing(Payments::Api, :request_capture) { perform_enqueued_jobs(only: ConfirmJob) }
+        work_off_queue
+      end
 
-      placed = (first + again).select { |publication| publication.event_type == "orders.order_placed" }
-      assert_equal 2, placed.size
-      assert_equal 1, placed.map(&:event_id).uniq.size
-      assert_equal 2, placed.first.event_version
+      assert_equal [ "orders.order_placed" ], placed.map(&:event_type)
+      assert_equal 2, placed.sole.event_version
+      assert_not later.any? { |publication| publication.event_type == "orders.order_placed" }, "confirming, however often it runs, announces nothing again"
       assert_equal "delivered", order_record(order).status
     end
 
-    test "a confirmation handed to the queue twice announces the order under one event identity" do
-      checkout
+    test "a confirmation handed to the queue twice authorizes the card once" do
+      Payments::Gateway.adapter = gateway = ScriptedGateway.new
+      order = checkout
       # As if the first hand-over had crashed after enqueuing and before deleting its row.
-      staged = enqueued_jobs.sole.except(:job, :args, :queue, :priority, :at)
+      staged = enqueued_jobs.find { |job| job["job_class"] == ConfirmJob.name }.except(:job, :args, :queue, :priority, :at)
       Platform::StagedJob.create!(job_id: staged["job_id"], job_class: ConfirmJob.name, payload: staged, created_at: 1.minute.ago)
       Platform::StagedJobRelayJob.perform_now
       assert_equal 2, enqueued_jobs.count { |job| job["job_class"] == ConfirmJob.name }
 
-      published = record_publications { work_off_queue }
+      work_off_queue
 
-      placed = published.select { |publication| publication.event_type == "orders.order_placed" }
-      assert_equal 1, placed.map(&:event_id).uniq.size
+      assert_equal 1, gateway.calls[:authorize]
+      assert_equal "delivered", order_record(order).status
     end
   end
 end

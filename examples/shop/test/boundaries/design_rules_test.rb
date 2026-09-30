@@ -32,6 +32,19 @@ class DesignRulesTest < ActiveSupport::TestCase
     assert_empty long.map(&:name), "a job whose perform is more than one line"
   end
 
+  # An event is staged in the transaction that records its fact, so the two commit together.
+  # Publishing after the commit is an exception taken on purpose, where staging's cost has been
+  # measured and the step is written to be replayed; it is listed here with its reason.
+  PUBLISHING_ON_PURPOSE = {}.freeze
+
+  test "application code stages events rather than publishing them" do
+    publishing = Dir[Rails.root.join("{app,lib,engines/*/app,engines/*/lib}/**/*.rb")]
+      .select { |file| File.read(file).match?(/EventRail\.publish\b/) }
+      .map { |file| Pathname(file).relative_path_from(Rails.root).to_s }
+
+    assert_equal PUBLISHING_ON_PURPOSE.keys.sort, publishing.sort
+  end
+
   # Every task in config/recurring.yml names a job that exists, or a command, and a schedule
   # Solid Queue can parse. Solid Queue refuses to start with an invalid schedule; this finds a
   # renamed job in CI rather than at deploy.

@@ -58,9 +58,9 @@ class OrderLifecycleTest < FlowTestCase
   end
 
   test "an order whose follow-up the queue could not take at the commit is delivered without the caller retrying" do
-    order = refusing_enqueue { checkout }
-
+    order = nil
     published = record_publications do
+      order = refusing_enqueue { checkout }
       relay_staged_jobs
       work_off_queue
     end

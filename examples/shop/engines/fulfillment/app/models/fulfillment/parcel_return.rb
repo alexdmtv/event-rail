@@ -15,10 +15,9 @@ module Fulfillment
 
     # The parcel is back at the warehouse.
     def receive
-      self.class.where(id: id, state: "expected").update_all(state: "received", received_at: Time.current)
-      reload
-
-      EventRail.publish(Events::ReturnReceived.new(reference: reference)) if received?
+      update_if({ state: "expected" }, state: "received", received_at: Time.current) do
+        EventRail.stage(Events::ReturnReceived.new(reference: reference))
+      end
     end
   end
 end

@@ -127,12 +127,12 @@ module Orders
         stamped = EventRail.publish(event).event
         clear_enqueued_jobs
 
-        first = record_publications { subscriber.perform_now(stamped) }
+        subscriber.perform_now(stamped)
         state_after_first = Orders::Order.sole.attributes.except("updated_at")
         second = record_publications { subscriber.perform_now(stamped) }
 
         assert_equal state_after_first, Orders::Order.sole.attributes.except("updated_at")
-        assert_equal first.map(&:event_id), second.map(&:event_id)
+        assert_empty second, "the first delivery staged its event with the change; a redelivery stages nothing"
       end
   end
 end
