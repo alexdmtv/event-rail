@@ -44,6 +44,9 @@ module Dummy
       config.event_rail.roots << "app/subscribers"
     end
 
+    # By name, as an application configures a stager that lives in its reloadable code.
+    config.event_rail.stager = "RecordingStager"
+
     # A bad root, to prove a typo fails preparation rather than discovering nothing.
     if ENV["DUMMY_BAD_ROOT"] == "true"
       config.event_rail.roots << "app/subscriberz"

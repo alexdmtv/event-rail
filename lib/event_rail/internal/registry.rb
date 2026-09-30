@@ -140,6 +140,7 @@ module EventRail
             @building = true
             begin
               eager_load_conventional_roots
+              Stager.validate!
               prune_stale_declarations
               @snapshot = build_snapshot
             ensure

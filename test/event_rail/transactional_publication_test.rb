@@ -35,6 +35,7 @@ class TransactionalPublicationTest < ActiveSupport::TestCase
     end
 
     assert_match(/after the transaction commits/, error.message)
+    assert_match(/stage the event within it through a configured stager/, error.message)
     assert_empty enqueued_jobs, "nothing may be enqueued from inside the transaction"
   end
 

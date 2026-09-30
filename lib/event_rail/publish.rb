@@ -19,12 +19,7 @@ module EventRail
     # subscriber's enqueue fails, and the retry repeats complete fanout under the same
     # event ID, so a subscriber may see the same event more than once.
     def publish(event, identity: nil, source: nil, **unknown)
-      if unknown.key?(:key)
-        raise ArgumentError,
-          "publish's key: is now identity:, and it names a fact across every job rather than within one; " \
-          "check the value names one occurrence per source and event type before renaming it"
-      end
-      raise ArgumentError, "unknown keyword#{"s" if unknown.size > 1}: #{unknown.keys.map(&:inspect).join(", ")}" if unknown.any?
+      reject_unknown_keywords!(:publish, unknown)
 
       Internal::Transaction.check!
 
@@ -55,6 +50,15 @@ module EventRail
     end
 
     private
+      def reject_unknown_keywords!(verb, unknown)
+        if unknown.key?(:key)
+          raise ArgumentError,
+            "#{verb}'s key: is now identity:, and it names a fact across every job rather than within one; " \
+            "check the value names one occurrence per source and event type before renaming it"
+        end
+        raise ArgumentError, "unknown keyword#{"s" if unknown.size > 1}: #{unknown.keys.map(&:inspect).join(", ")}" if unknown.any?
+      end
+
       # Three outcomes, not two. Active Job returns false both when an adapter reports
       # failure and when an enqueue callback aborts, so the return value alone cannot
       # tell a fault from a decision. The job instance can, through `enqueue_error`, and

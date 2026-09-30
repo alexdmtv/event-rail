@@ -20,9 +20,13 @@ class ReadmeTest < ActiveSupport::TestCase
     assert_operator runnable.length, :>=, 6, "the README should carry real, runnable examples"
     # Raised from 5 with the test-helper section, whose examples are file-context by nature:
     # a `test/test_helper.rb`, a `config/application.rb` line, and a `test ... do` body that
-    # needs the test case's own instance methods. The cap exists to stop marking a snippet
-    # that could have run, not to cap how much of the README is a file rather than a script.
-    assert_operator skipped.length, :<=, 7, "only genuinely unrunnable snippets should be marked"
+    # needs the test case's own instance methods. Raised again from 7 by the staging section's
+    # three: a `config/application.rb` line beside a model method, and two stagers that need a
+    # database table or a queue sharing the application's connection, which the fixture
+    # application has neither of. Its `EventRail.stage` example itself runs, against the
+    # fixture's recording stager. The cap exists to stop marking a snippet that could have
+    # run, not to cap how much of the README is a file rather than a script.
+    assert_operator skipped.length, :<=, 10, "only genuinely unrunnable snippets should be marked"
 
     Registry.reopen do
       runnable.each_with_index do |example, index|
@@ -73,7 +77,8 @@ class ReadmeTest < ActiveSupport::TestCase
 
     refute_nil table
     %w[
-      publish.event_rail enqueue_subscriber.event_rail deserialize.event_rail perform_subscriber.event_rail
+      publish.event_rail stage.event_rail enqueue_subscriber.event_rail deserialize.event_rail
+      perform_subscriber.event_rail
     ].each { |name| assert_includes table, name }
     %w[subscriber_count accepted skipped job_class outcome format_version].each do |key|
       assert_includes table, key
@@ -89,6 +94,9 @@ class ReadmeTest < ActiveSupport::TestCase
       "subscriber idempotency" => "must therefore be idempotent",
       "backend-owned retries and dead-lettering" => "dead-letter handling stay where they already are",
       "transaction deferral" => "enqueue_after_transaction_commit",
+      "staging with the transaction" => "Staging inside a database transaction",
+      "the stager contract" => "All or nothing",
+      "boundary identity for staged events" => "should declare its identity",
       "replay-safe publishers" => "Replay-safe publishers",
       "compatible versus breaking versions" => "Versioning events",
       "timestamp semantics" => "logical publication time",

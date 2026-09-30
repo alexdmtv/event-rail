@@ -13,6 +13,34 @@ here unless a release changes how they behave.
 
 ## [Unreleased]
 
+### Added
+
+- **`EventRail.stage(event, identity:, source:)` records an event with the transaction that
+  changes the state it reports.** It stamps the event exactly as `publish` does, builds one
+  job per subscriber, and hands them all to your stager in one call instead of enqueuing
+  them. The stager persists them with the caller's transaction, all or nothing, and hands
+  them to the queue after the commit, so the intent to deliver commits or rolls back with the
+  data. This closes the gap at a boundary, such as a controller action, that has no job retry
+  to republish after a crash. EventRail ships no table or relay; the README gives two recipes,
+  an outbox table and a queue that shares the application's database.
+- **`config.event_rail.stager`**: the name of a constant that responds to `stage(jobs)`,
+  resolved on every staging so a reloaded class is always the current one, or an object used
+  as given. Preparation fails for a name that resolves to nothing or a stager without `stage`.
+  An application that never stages configures nothing.
+- **`EventRail::StagedPublication`**, what `stage` returns: the stamped event, the staged
+  jobs, and their subscriber classes. It has no accepted or skipped outcomes, because a
+  subscriber's enqueue callbacks run when its job is enqueued, not when it is staged.
+- **`stage.event_rail`**, a fifth notification, carrying `subscriber_count` beside the usual
+  keys.
+
+### Changed
+
+- `EventRail::TransactionalPublicationError` now names staging through a configured stager
+  as the alternative to publishing after the commit. `publish` inside a transaction still
+  raises.
+- Staging shares publication's duplicate check within one job attempt: staging or publishing
+  the same fact twice raises `EventRail::DuplicatePublicationError`.
+
 ## [0.4.0] - 2026-09-26
 
 ### Changed

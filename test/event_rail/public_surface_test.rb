@@ -31,6 +31,7 @@ Registry.prepare
 class PublicSurfaceTest < ActiveSupport::TestCase
   NOTIFICATION_NAMES = %w[
     publish.event_rail
+    stage.event_rail
     enqueue_subscriber.event_rail
     deserialize.event_rail
     perform_subscriber.event_rail
@@ -46,6 +47,7 @@ class PublicSurfaceTest < ActiveSupport::TestCase
   test "every documented notification carries the contract, identity, and lineage keys" do
     payloads = capture(NOTIFICATION_NAMES) do
       EventRail.publish(SurfaceFixtures::Placed.new(order_id: "o-1", secret: "do not log me"))
+      EventRail.stage(SurfaceFixtures::Placed.new(order_id: "o-2", secret: "do not log me"))
       perform_enqueued_jobs
     end
 
@@ -63,6 +65,7 @@ class PublicSurfaceTest < ActiveSupport::TestCase
   test "no notification payload contains domain data or extensions" do
     payloads = capture(NOTIFICATION_NAMES) do
       EventRail.publish(SurfaceFixtures::Placed.new(order_id: "o-1", secret: "do not log me"))
+      EventRail.stage(SurfaceFixtures::Placed.new(order_id: "o-2", secret: "do not log me"))
       perform_enqueued_jobs
     end
 
@@ -78,8 +81,11 @@ class PublicSurfaceTest < ActiveSupport::TestCase
   test "each notification carries its own additional keys" do
     payloads = capture(NOTIFICATION_NAMES) do
       EventRail.publish(SurfaceFixtures::Placed.new(order_id: "o-1"))
+      EventRail.stage(SurfaceFixtures::Placed.new(order_id: "o-2"))
       perform_enqueued_jobs
     end
+
+    assert_equal 1, payloads.fetch("stage.event_rail").sole.fetch(:subscriber_count)
 
     publish = payloads.fetch("publish.event_rail").sole
     assert_equal 1, publish.fetch(:subscriber_count)
@@ -164,16 +170,18 @@ class PublicSurfaceTest < ActiveSupport::TestCase
   end
 
   test "there is no public registry query and no diagnostic command" do
-    %i[registry subscribers subscribers_for contracts event_classes prepared? doctor diagnose].each do |name|
+    %i[registry subscribers subscribers_for contracts event_classes prepared? doctor diagnose stager].each do |name|
       refute EventRail.respond_to?(name), "EventRail must not expose #{name}"
     end
 
     assert_raises(NameError) { EventRail::Internal }
   end
 
+  # `stage` joined `publish` deliberately: recording an event with the transaction that
+  # changed the state it reports cannot be done from outside the gem without its stamping.
   test "the entire public surface is small enough to read" do
     assert_equal(
-      %i[publish with_context],
+      %i[publish stage with_context],
       (EventRail.singleton_methods(false) - Object.singleton_methods(false)).sort
     )
   end
@@ -186,15 +194,17 @@ class PublicSurfaceTest < ActiveSupport::TestCase
     refute_includes readme, "rails generate event_rail"
   end
 
-  # `config.event_rail.roots` is the one configuration option, and it is documented. There is
-  # still no `EventRail.configure`, no generated initializer, and no install generator: the
-  # option is a filter over roots Zeitwerk already has, in the same family as
-  # `config.autoload_once_paths`, not a second place to configure loading.
-  test "the only configuration is the discovery roots" do
+  # `config.event_rail.roots` and `config.event_rail.stager` are the only configuration
+  # options, and both are documented. There is still no `EventRail.configure`, no generated
+  # initializer, and no install generator: roots is a filter over roots Zeitwerk already has,
+  # in the same family as `config.autoload_once_paths`, and the stager is the one thing that
+  # cannot be found by convention -- only the application knows where its staged jobs go.
+  test "the only configuration is the discovery roots and the stager" do
     readme = File.read(File.expand_path("../../README.md", __dir__))
 
     assert_includes readme, "config.event_rail.roots"
-    assert_equal [ :roots ], Rails.application.config.event_rail.keys
+    assert_includes readme, "config.event_rail.stager"
+    assert_equal [ :roots, :stager ], Rails.application.config.event_rail.keys.sort
   end
 
   # --- 8.6 every failure comes from one hierarchy -------------------------------

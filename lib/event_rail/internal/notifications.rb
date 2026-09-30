@@ -2,7 +2,7 @@ require "active_support/notifications"
 
 module EventRail
   module Internal
-    # Payloads for the four public notifications.
+    # Payloads for the five public notifications.
     #
     # Contract, identity, and lineage only. Domain data and extensions are excluded by
     # construction rather than by filtering, because a notification payload reaches logs

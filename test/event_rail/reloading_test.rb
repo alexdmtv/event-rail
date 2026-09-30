@@ -73,6 +73,62 @@ class ReloadingTest < ActiveSupport::TestCase
 
   # --- 5.5 eager loading, engines, and roots the convention does not cover -------
 
+  # A stager is usually an application class, so it is configured by name. The name has to be
+  # resolved again on every staging: a reload replaces the class, and a stager held by
+  # reference would keep handing jobs to the discarded one.
+  test "a stager configured by name follows a reload" do
+    result = boot("development", <<~RUBY)
+      before = RecordingStager
+      Rails.application.reloader.reload!
+      after = RecordingStager
+
+      EventRail.stage(Orders::OrderPlaced.new(order_id: "o-1"))
+
+      emit(
+        "replaced" => !before.equal?(after),
+        "staged_into_current" => after.staged.map { |job| job.class.name }.sort,
+        "staged_into_discarded" => before.staged.length
+      )
+    RUBY
+
+    assert result.fetch("replaced"), "the reload must replace the stager class"
+    assert_equal [ "Billing::CreateInvoiceJob", "Orders::RecordOrderMetricsJob" ], result.fetch("staged_into_current")
+    assert_equal 0, result.fetch("staged_into_discarded")
+  end
+
+  # Preparation checks the stager on every reload. A misconfiguration there fails the reload
+  # loudly, and fixing it lets the next reload recover, as a bad discovery root does.
+  test "a stager that stops resolving fails the reload, and the next good reload recovers" do
+    result = boot("development", <<~RUBY)
+      config = Rails.application.config.event_rail
+      config.stager = "NoSuchStager"
+      failed = begin
+        Rails.application.reloader.reload!
+        nil
+      rescue EventRail::ConfigurationError => error
+        error.message
+      end
+
+      config.stager = "RecordingStager"
+      Rails.application.reloader.reload!
+      publication = EventRail.publish(Orders::OrderPlaced.new(order_id: "o-1"))
+
+      emit("failed" => failed, "subscribers" => publication.subscriber_count)
+    RUBY
+
+    assert_match(/NoSuchStager/, result.fetch("failed"))
+    assert_equal 2, result.fetch("subscribers")
+  end
+
+  test "a production boot with eager loading resolves a stager configured by name" do
+    result = boot("production", <<~RUBY)
+      EventRail.stage(Orders::OrderPlaced.new(order_id: "o-1"))
+      emit("staged" => RecordingStager.staged.length)
+    RUBY
+
+    assert_equal 2, result.fetch("staged")
+  end
+
   test "a production boot with eager loading discovers the same registry" do
     result = boot("production", <<~RUBY)
       snapshot = EventRail.const_get(:Internal)::Registry.snapshot

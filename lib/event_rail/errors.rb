@@ -14,8 +14,10 @@ module EventRail
   end
 
   # An application's own configuration is wrong: a discovery root that is not an autoload
-  # root of the application or any engine. Distinct from a declaration fault, which is about
-  # a class body, and raised at preparation so it fails the boot that introduced it.
+  # root of the application or any engine, or a stager that cannot be resolved or cannot
+  # stage. Distinct from a declaration fault, which is about a class body. Raised at
+  # preparation where it can be, so it fails the boot that introduced it, and by
+  # `EventRail.stage` when no stager is configured at all.
   class ConfigurationError < Error
   end
 
@@ -171,12 +173,13 @@ module EventRail
   # Publication happened inside an open application database transaction. Both queue
   # deferral settings are wrong there, in opposite directions: a deferred enqueue
   # cannot report its own failure, and an immediate one announces a fact a rollback
-  # then contradicts.
+  # then contradicts. Staging is the way to record an event with the transaction.
   class TransactionalPublicationError < PublicationError
     def initialize(message = nil)
       super(
         message ||
-          "cannot publish inside an open database transaction; publish after the transaction commits"
+          "cannot publish inside an open database transaction; publish after the transaction commits, " \
+          "or stage the event within it through a configured stager (EventRail.stage)"
       )
     end
   end
