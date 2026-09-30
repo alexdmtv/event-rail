@@ -46,6 +46,11 @@ module Shop
     # so Rails loads it in every environment.
     config.event_rail.roots << "app/public"
 
+    # Where EventRail.stage puts an event's subscriber jobs: the same staged-jobs table a domain
+    # method stages its own jobs in (Platform::ApplicationJob.stage), so one relay hands both to
+    # the queue. By name, because the class is reloadable application code.
+    config.event_rail.stager = "Platform::StagedJob"
+
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files

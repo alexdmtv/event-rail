@@ -15,7 +15,7 @@ module Orders
     # and a refund for a cancelled order has no return.
     def self.for_reference(reference) = joins(:order).find_by(orders_orders: { reference: reference })
 
-    def collect_later = CollectReturnJob.stage_later(self)
+    def collect_later = CollectReturnJob.stage(self)
 
     # Asks the carrier to bring the parcel back.
     def collect = (Fulfillment::Api.request_return_pickup(reference: order.reference) if requested?)

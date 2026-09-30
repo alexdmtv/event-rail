@@ -57,21 +57,14 @@ module Platform
 
     # Starts a job as part of the surrounding transaction, for a domain method that has just
     # written its records: the job is staged in their store and commits, or rolls back, with
-    # them (see Platform::StagedJob). Once the transaction has committed, the job is handed to
-    # the queue at once; if that fails, Platform::StagedJobRelayJob hands it over shortly
-    # after. It is right wherever the method runs: in a request, which has no retry, and in a
-    # job, where it costs a row and saves nothing but is never wrong.
-    def self.stage_later(*arguments)
-      transaction = StagedJob.current_transaction
-      raise ArgumentError, "stage_later needs a surrounding transaction to commit with" unless transaction.open?
-
+    # them (see Platform::StagedJob, the same stager EventRail.stage uses). Once the transaction
+    # has committed, the job is handed to the queue at once; if that fails,
+    # Platform::StagedJobRelayJob hands it over shortly after. It is right wherever the method
+    # runs: in a request, which has no retry, and in a job, where it costs a row and saves
+    # nothing but is never wrong.
+    def self.stage(*arguments)
       job = new(*arguments)
-      staged = StagedJob.stage(job)
-      transaction.after_commit do
-        staged.hand_over
-      rescue => error
-        Rails.logger.warn("Staged job #{job.job_id} left for the relay: #{error.class}: #{error.message}")
-      end
+      StagedJob.stage([ job ])
       job
     end
   end
