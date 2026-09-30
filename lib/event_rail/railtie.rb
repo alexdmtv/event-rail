@@ -12,6 +12,12 @@ module EventRail
     config.event_rail = ActiveSupport::OrderedOptions.new
     config.event_rail.roots = Internal::Registry::DEFAULT_ROOTS.dup
 
+    # What `EventRail.stage` hands an event's subscriber jobs to: the name of a constant,
+    # resolved on every staging so a reloaded class is always the current one, or an object
+    # for a stager that is never reloaded. Either responds to `stage(jobs)`. Assigned
+    # explicitly, so the option exists before an application sets it.
+    config.event_rail.stager = nil
+
     config.to_prepare do
       # Unqualified, so lexical lookup reaches the private Internal namespace that a
       # qualified EventRail::Internal reference would be refused.

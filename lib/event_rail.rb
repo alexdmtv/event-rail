@@ -30,8 +30,11 @@ require "event_rail/contract"
 require "event_rail/envelope"
 require "event_rail/internal/event_serializer"
 require "event_rail/internal/transaction"
+require "event_rail/internal/stager"
 require "event_rail/publication"
+require "event_rail/staged_publication"
 require "event_rail/publish"
+require "event_rail/stage"
 require "event_rail/railtie"
 
 # The subscription macro is class-level only: it changes nothing about serialization

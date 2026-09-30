@@ -8,7 +8,9 @@ module EventRail
     module Stamping
       module_function
 
-      Prepared = Struct.new(:event, :execution, :logical_key, :relayed, keyword_init: true) do
+      # `previous` is the record this publication found for its fact, nil for a first attempt, so
+      # a caller that fails before delivering anything can put it back (`abandon!`).
+      Prepared = Struct.new(:event, :execution, :logical_key, :relayed, :previous, keyword_init: true) do
         def relayed?
           relayed
         end
@@ -55,7 +57,7 @@ module EventRail
 
         execution.record!(logical_key, event: stamped, succeeded: false) if execution&.derives_identity?
 
-        Prepared.new(event: stamped, execution: execution, logical_key: logical_key, relayed: false)
+        Prepared.new(event: stamped, execution: execution, logical_key: logical_key, relayed: false, previous: recorded)
       end
 
       def succeeded!(prepared)
@@ -63,6 +65,17 @@ module EventRail
         return unless execution&.derives_identity?
 
         execution.record!(prepared.logical_key, event: prepared.event, succeeded: true)
+      end
+
+      # Undoes `prepare` for a publication that failed before handing anything over, restoring
+      # what the execution recorded before it: nothing for a first attempt, the earlier failed
+      # attempt otherwise. Without this a failure that delivered nothing would still turn the
+      # next publication of the fact into a retry, bound to a payload nobody received.
+      def abandon!(prepared)
+        execution = prepared.execution
+        return unless execution&.derives_identity?
+
+        execution.restore!(prepared.logical_key, prepared.previous)
       end
 
       # A relayed fact belongs to its origin. Its ID, source, occurrence time, lineage
@@ -85,6 +98,7 @@ module EventRail
 
         execution = Execution.current
         logical_key = record_key(event.source, event, event.id)
+        recorded = nil
 
         if execution&.derives_identity?
           recorded = execution.record(logical_key)
@@ -97,7 +111,7 @@ module EventRail
           execution.record!(logical_key, event: event, succeeded: false)
         end
 
-        Prepared.new(event: event, execution: execution, logical_key: logical_key, relayed: true)
+        Prepared.new(event: event, execution: execution, logical_key: logical_key, relayed: true, previous: recorded)
       end
       private_class_method :relay
 

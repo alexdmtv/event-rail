@@ -73,6 +73,15 @@ module EventRail
         @publications[key] = Record.new(event: event, succeeded: succeeded)
       end
 
+      # Puts back what `record` returned earlier: nil forgets the key entirely.
+      def restore!(key, record)
+        if record.nil?
+          @publications.delete(key)
+        else
+          @publications[key] = record
+        end
+      end
+
       # What one logical publication looked like the last time this attempt tried it.
       # Retaining the failed case is what lets the same attempt retry complete fanout
       # under the identity it already stamped, instead of manufacturing a second one.

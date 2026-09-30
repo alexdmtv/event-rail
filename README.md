@@ -37,7 +37,7 @@ EventRail is narrow on purpose: durable fanout across a boundary inside one appl
 ### What it does not do
 
 - **No event log and no synchronous handlers.** No history, replay, read-model rebuild, or browser UI, and every subscriber crosses the queue. A subscriber can append every event to a store of your own, keyed on `(source, id)`, but that store is a downstream log, not event sourcing: publication follows the commit, with no ordering or expected-version guarantees, so the store is a copy of what happened rather than its source of truth.
-- **No outbox, and so a dual-write gap.** Publication is refused inside a transaction, so a publisher commits and then publishes, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)); a controller action has no retry to repeat the publication, though an event with declared identity keeps its ID when anything does. An application that wants recovery beyond that records the intent to publish in the same transaction as its data, and a sweeper or a relay job publishes it; an event with [declared identity](#identity-occurrence-time-and-source) derives the same ID however many times it is republished, so consumers see a repetition rather than a new fact.
+- **No outbox of its own.** Publication is refused inside a transaction, so a publisher that publishes commits first, and a process that dies between the two loses the event. Publishing from a job makes that recoverable, because the retry republishes under the same identity (see [Replay-safe publishers](#replay-safe-publishers)). A controller action has no such retry, so at a boundary [stage the event](#staging-inside-a-database-transaction) instead: its subscriber jobs are recorded in the same transaction as the data, through a stager your application supplies, and handed to the queue after the commit. EventRail ships no table and no relay for it; the README gives two recipes.
 - **Discovery is enforced, not advisory.** A subscriber outside a [discovery root](#where-discovery-looks) fails the boot rather than being quietly ignored: a silent delivery bug traded for a loud startup error, at the price of a layout rule.
 
 ## Requirements
@@ -240,9 +240,166 @@ Retries, backoff, discarding, and dead-letter handling stay where they already a
 
 ### Publishing inside a database transaction
 
-Don't. Publication raises `EventRail::TransactionalPublicationError` when a transaction is open, in every environment, and the fix is to publish after the transaction commits.
+Don't. Publication raises `EventRail::TransactionalPublicationError` when a transaction is open, in every environment. The fix is to publish after the transaction commits, or to [stage the event](#staging-inside-a-database-transaction) within it.
 
 Both queue deferral settings are wrong inside a transaction, in opposite directions. With `enqueue_after_transaction_commit` on, the enqueue is deferred past the point where its failure can be reported, so a publication that silently enqueued nothing looks successful. With it off, the enqueue announces a fact that a rollback then contradicts. The check is on the open transaction itself, so it does not depend on the setting, or on Active Record being present at all.
+
+### Staging inside a database transaction
+
+`EventRail.stage` records an event with the transaction that changes the state it reports. It stamps the event exactly as `publish` does, builds one job per subscriber, and hands them all to your **stager** in one call instead of enqueuing them:
+
+```ruby
+staged = EventRail.stage(
+  Docs::OrderPlaced.new(order_id: "A-1003", total: "10.00", placed_at: Time.now.utc.iso8601)
+)
+
+staged                     # an EventRail::StagedPublication
+staged.event               # the stamped, immutable fact, as publish would stamp it
+staged.staged_jobs         # one unenqueued job per subscriber, as the stager received them
+staged.staged_subscribers  # their classes
+```
+
+The stager persists the jobs with the caller's transaction and hands them to the queue once it commits, so the intent to deliver commits or rolls back with the state change. Configure it once, by name:
+
+```ruby
+# doc:illustrative
+# config/application.rb
+config.event_rail.stager = "StagedJob"   # resolved on every staging, so a reload is followed
+
+# app/models/order.rb
+def ship!
+  transaction do
+    update!(state: "shipped")
+    EventRail.stage(Orders::OrderShipped.new(order_id: id))
+  end
+end
+```
+
+`config.event_rail.stager` takes the name of a constant, as a String or a Symbol, resolved each time an event is staged, or an object used as given. Use the name for anything in your application's reloadable code: a class held by reference fails at boot or goes stale after a reload. An object suits a stager in a gem or under `autoload_once_paths`; `lib/` is reloadable once `config.autoload_lib` covers it. Preparation checks that the name resolves and that the stager responds to `stage`, so a typo fails the boot. `EventRail.stage` with no stager configured raises `EventRail::ConfigurationError`; an application that never stages configures nothing.
+
+Staging shares publication's duplicate check. Staging or publishing the same fact twice in one job attempt raises `EventRail::DuplicatePublicationError`, and a stager that raises leaves the fact free to be staged again in that attempt, under the same ID. One consequence: a job that stages, has its transaction roll back, and stages again in the same attempt fails as a duplicate, and only its own `retry_on` runs it again. Outside a job there is no duplicate check, and an event without declared identity gets a new ID each time, so **an event staged at a boundary, where a request may be repeated, should declare its identity** or be staged with `identity:`.
+
+#### The stager contract
+
+A stager is any object with one method, `stage(jobs)`, which receives an array of unenqueued Active Job instances, possibly empty, and its own to change. EventRail calls it even for an event with no subscribers, so the stager's own checks hold either way. Everything else is the stager's:
+
+- **All or nothing.** It persists the whole list with the caller's open transaction, or raises. A failure part-way through must not leave earlier jobs behind, even if the caller rescues the error and commits. Atomicity with the business state comes from letting the error propagate: rescuing a staging error and committing drops the event, as rescuing any failed write drops that write.
+- **The transaction check.** Only the stager knows which database it writes to, so it decides whether a suitable transaction is open, and it should raise when none is. Staging outside one reopens the gap staging exists to close: an `update!` that autocommits, then a staged row written separately.
+- **Persistence, not delivery.** What commits with the transaction is the intent to deliver. Delivery then depends on the hand-over, the relay, the queue, and each subscriber's own enqueue callbacks, which run when a job is enqueued rather than when it is staged. A callback that declines the job is the subscriber's decision; the stager decides what it means.
+- **Deferral.** A stager that deletes a staged job must do so only after the queue has actually accepted it. Active Job reports a deferred enqueue as successful before it happens, so hand over only once every open transaction has committed (`ActiveRecord.after_all_transactions_commit`), when an enqueue is immediate whatever the setting. Rails 7.2 applications on `load_defaults "7.2"` defer by default. Whether deferral is in effect differs by version, and Active Job reads the setting when a job is enqueued: on 7.2, `:never` is off, `:always` is on, and any other value, `false` included, asks the queue adapter; on 8.0, `:never` and `:default` are off and `:always` is on, with a deprecation warning, and otherwise a truthy value is on; from 8.1 any truthy value is on, the old symbols included.
+- **Hand-over errors.** A hand-over runs after the caller's transaction has committed, so an error there has nobody to go to: rescue it and leave the job for the relay.
+- **Duplicates.** A job handed over twice is delivered twice under the same event ID. A retried staging builds new jobs, with new job IDs, under the same event ID. Subscribers are idempotent on `(source, id)` either way.
+- **What a staged job carries.** It is built at staging, with the staging context's origin time already in place. Its queue and priority are resolved when the stager serializes or enqueues it; options passed through `set`, and anything a custom `perform_later` does, are not applied. It names its job class and holds EventRail's serialized event, so a renamed subscriber or a changed format follows the same rules as a job already in the queue.
+- **Limits.** Staging the same fact again from inside `stage` is not supported. EventRail provides no storage, relay, ordering or retention for staged jobs.
+
+For a database per module, one stager can route: stage into whichever store has an open application transaction, and raise when none or several do. A transaction should never span modules, so several open is a bug, and call sites stay `EventRail.stage(event)` when a module moves to its own database.
+
+#### Recipe: an outbox table
+
+A table in the application's database, written in the caller's transaction and drained after the commit, with a relay for anything the immediate hand-over missed:
+
+```ruby
+# doc:illustrative
+# create_table :staged_jobs do |t|
+#   t.string :job_id, null: false, index: { unique: true }
+#   t.json :payload, null: false
+#   t.datetime :created_at, null: false
+# end
+class StagedJob < ApplicationRecord
+  # One insert_all! statement writes every row or none. Not insert_all, which skips a
+  # conflicting row without saying so.
+  def self.stage(jobs)
+    raise ArgumentError, "#{name}.stage needs an open transaction to commit with" unless current_transaction.open?
+    return if jobs.empty?
+
+    now = Time.current
+    insert_all!(jobs.map { |job| { job_id: job.job_id, payload: job.serialize, created_at: now } })
+
+    # After every open transaction commits, so the enqueue is immediate whatever the
+    # deferral setting, and a row is never deleted for an enqueue that was only deferred.
+    ActiveRecord.after_all_transactions_commit { jobs.each { |job| hand_over(job) } }
+  end
+
+  # Deletes the row once the queue took the job, or once a subscriber's own enqueue callback
+  # declined it; anything else leaves it for the relay.
+  def self.hand_over(job)
+    job.enqueue
+    if job.enqueue_error
+      Rails.logger.warn("Staged job #{job.job_id} left for the relay: #{job.enqueue_error.message}")
+    else
+      Rails.logger.warn("Staged job #{job.job_id} declined by its enqueue callback") unless job.successfully_enqueued?
+      where(job_id: job.job_id).delete_all
+    end
+  rescue => error
+    Rails.logger.warn("Staged job #{job.job_id} left for the relay: #{error.class}: #{error.message}")
+  end
+
+  # Run on a schedule, every second or so. A row that cannot even be loaded -- its job class
+  # renamed while it waited -- is left and logged, and the rows after it are still handed over.
+  def self.relay(older_than: 5.seconds)
+    where(created_at: ...older_than.ago).find_each do |row|
+      hand_over(ActiveJob::Base.deserialize(row.payload))
+    rescue => error
+      Rails.logger.warn("Staged job #{row.job_id} left for the relay: #{error.class}: #{error.message}")
+    end
+  end
+end
+```
+
+#### Recipe: a queue in your database
+
+A queue whose tables share the application's database and connection, such as GoodJob or Solid Queue configured without a separate database, needs no outbox: enqueuing in the transaction is itself the staging. Two conditions EventRail cannot check for you: the queue must use the same connection as the transaction, and deferral must actually be off for every staged job, or the enqueue becomes an after-commit hook that is not durable. Subscribers' enqueue callbacks run inside the transaction here.
+
+```ruby
+# doc:illustrative
+module QueueStager
+  module_function
+
+  def stage(jobs)
+    raise ArgumentError, "QueueStager.stage needs an open transaction" unless ApplicationRecord.current_transaction.open?
+
+    deferred = jobs.map(&:class).uniq.select { |job_class| deferred?(job_class) }
+    raise ArgumentError, "#{deferred.map(&:name).join(", ")} defer enqueuing until after commit" if deferred.any?
+
+    # A savepoint, so a later job's failure takes the earlier ones with it even if the
+    # caller rescues the error and commits.
+    ApplicationRecord.transaction(requires_new: true) do
+      jobs.each do |job|
+        job.enqueue
+        raise job.enqueue_error if job.enqueue_error
+      end
+    end
+  end
+
+  # Whether Active Job would defer this class's enqueue to after the commit. The setting's
+  # meaning moved between versions, and it is interpreted when a job is enqueued, not when it
+  # is set.
+  def deferred?(job_class)
+    setting = job_class.enqueue_after_transaction_commit
+
+    if ActiveJob.version < Gem::Version.new("8.0")
+      # 7.2: the adapter decides unless the class said :never or :always.
+      case setting
+      when :never then false
+      when :always then true
+      else job_class.queue_adapter.enqueue_after_transaction_commit?
+      end
+    elsif ActiveJob.version < Gem::Version.new("8.1")
+      # 8.0: the old symbols still mean what they meant, with a deprecation warning.
+      case setting
+      when :never, :default then false
+      when :always then true
+      else setting ? true : false
+      end
+    else
+      # 8.1 on: any truthy value defers, the old symbols included.
+      setting ? true : false
+    end
+  end
+end
+```
+
+Both recipes are exercised against real transactions in EventRail's own test suite, adapted to its test tables, including a check of the deferral rule against what each supported Rails version actually does.
 
 ### Replay-safe publishers
 
@@ -462,7 +619,7 @@ assert_enqueued_with(job: Docs::Billing::ChargeCardJob, args: [ publication.even
 perform_enqueued_jobs
 ```
 
-`assert_enqueued_with(args:)` works because events are value objects. For observability assertions, subscribe to the notifications below. EventRail ships no assertion library, observer, or contract-test helper; Active Job's helpers are the whole assertion surface.
+`assert_enqueued_with(args:)` works because events are value objects. A staged event reaches the same assertions once its transaction commits and your stager hands its jobs over, so configure your real stager in the test environment: Rails' transactional tests hide their own transaction, so a transaction your code opens runs its commit callbacks, and the hand-over, when its block completes. For observability assertions, subscribe to the notifications below. EventRail ships no assertion library, observer, or contract-test helper; Active Job's helpers are the whole assertion surface.
 
 ### Tests that need their own fixtures
 
@@ -522,11 +679,12 @@ Activation replaces a process-wide registry, so it is not safe under `paralleliz
 
 ## Notifications
 
-Four `ActiveSupport::Notifications` events, all in block form so Rails' own exception keys report failures:
+Five `ActiveSupport::Notifications` events, all in block form so Rails' own exception keys report failures:
 
 | Name | Additional payload |
 | --- | --- |
 | `publish.event_rail` | `subscriber_count`, `accepted`, `skipped` |
+| `stage.event_rail` | `subscriber_count` |
 | `enqueue_subscriber.event_rail` | `job_class`, `outcome` (`accepted`, `skipped`, `failed`) |
 | `deserialize.event_rail` | `format_version` |
 | `perform_subscriber.event_rail` | `job_class` |
