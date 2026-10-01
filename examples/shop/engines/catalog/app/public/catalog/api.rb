@@ -3,7 +3,7 @@ module Catalog
   # continue without the answer: checkout must know the price and whether the stock exists
   # before it can accept an order. Results are plain values, never records.
   module Api
-    Product = Data.define(:sku, :name, :price_cents, :on_hand, :available)
+    Product = Data.define(:sku, :name, :price_cents)
     Line = Data.define(:sku, :name, :quantity, :unit_price_cents) do
       def total_cents = quantity * unit_price_cents
     end
@@ -12,12 +12,8 @@ module Catalog
     end
 
     class << self
+      # The product the shop sells under this SKU; raises UnknownProduct.
       def product(sku) = product_value(Catalog::Product.find_by_sku!(sku))
-
-      # Adds a product to the catalog with its opening stock.
-      def add_product(sku:, name:, price_cents:, on_hand:)
-        product_value(Catalog::Product.create!(sku: sku, name: name, price_cents: price_cents, on_hand: on_hand))
-      end
 
       # items: { "sku" => quantity }
       def quote(items)
@@ -32,9 +28,6 @@ module Catalog
       # double-reserve. Raises OutOfStock or InvalidQuantity.
       def reserve(reservation_id:, items:) = Catalog::Reservation.hold(reservation_id, items).then { true }
 
-      # A delivery from a supplier arrived.
-      def receive_stock(sku:, quantity:) = Catalog::Product.find_by_sku!(sku).receive(quantity).then { true }
-
       # Gives held stock back. Releasing twice, or releasing nothing, changes nothing.
       def release(reservation_id:) = Catalog::Reservation.for(reservation_id).release.then { true }
 
@@ -46,7 +39,7 @@ module Catalog
 
       private
         def product_value(product)
-          Product.new(sku: product.sku, name: product.name, price_cents: product.price_cents, on_hand: product.on_hand, available: product.available)
+          Product.new(sku: product.sku, name: product.name, price_cents: product.price_cents)
         end
     end
   end

@@ -6,13 +6,13 @@ class ReturnFlowTest < FlowTestCase
     assert_equal 38, points(order)
 
     published += record_publications do
-      Orders::Api.request_return(order.id)
+      Orders::TestSupport.request_return(order.id)
       work_off_queue
     end
 
-    assert_equal "refunded", Orders::Api.order(order.id).status
-    assert_equal "refunded", Payments::Api.payment(order.reference).state
-    assert_equal "received", Fulfillment::Api.parcel_return(order.reference).state
+    assert_equal "refunded", Orders::TestSupport.order(order.id).status
+    assert_equal "refunded", Payments::TestSupport.payment(order.reference).state
+    assert_equal "received", Fulfillment::TestSupport.parcel_return(order.reference).state
     assert_equal 10, on_hand("MUG")
     assert_equal 0, points(order)
     assert_includes notified_kinds(order), "refunded"
@@ -23,11 +23,11 @@ class ReturnFlowTest < FlowTestCase
     order, = place_and_settle
     Payments::Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
 
-    Orders::Api.request_return(order.id)
+    Orders::TestSupport.request_return(order.id)
     work_off_queue
 
-    reloaded = Orders::Api.order(order.id)
-    assert_equal [ "needs_attention", "refund_failed" ], [ reloaded.status, reloaded.return_state ]
+    reloaded = Orders::TestSupport.order(order.id)
+    assert_equal [ "needs_attention", "refund_failed" ], [ reloaded.status, reloaded.returns.sole.state ]
     assert_equal 38, points(order)
   end
 end

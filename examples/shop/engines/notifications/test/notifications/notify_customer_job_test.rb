@@ -20,11 +20,12 @@ module Notifications
     def placed_v2 = Orders::Events::OrderPlaced.new(order_id: "7", **CUSTOMER, total: { amount_cents: 3870, currency: "EUR" }, line_items: [])
     def placed_v1 = Orders::Events::OrderPlacedV1.new(order_id: "7", **CUSTOMER, total_cents: 3870, line_items: [])
     def publish(event) = EventRail.publish(event).event
+    def sent = Notification.where(order_id: "7").order(:created_at)
 
     test "a placed order is confirmed to its customer" do
       NotifyCustomerJob.perform_now(publish(placed_v2))
 
-      notification = Api.for_order("7").sole
+      notification = sent.sole
       assert_equal "placed", notification.kind
       assert_equal "ada@example.com", notification.customer_email
       assert_includes notification.body, "€38.70"
@@ -36,14 +37,14 @@ module Notifications
       travel_to(Time.utc(2026, 9, 20, 10, 5)) do
         ActiveJob::Base.execute(NotifyCustomerJob.new.serialize.merge("arguments" => [ QUEUED_V1_DELIVERY ]))
 
-        assert_includes Api.for_order("7").sole.body, "€38.70"
+        assert_includes sent.sole.body, "€38.70"
       end
     end
 
     test "a version 1 event is still handled when published" do
       NotifyCustomerJob.perform_now(publish(placed_v1))
 
-      assert_includes Api.for_order("7").sole.body, "€38.70"
+      assert_includes sent.sole.body, "€38.70"
     end
 
     test "the same fact under two identities notifies once" do
@@ -60,7 +61,7 @@ module Notifications
 
       [ current, earlier ].each { |event| NotifyCustomerJob.perform_now(event) }
 
-      assert_equal [ "cancelled" ], Api.for_order("7").map(&:kind)
+      assert_equal [ "cancelled" ], sent.map(&:kind)
     end
 
     test "a redelivered event records nothing new" do
@@ -68,7 +69,7 @@ module Notifications
 
       2.times { NotifyCustomerJob.perform_now(event) }
 
-      assert_equal 1, Api.for_order("7").size
+      assert_equal 1, sent.size
     end
 
     test "every customer-facing order fact is notified" do
@@ -80,7 +81,7 @@ module Notifications
         Orders::Events::OrderCancelled.new(order_id: "7", **CUSTOMER, reason: "customer")
       ].each { |event| NotifyCustomerJob.perform_now(publish(event)) }
 
-      assert_equal %w[ cancelled delivered placed refunded shipped ], Api.for_order("7").map(&:kind).sort
+      assert_equal %w[ cancelled delivered placed refunded shipped ], sent.map(&:kind).sort
     end
 
     test "a notice about something that happened over an hour ago is not sent" do
@@ -89,7 +90,7 @@ module Notifications
 
       NotifyCustomerJob.perform_now(event)
 
-      assert_empty Api.for_order("7")
+      assert_empty sent
     end
   end
 end

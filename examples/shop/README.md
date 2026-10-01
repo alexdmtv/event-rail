@@ -128,7 +128,7 @@ Inside a module, work with one known handler is a plain job, staged by name, not
 
 ## The flows
 
-**Orders is a set of nouns with verbs** (`engines/orders/app/models/orders/`). A `Cart` is placed as an `Order`; an order is confirmed, paid, shipped, delivered, cancelled; a `Return` is received and refunded. Each verb lives on the noun it acts on; jobs and the API call them in one line. `Order` includes one concern per trait — `Confirmable`, `Payable`, `Shippable`, `Cancellable`, `Returnable` — and states the rules that span them, `cancellable?` and `returnable?`, once, on the order itself.
+**Orders is a set of nouns with verbs** (`engines/orders/app/models/orders/`). A `Cart` is placed as an `Order`; an order is confirmed, paid, shipped, delivered, cancelled; a `Return` is received and refunded. Each verb lives on the noun it acts on; jobs and controllers call them in one line. `Order` includes one concern per trait — `Confirmable`, `Payable`, `Shippable`, `Cancellable`, `Returnable` — and states the rules that span them, `cancellable?` and `returnable?`, once, on the order itself.
 
 **An order has three states and many facts.** Its lifecycle is `placed`, `confirmed`, `cancelled`. Everything after confirming is a fact with its time — `paid_at`, `shipped_at`, `delivered_at`, `cancellation_requested_at`, `cancellation_refused_at` — because payment and shipping have states of their own, in Payments and Fulfillment, and the order keeps only what it acts on. What a person sees — *placed, confirmed, paid, shipped, delivered, returning, refunded, cancelled, needs attention* — is its **status**, derived from the state, the facts and its return.
 
@@ -195,7 +195,6 @@ engines/orders/
   lib/orders/engine.rb             isolate_namespace Orders; requires the engines it builds on
   bin/rails                        the module's own Rails command: generators write into the module
   package.yml                      its dependencies, enforced by packwerk
-  app/public/orders/api.rb         Orders::Api: the public API, returning plain values
   app/public/orders/*.rb           Orders' public errors, one file each
   app/public/orders/events/        Orders::Events: published events, a package of their own
     package.yml                    dependencies: [] -- an event can never reach into Orders
@@ -204,7 +203,7 @@ engines/orders/
   app/models/orders/, app/jobs/orders/, db/migrate/, test/
 ```
 
-- **The public API returns `Data` values, never records.** Packwerk sees only constant references; a record returned across a boundary would hand out its whole association graph without a violation being reported.
+- **A module other modules call has an `Api`**, in `app/public/<module>/api.rb`, holding exactly what they call and nothing else. Catalog, Payments and Fulfillment have one; Orders, Notifications and Loyalty have none, because no module calls them. An `Api` returns plain `Data` values or nothing, never records: packwerk sees only constant references, and a record returned across a boundary would hand out its whole association graph without a violation being reported.
 - **Published events are a separate package.** A module that only reacts to Orders depends on `engines/orders/app/public/orders/events` alone: it can subscribe, and cannot call Orders' API or read its tables. Because the events package depends on nothing, two modules can hear each other's events without a package cycle. `config.event_rail.roots << "app/public"` is what makes EventRail discover every module's published events at boot.
 - **An internal event** — one only its own module hears — would sit directly in the namespace, outside `app/public`, and packwerk would report any other module referencing it.
 
@@ -239,4 +238,4 @@ bin/rails test test engines/*/test   # modules, whole flows, boundary probes
 bin/ci                               # everything CI runs
 ```
 
-Module tests live with their module in `engines/<module>/test`. Each engine has its own `bin/rails`, so `bin/rails generate model Refund` run in `engines/payments` writes `Payments::Refund` and a `payments_refunds` migration into Payments. Whole-flow tests in `test/flows` work off the queue one job at a time, as a worker does, and check what every module ended up with through its public API. The `example` job in the gem's CI runs all of it on every pull request, against the gem's current source.
+Module tests live with their module in `engines/<module>/test`, and read its records directly. Tests of other modules read them through the module's **test support** (`engines/<module>/test/support/<module>/test_support.rb`, such as `Payments::TestSupport.payment(reference)`): it lives with the module, so it may use the module's models, and it is outside the load paths, so only tests can load it. Nothing is added to an `Api` for a test. Each engine has its own `bin/rails`, so `bin/rails generate model Refund` run in `engines/payments` writes `Payments::Refund` and a `payments_refunds` migration into Payments. Whole-flow tests in `test/flows` work off the queue one job at a time, as a worker does, and check what every module ended up with through that module's test support. The `example` job in the gem's CI runs all of it on every pull request, against the gem's current source.

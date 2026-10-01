@@ -5,8 +5,8 @@ class FailureIsolationTest < FlowTestCase
     order, published = failing_runs("Loyalty::AwardPointsJob", 100) { place_and_settle }
 
     assert_equal "delivered", order.status
-    assert_equal "captured", Payments::Api.payment(order.reference).state
-    assert_equal "delivered", Fulfillment::Api.shipment(order.reference).state
+    assert_equal "captured", Payments::TestSupport.payment(order.reference).state
+    assert_equal "delivered", Fulfillment::TestSupport.shipment(order.reference).state
     assert_equal %w[ delivered placed shipped ], notified_kinds(order)
     assert_equal 0, points(order)
     assert_equal [ "Loyalty::AwardPointsJob" ], @job_failures.map(&:job_class).uniq
@@ -35,20 +35,20 @@ class FailureIsolationTest < FlowTestCase
   IN_NO_JOURNEY = %w[ Payments::VoidJob ].freeze
 
   test "any job failing twice is retried, and every order still ends where it should" do
-    Catalog::Api.receive_stock(sku: "MUG", quantity: 1_000)
-    Catalog::Api.receive_stock(sku: "TEA", quantity: 1_000)
+    Catalog::TestSupport.receive_stock(sku: "MUG", quantity: 1_000)
+    Catalog::TestSupport.receive_stock(sku: "TEA", quantity: 1_000)
 
     shop_jobs.each do |job|
       failing_runs(job, 2) do |remaining|
         JOURNEYS.each do |name, journey|
           Payments::Gateway.adapter = ScriptedGateway.new(**journey.fetch(:provider, {}))
           order = place
-          Orders::Api.request_cancellation(order.id) if journey[:first] == :cancel
+          Orders::TestSupport.request_cancellation(order.id) if journey[:first] == :cancel
           work_off_queue
-          Orders::Api.request_return(order.id) if journey[:then] == :return
+          Orders::TestSupport.request_return(order.id) if journey[:then] == :return
           work_off_queue
 
-          order = Orders::Api.order(order.id)
+          order = Orders::TestSupport.order(order.id)
           if job == "Orders::CancelJob" && journey[:first] == :cancel
             # A cancellation held up by its own failures loses the race to the carrier, as it
             # would in a real shop: Fulfillment refuses it, and the order is delivered.

@@ -12,6 +12,7 @@ module Orders
     include Confirmable, Payable, Shippable, Cancellable, Returnable
 
     STATES = %w[ placed confirmed cancelled ].freeze
+    CURRENCY = "EUR" # the shop sells in one currency
     RETURN_WINDOW = 14.days
 
     belongs_to :cart
@@ -24,8 +25,6 @@ module Orders
     validates :state, inclusion: { in: STATES }
 
     STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
-
-    scope :recent, -> { order(created_at: :desc, id: :desc) }
 
     # The order a reference names, or nil. Payments and Fulfillment serve any caller and know
     # nothing of orders, so a fact they report may be about another caller's reference: not
@@ -50,7 +49,7 @@ module Orders
     def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?
     def returnable? = delivered_at.present? && delivered_at > RETURN_WINDOW.ago && !cancelled? && returns.none?
 
-    # The status shown to people, derived from the state and the facts (see Api::Order#status).
+    # The status shown to people, derived from the state, the facts and the order's return.
     def status
       current_return = returns.first
       if attention_reason? || current_return&.refund_failed? then "needs_attention"

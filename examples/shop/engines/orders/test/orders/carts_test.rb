@@ -1,20 +1,18 @@
 require "test_helper"
-require_relative "../support/order_records"
 
 module Orders
   class CartsTest < ActiveSupport::TestCase
     include ShopHelpers
-    include OrderRecords
 
     setup { stock_shelves }
 
-    def open_cart(items = { "MUG" => 2, "TEA" => 1 }) = Api.open_cart(customer: CUSTOMER, items: items)
+    def open_cart(items = { "MUG" => 2, "TEA" => 1 }) = TestSupport.open_cart(customer: CUSTOMER, items: items)
 
     test "a cart holds the customer's items, and a line of zero is left out" do
       cart = open_cart("MUG" => "2", "TEA" => "0")
 
-      assert_equal({ "MUG" => 2 }, cart.items)
-      assert_nil cart.order_id
+      assert_equal({ "MUG" => 2 }, cart.items.to_h { |item| [ item.sku, item.quantity ] })
+      assert_not cart.ordered?
     end
 
     test "a quantity that is not a whole number above zero is refused before a cart is opened" do
@@ -37,14 +35,14 @@ module Orders
       assert_equal "placed", order.state
       assert_equal 2 * 1490 + 890, order.total_cents
       assert_equal 10, available("MUG"), "nothing is reserved within the request"
-      assert_nil Payments::Api.payment(order.reference)
+      assert_nil Payments::TestSupport.payment(order.reference)
       assert_enqueued_jobs 1, only: ConfirmJob
     end
 
     test "an empty cart cannot be ordered" do
       cart = open_cart({})
 
-      assert_raises(EmptyCart) { Api.place_order(cart.id) }
+      assert_raises(EmptyCart) { TestSupport.place_order(cart.id) }
       assert_equal 0, Orders::Order.count
       assert_no_enqueued_jobs
     end
@@ -53,10 +51,10 @@ module Orders
       Payments::Gateway.adapter = gateway = ScriptedGateway.new
       cart = open_cart
 
-      first = Api.place_order(cart.id)
-      second = Api.place_order(cart.id)
+      first = TestSupport.place_order(cart.id)
+      second = TestSupport.place_order(cart.id)
       work_off_queue
-      third = Api.place_order(cart.id)
+      third = TestSupport.place_order(cart.id)
 
       assert_equal [ first.id ] * 3, [ first, second, third ].map(&:id)
       assert_equal 1, gateway.calls[:authorize]
@@ -79,7 +77,7 @@ module Orders
 
     test "an ordered cart takes no more items" do
       cart = open_cart
-      Api.place_order(cart.id)
+      TestSupport.place_order(cart.id)
 
       assert_raises(CartAlreadyOrdered) { Cart.find(cart.id).add("TEA", Quantity.parse(1)) }
     end
@@ -91,19 +89,17 @@ module Orders
       relay_staged_jobs
       work_off_queue
 
-      assert_equal "delivered", order_record(order).status
+      assert_equal "delivered", order.reload.status
     end
 
     test "the order's flow is correlated by its cart, and placing the cart again continues it" do
       cart = open_cart
       order = nil
-      published = record_publications { perform_enqueued_jobs { order = Api.place_order(cart.id) } }
+      published = record_publications { perform_enqueued_jobs { order = TestSupport.place_order(cart.id) } }
 
       assert_equal "cart-#{cart.id}", order.correlation_id
       assert_includes published.map(&:event_type), "orders.order_delivered"
       assert published.all? { |publication| publication.correlation_id == order.correlation_id }
-      assert_equal order.id, Api.order_for_correlation(order.correlation_id).id
-      assert_nil Api.order_for_correlation("unknown")
     end
   end
 end

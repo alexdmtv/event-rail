@@ -7,6 +7,8 @@ module Catalog
       Catalog::Product.create!(sku: "TEA", name: "Tea", price_cents: 890, on_hand: 10)
     end
 
+    def available(sku) = Product.find_by_sku!(sku).available
+
     test "quotes return plain values with a total" do
       quote = Api.quote("MUG" => 2, "TEA" => 1)
 
@@ -20,27 +22,27 @@ module Catalog
         assert_raises(InvalidQuantity, quantity.inspect) { Api.reserve(reservation_id: "r-#{quantity}", items: { "TEA" => quantity }) }
       end
 
-      assert_equal 10, Api.product("TEA").available
+      assert_equal 10, available("TEA")
     end
 
     test "a reservation holds stock for every item or for none" do
       assert_raises(OutOfStock) { Api.reserve(reservation_id: "r-1", items: { "TEA" => 1, "MUG" => 4 }) }
 
-      assert_equal 10, Api.product("TEA").available
-      assert_equal 3, Api.product("MUG").available
+      assert_equal 10, available("TEA")
+      assert_equal 3, available("MUG")
     end
 
     test "repeating a reservation holds nothing more" do
       2.times { Api.reserve(reservation_id: "r-1", items: { "MUG" => 2 }) }
 
-      assert_equal 1, Api.product("MUG").available
+      assert_equal 1, available("MUG")
     end
 
     test "releasing twice gives the stock back once" do
       Api.reserve(reservation_id: "r-1", items: { "MUG" => 2 })
       2.times { Api.release(reservation_id: "r-1") }
 
-      assert_equal 3, Api.product("MUG").available
+      assert_equal 3, available("MUG")
     end
 
     test "shipping and restocking move stock once each" do

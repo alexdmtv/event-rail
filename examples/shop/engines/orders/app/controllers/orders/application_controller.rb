@@ -1,7 +1,7 @@
 module Orders
   # Orders' HTTP API, for outside clients. Its JSON is written out here field by field: it is a
-  # contract of its own, separate from the records and from Orders::Api's values, so neither
-  # can change it by accident.
+  # contract of its own, separate from the records, so a change to a record cannot change it by
+  # accident.
   class ApplicationController < Platform::ApplicationController
     private
       def render_order(order, status: :ok)

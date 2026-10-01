@@ -9,7 +9,7 @@ module Orders
       # The shop has no customer module: the client says who is buying.
       def customer
         details = params.expect(customer: %i[ id name email address ])
-        Api::Customer.new(id: details[:id], name: details[:name], email: details[:email], address: details[:address])
+        Customer.new(id: details[:id], name: details[:name], email: details[:email], address: details[:address])
       end
   end
 end

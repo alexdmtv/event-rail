@@ -3,12 +3,13 @@ require "test_helper"
 module Payments
   class ApiTest < ActiveSupport::TestCase
     def authorize(reference = "ref-1") = Api.authorize(reference: reference, amount_cents: 4990, currency: "EUR")
+    def payment(reference) = Payment.find_by!(reference: reference)
 
     test "an approved authorization holds the amount and nothing is captured yet" do
-      payment = authorize
+      authorize
 
-      assert_equal "authorized", payment.state
-      assert_nil Payments::Payment.find_by!(reference: "ref-1").captured_at
+      assert_equal "authorized", payment("ref-1").state
+      assert_nil payment("ref-1").captured_at
     end
 
     test "authorizing the same reference twice holds the amount once" do
@@ -41,7 +42,7 @@ module Payments
 
       published = record_publications { perform_enqueued_jobs }
       assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
-      assert_equal "captured", Api.payment("ref-1").state
+      assert_equal "captured", payment("ref-1").state
     end
 
     test "a repeated capture command captures once and reports once: the report was staged with the capture" do
@@ -75,13 +76,13 @@ module Payments
       late = enqueued_jobs.sole.dup
       work_off_queue
       perform_enqueued_jobs { Api.request_release(reference: "ref-1") }
-      assert_equal "refunded", Api.payment("ref-1").state
+      assert_equal "refunded", payment("ref-1").state
 
       published = record_publications { enqueued_jobs << late; work_off_queue }
 
       assert_empty published
       assert_equal 1, gateway.calls[:capture]
-      assert_equal "refunded", Api.payment("ref-1").state, "the late answer does not overwrite the refund"
+      assert_equal "refunded", payment("ref-1").state, "the late answer does not overwrite the refund"
     end
 
     test "temporary provider failures are retried until the capture succeeds" do
@@ -101,7 +102,7 @@ module Payments
       published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
 
       assert_equal [ "payments.capture_failed" ], published.map(&:event_type)
-      assert_equal "capture_failed", Api.payment("ref-1").state
+      assert_equal "capture_failed", payment("ref-1").state
     end
 
     test "a provider that never answers leaves the capture pending, retrying, and then in the failed jobs" do
@@ -115,14 +116,14 @@ module Payments
       assert_equal 10, gateway.calls[:capture]
       assert_equal [ "Payments::CaptureJob" ], failures.map(&:job_class)
       assert_empty published, "no outcome is reported: nobody knows whether the capture was taken"
-      payment = Api.payment("ref-1")
+      payment = payment("ref-1")
       assert_equal [ "authorized", "capture" ], [ payment.state, payment.pending_operation ]
       assert payment.operation_sent_at
 
       replay(failures) # the provider is back
       work_off_queue
 
-      assert_equal [ "captured", nil ], [ Api.payment("ref-1").state, Api.payment("ref-1").pending_operation ]
+      assert_equal [ "captured", nil ], [ payment("ref-1").state, payment("ref-1").pending_operation ]
     end
 
     test "release voids an uncaptured authorization" do
@@ -131,7 +132,7 @@ module Payments
       published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
-      assert_equal "voided", Api.payment("ref-1").state
+      assert_equal "voided", payment("ref-1").state
     end
 
     test "a capture asked for after the release does nothing" do
@@ -143,7 +144,7 @@ module Payments
 
       assert_empty published
       assert_equal 0, gateway.calls[:capture]
-      assert_equal "voided", Api.payment("ref-1").state
+      assert_equal "voided", payment("ref-1").state
     end
 
     test "release refunds captured money and reports it" do
@@ -153,7 +154,7 @@ module Payments
       published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_issued" ], published.map(&:event_type)
-      assert_equal "refunded", Api.payment("ref-1").state
+      assert_equal "refunded", payment("ref-1").state
     end
 
     test "a refused refund is reported as a failed refund" do
@@ -176,7 +177,7 @@ module Payments
 
       assert_equal 1, gateway.calls[:void]
       assert_equal [ "payments.authorization_voided" ], voided.map(&:event_type)
-      payment = Api.payment("ref-1")
+      payment = payment("ref-1")
       assert_equal "capture_failed", payment.state
       assert payment.voided_at
       assert_empty again, "the refusal was reported when it was recorded"
@@ -191,8 +192,8 @@ module Payments
         perform_enqueued_jobs { Api.request_release(reference: "captured"); Api.request_release(reference: "uncaptured") }
       end
 
-      assert_equal "refunded", Api.payment("captured").state
-      assert_equal "voided", Api.payment("uncaptured").state
+      assert_equal "refunded", payment("captured").state
+      assert_equal "voided", payment("uncaptured").state
       assert_equal %w[ payments.authorization_voided payments.refund_issued ], published.map(&:event_type).sort
     end
 
@@ -208,7 +209,7 @@ module Payments
       published = record_publications { work_off_queue }
 
       assert_equal [ 1, 0, 1 ], gateway.calls.values_at(:capture, :void, :refund)
-      assert_equal "refunded", Api.payment("ref-1").state
+      assert_equal "refunded", payment("ref-1").state
       assert_equal %w[ payments.payment_captured payments.refund_issued ], published.map(&:event_type)
     end
 
@@ -238,7 +239,7 @@ module Payments
       end
 
       assert_equal [ 0, 1 ], gateway.calls.values_at(:capture, :void)
-      assert_equal "voided", Api.payment("ref-1").state
+      assert_equal "voided", payment("ref-1").state
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
     end
 
@@ -264,9 +265,9 @@ module Payments
         "auth_loser"
       end
 
-      payment = authorize
+      authorize
 
-      assert_equal "authorized", payment.state
+      assert_equal "authorized", payment("ref-1").state
       assert_equal [ "auth_winner" ], Payments::Payment.where(reference: "ref-1").pluck(:authorization_code)
     end
 
@@ -292,17 +293,7 @@ module Payments
       relay_staged_jobs
       work_off_queue
 
-      assert_equal "captured", Api.payment("ref-1").state
-    end
-
-    test "payments are looked up for many references at once" do
-      authorize("ref-1")
-      authorize("ref-2")
-
-      payments = Api.payments(%w[ ref-1 ref-2 ref-3 ])
-
-      assert_equal %w[ ref-1 ref-2 ], payments.keys.sort
-      assert_equal "authorized", payments["ref-2"].state
+      assert_equal "captured", payment("ref-1").state
     end
   end
 end

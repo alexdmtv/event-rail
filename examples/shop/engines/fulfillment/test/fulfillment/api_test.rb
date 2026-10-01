@@ -5,12 +5,12 @@ module Fulfillment
     RECIPIENT = Api::Recipient.new(name: "Ada Lovelace", address: "12 St James's Square, London")
 
     def request_shipment = Api.request_shipment(reference: "ref-1", recipient: RECIPIENT, items: { "MUG" => 1 })
+    def shipment = Shipment.find_by!(reference: "ref-1")
 
     test "a requested shipment is dispatched and then delivered" do
       published = record_publications { perform_enqueued_jobs { request_shipment } }
 
       assert_equal [ "fulfillment.shipment_dispatched", "fulfillment.shipment_delivered" ], published.map(&:event_type)
-      shipment = Api.shipment("ref-1")
       assert_equal "delivered", shipment.state
       assert_match(/\ATRK-/, shipment.tracking_code)
     end
@@ -21,7 +21,7 @@ module Fulfillment
       request_shipment
 
       assert_enqueued_with(job: DispatchJob, args: [ "ref-1" ], at: 30.seconds.from_now)
-      assert_equal "requested", Api.shipment("ref-1").state
+      assert_equal "requested", shipment.state
     end
 
     test "requesting the same shipment twice ships it once" do
@@ -43,7 +43,7 @@ module Fulfillment
       end
 
       assert_empty published
-      assert_equal "cancelled", Api.shipment("ref-1").state
+      assert_equal "cancelled", shipment.state
     end
 
     test "a dispatched shipment cannot be cancelled" do
@@ -52,7 +52,7 @@ module Fulfillment
       perform_enqueued_jobs(only: DispatchJob)
 
       assert_raises(AlreadyDispatched) { Api.cancel_shipment(reference: "ref-1") }
-      assert_equal "dispatched", Api.shipment("ref-1").state
+      assert_equal "dispatched", shipment.state
     end
 
     test "a request arriving after the cancellation does not revive the shipment" do
@@ -61,7 +61,7 @@ module Fulfillment
       published = record_publications { perform_enqueued_jobs { request_shipment } }
 
       assert_empty published
-      assert_equal "cancelled", Api.shipment("ref-1").state
+      assert_equal "cancelled", shipment.state
     end
 
     test "a dispatch retried after its delivery could not be scheduled still delivers" do
@@ -71,26 +71,17 @@ module Fulfillment
       # Commits the dispatch, fails to schedule the delivery, and retries later.
       refusing_enqueue(only: DeliveryJob) { DispatchJob.perform_now("ref-1") }
       assert_enqueued_jobs 1, only: DispatchJob
-      assert_equal "dispatched", Api.shipment("ref-1").state
+      assert_equal "dispatched", shipment.state
 
       work_off_queue
 
-      assert_equal "delivered", Api.shipment("ref-1").state
+      assert_equal "delivered", shipment.state
     end
 
     test "an expected return is reported when the parcel arrives" do
       published = record_publications { perform_enqueued_jobs { Api.request_return_pickup(reference: "ref-1") } }
 
       assert_equal [ "fulfillment.return_received" ], published.map(&:event_type).uniq
-    end
-
-    test "shipments are looked up for many references at once" do
-      request_shipment
-
-      shipments = Api.shipments(%w[ ref-1 ref-2 ])
-
-      assert_equal [ "ref-1" ], shipments.keys
-      assert_equal "requested", shipments["ref-1"].state
     end
   end
 end

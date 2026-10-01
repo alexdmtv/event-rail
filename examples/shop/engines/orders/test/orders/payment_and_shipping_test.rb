@@ -1,10 +1,8 @@
 require "test_helper"
-require_relative "../support/order_records"
 
 module Orders
   class PaymentAndShippingTest < ActiveSupport::TestCase
     include ShopHelpers
-    include OrderRecords
 
     setup { stock_shelves }
 
@@ -12,7 +10,7 @@ module Orders
       order = nil
       published = record_publications { perform_enqueued_jobs { order = checkout } }
 
-      assert_equal "delivered", order_record(order).status
+      assert_equal "delivered", order.reload.status
       # EventRail promises no ordering, and inline test jobs finish nested publications first.
       assert_equal %w[ fulfillment.shipment_delivered fulfillment.shipment_dispatched orders.order_delivered orders.order_placed
         orders.order_shipped payments.payment_captured ], published.map(&:event_type).sort
@@ -27,7 +25,7 @@ module Orders
       perform_enqueued_jobs { order = checkout }
 
       assert_equal 3, gateway.calls[:capture]
-      assert_equal "delivered", order_record(order).status
+      assert_equal "delivered", order.reload.status
     end
 
     test "a refused capture cancels the order and nothing ships" do
@@ -36,12 +34,12 @@ module Orders
 
       published = record_publications { perform_enqueued_jobs { order = checkout } }
 
-      record = order_record(order)
+      record = order.reload
       assert_equal "cancelled", record.state
       assert_match(/payment refused/, record.cancel_reason)
       assert_equal 10, available("MUG")
-      assert_equal "cancelled", Fulfillment::Api.shipment(order.reference).state, "nothing was requested, and nothing can be now"
-      assert Payments::Api.payment(order.reference).voided_at, "the refused capture's hold is voided"
+      assert_equal "cancelled", Fulfillment::TestSupport.shipment(order.reference).state, "nothing was requested, and nothing can be now"
+      assert Payments::TestSupport.payment(order.reference).voided_at, "the refused capture's hold is voided"
       assert_includes published.map(&:event_type), "orders.order_cancelled"
     end
 
@@ -49,7 +47,7 @@ module Orders
       slow_carrier
       order = place
 
-      assert_nil Fulfillment::Api.shipment(order.reference)
+      assert_nil Fulfillment::TestSupport.shipment(order.reference)
     end
 
     test "a redelivered capture does not pay or ship the order twice" do
@@ -59,7 +57,7 @@ module Orders
       event = Payments::Events::PaymentCaptured.new(reference: order.reference, amount_cents: order.total_cents, currency: "EUR")
 
       assert_redelivery_changes_nothing(MarkPaidJob, event)
-      assert_equal "requested", Fulfillment::Api.shipment(order.reference).state
+      assert_equal "requested", Fulfillment::TestSupport.shipment(order.reference).state
     end
 
     test "a redelivered dispatch does not ship the stock twice" do
@@ -91,7 +89,7 @@ module Orders
       failing(Catalog::Api, :ship, "warehouse system down") do
         MarkShippedJob.perform_now(dispatched) # the order is shipped; shipping the stock failed
       end
-      assert_equal [ "shipped", 10 ], [ order_record(order).status, on_hand("MUG") ]
+      assert_equal [ "shipped", 10 ], [ order.reload.status, on_hand("MUG") ]
 
       perform_enqueued_jobs(only: MarkShippedJob)
 
@@ -109,12 +107,12 @@ module Orders
 
       published = record_publications do
         MarkDeliveredJob.perform_now(delivered) # too early: retried later
-        assert_equal "paid", order_record(order).status
+        assert_equal "paid", order.reload.status
         MarkShippedJob.perform_now(dispatched)
         perform_enqueued_jobs(only: MarkDeliveredJob)
       end
 
-      assert_equal "delivered", order_record(order).status
+      assert_equal "delivered", order.reload.status
       assert_equal %w[ orders.order_delivered orders.order_shipped ], published.map(&:event_type).sort
       assert_equal 8, on_hand("MUG")
     end

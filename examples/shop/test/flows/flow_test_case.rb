@@ -2,7 +2,7 @@ require "test_helper"
 
 # Whole-flow tests drive an order through every module the way the running shop does -- the
 # worker performs one job at a time and contains each failure -- and then check what each
-# module ended up with, through its public API only.
+# module ended up with, through each module's test support.
 class FlowTestCase < ActiveSupport::TestCase
   include ShopHelpers
 
@@ -19,7 +19,7 @@ class FlowTestCase < ActiveSupport::TestCase
         order = checkout(**checkout_options)
         @job_failures = work_off_queue
       end
-      [ Orders::Api.order(order.id), publications ]
+      [ Orders::TestSupport.order(order.id), publications ]
     end
 
     def settle
@@ -32,8 +32,8 @@ class FlowTestCase < ActiveSupport::TestCase
       assert_equal [ order.correlation_id ], publications.map(&:correlation_id).uniq, "every event of an order shares its correlation"
     end
 
-    def notified_kinds(order) = Notifications::Api.for_order(order.id).map(&:kind).sort
-    def points(order) = Loyalty::Api.points_for_orders([ order.id ]).fetch(order.id.to_s, 0)
+    def notified_kinds(order) = Notifications::TestSupport.kinds(order.id)
+    def points(order) = Loyalty::TestSupport.points(order.id)
     def retries_by_job(&block)
       retries = Hash.new(0)
       callback = ->(event) { retries[event.payload[:job].class.name] += 1 }

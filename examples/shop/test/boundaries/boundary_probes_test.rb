@@ -19,7 +19,7 @@ class BoundaryProbesTest < ActiveSupport::TestCase
     undeclared_dependency: [ "engines/catalog/app/models/catalog/probe_undeclared_dependency.rb", <<~RUBY ],
       module Catalog
         module ProbeUndeclaredDependency
-          def self.call = Orders::Api.recent
+          def self.call = Orders::NotCancellable
         end
       end
     RUBY
@@ -28,7 +28,7 @@ class BoundaryProbesTest < ActiveSupport::TestCase
     upward_call: [ "engines/payments/app/models/payments/probe_upward_call.rb", <<~RUBY ],
       module Payments
         module ProbeUpwardCall
-          def self.call = Orders::Api.recent
+          def self.call = Orders::NotCancellable
         end
       end
     RUBY
@@ -37,7 +37,7 @@ class BoundaryProbesTest < ActiveSupport::TestCase
     events_only_dependency: [ "engines/loyalty/app/models/loyalty/probe_events_only.rb", <<~RUBY ],
       module Loyalty
         module ProbeEventsOnly
-          def self.call = Orders::Api.recent
+          def self.call = Orders::NotCancellable
         end
       end
     RUBY
@@ -106,15 +106,15 @@ class BoundaryProbesTest < ActiveSupport::TestCase
   end
 
   test "an undeclared dependency is reported" do
-    assert_violation :undeclared_dependency, "Dependency violation: ::Orders::Api belongs to 'engines/orders', but 'engines/catalog' does not specify a dependency"
+    assert_violation :undeclared_dependency, "Dependency violation: ::Orders::NotCancellable belongs to 'engines/orders', but 'engines/catalog' does not specify a dependency"
   end
 
   test "a lower module cannot call upward" do
-    assert_violation :upward_call, "Dependency violation: ::Orders::Api belongs to 'engines/orders', but 'engines/payments' does not specify a dependency"
+    assert_violation :upward_call, "Dependency violation: ::Orders::NotCancellable belongs to 'engines/orders', but 'engines/payments' does not specify a dependency"
   end
 
   test "depending on a module's events grants no call into the module" do
-    assert_violation :events_only_dependency, "Dependency violation: ::Orders::Api belongs to 'engines/orders', but 'engines/loyalty' does not specify a dependency"
+    assert_violation :events_only_dependency, "Dependency violation: ::Orders::NotCancellable belongs to 'engines/orders', but 'engines/loyalty' does not specify a dependency"
   end
 
   test "a published event cannot reach into its own module" do

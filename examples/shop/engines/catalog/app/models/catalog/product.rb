@@ -9,8 +9,5 @@ module Catalog
 
     # Stock not held by a reservation.
     def available = on_hand - reservations.held.sum(:quantity)
-
-    # A delivery from a supplier arrived.
-    def receive(quantity) = self.class.update_counters(id, on_hand: Integer(quantity))
   end
 end
