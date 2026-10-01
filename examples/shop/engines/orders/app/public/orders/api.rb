@@ -28,12 +28,7 @@ module Orders
     class << self
       # Opens a cart with its items: { "sku" => quantity }, each a whole number above zero, as
       # an Integer or the digits a form submits. Raises InvalidQuantity or UnknownProduct.
-      def open_cart(customer:, items:)
-        quantities = items.to_h.to_h { |sku, quantity| [ sku.to_s, quantity.to_s == "0" ? nil : Orders::Quantity.parse(quantity) ] }.compact
-        cart = Orders::Cart.open(customer: customer)
-        quantities.each { |sku, quantity| cart.add(sku, quantity) }
-        cart_value(cart)
-      end
+      def open_cart(customer:, items:) = cart_value(Orders::Cart.open(customer: customer, items: items))
 
       # Places the cart's order and returns it, placed; whether it is confirmed or cancelled
       # follows. Placing a cart again returns the same order. Raises EmptyCart.

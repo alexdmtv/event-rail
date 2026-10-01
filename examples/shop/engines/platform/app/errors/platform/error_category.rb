@@ -14,6 +14,7 @@ module Platform
     EXPECTED = [ InvalidArgument, NotFound, FailedPrecondition, Unauthenticated, PermissionDenied ].freeze
 
     FRAMEWORK = {
+      "ActionController::ParameterMissing" => InvalidArgument,
       "ActiveRecord::RecordNotFound" => NotFound,
       "ActiveRecord::RecordInvalid" => InvalidArgument,
       "ActiveRecord::StaleObjectError" => Aborted,

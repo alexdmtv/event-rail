@@ -20,6 +20,33 @@ After the first time, `bin/dev` starts it again. Requires Ruby 3.3 or newer; the
 
 `bin/dev` is the only process: Solid Queue's dispatcher, scheduler and workers run inside Puma, so jobs and EventRail subscribers run as soon as the server does. The terminal shows web requests; jobs log to `log/jobs.log` (`tail -f log/jobs.log`), because the staged-jobs relay runs every second. Set `RAILS_LOG_LEVEL=debug` to see every SQL query.
 
+## Try it
+
+Orders has a small JSON API, mounted by the host at `/`. Open a cart, place it, and read the order back:
+
+```sh
+curl -s localhost:3000/carts -H 'Content-Type: application/json' -d '{
+  "customer": { "id": "cus_1", "name": "Ada Lovelace", "email": "ada@example.com", "address": "1 Example Street, London" },
+  "items": { "MUG-STONE": 2, "TEA-GREEN": 1 }
+}'
+curl -s -X POST localhost:3000/carts/1/order          # placed; posting again returns the same order
+curl -s localhost:3000/orders/1                       # confirmed, paid, shipped, delivered, over a few seconds
+curl -s -X POST localhost:3000/orders/1/return        # once delivered
+curl -s -X POST localhost:3000/orders/1/cancellation  # or, on another order, before it ships
+```
+
+| Request | Answer |
+| --- | --- |
+| `POST /carts` | `201` with the cart; `422` for a quantity that is not a whole number, a product the shop does not sell, or no customer, or one with details missing |
+| `POST /carts/:id/order` | `201` with the order, placed. Posting again returns the same order |
+| `GET /orders/:id` | the order and its status |
+| `POST /orders/:id/cancellation` | `202`: the request is recorded and carried out a moment later; `409` once the order has shipped |
+| `POST /orders/:id/return` | `202`: the carrier brings the parcel back, then the order is refunded; `409` outside the return window |
+
+Each controller makes one call to the model and renders. The JSON is written out field by field in `Orders::ApplicationController`, a contract of its own rather than a record's attributes. An error with a category is answered with the status that category calls for (`Platform::ApplicationController`), so no action rescues anything. The API has no version in its path because nothing outside this repository calls it; a public one would.
+
+Everything after each answer runs in jobs; `tail -f log/jobs.log` shows them. The faults the shop is built to survive — a provider timing out, a capture refused, a subscriber failing every attempt — are injected by the flow tests in `test/flows`.
+
 ## The modules
 
 Each module is a Rails engine under `engines/`, with one namespace named after it and the standard engine layout, so Rails' generators keep working.
@@ -34,7 +61,7 @@ Each module is a Rails engine under `engines/`, with one namespace named after i
 | `Notifications` | customer notifications (recorded, not emailed) | — | — | Orders |
 | `Loyalty` | a points ledger | — | — | Orders |
 
-The host application boots the modules and draws the routes; it has no code of its own.
+The host application boots the modules and mounts Orders' routes; it has no code of its own.
 
 ```
     Notifications      Loyalty
@@ -172,6 +199,8 @@ engines/orders/
   app/public/orders/*.rb           Orders' public errors, one file each
   app/public/orders/events/        Orders::Events: published events, a package of their own
     package.yml                    dependencies: [] -- an event can never reach into Orders
+  app/controllers/orders/          Orders' HTTP API, using its models directly
+  config/routes.rb                 the engine's routes, mounted by the host
   app/models/orders/, app/jobs/orders/, db/migrate/, test/
 ```
 
