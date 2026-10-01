@@ -1,8 +1,10 @@
 module Platform
-  # The faults every module's tests inject, in one place: a queue that refuses jobs, a job
-  # that fails its next runs, a method that fails, a method that succeeds and then dies. Each
-  # lasts for its block and is undone after it, whatever the block does.
-  module Faults
+  # What every module's tests share, included into every test case. Mostly the faults they
+  # inject: a queue that refuses jobs, a job that fails its next runs, a method that fails, a
+  # method that succeeds and then dies. Each lasts for its block and is undone after it,
+  # whatever the block does. And the relay that recovers from a refused queue. It is outside
+  # the load paths, so only tests can load it.
+  module TestSupport
     # The runs failing_runs has still to fail, by job class name. Every job in the shop passes
     # through this check before it performs; a job with none left performs as usual.
     module FailingRuns

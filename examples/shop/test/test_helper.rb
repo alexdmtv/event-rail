@@ -1,8 +1,7 @@
 ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
-require_relative "../engines/platform/test/support/platform/faults"
-%w[ catalog payments fulfillment orders notifications loyalty ].each do |name|
+%w[ platform catalog payments fulfillment orders notifications loyalty ].each do |name|
   require_relative "../engines/#{name}/test/support/#{name}/test_support"
 end
 require_relative "support/publication_recorder"
@@ -17,7 +16,7 @@ module ActiveSupport
     include PublicationRecorder
     include Schedule
     include Worker
-    include Platform::Faults
+    include Platform::TestSupport
 
     parallelize(workers: :number_of_processors)
 
