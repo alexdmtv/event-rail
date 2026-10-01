@@ -1,5 +1,5 @@
-# The host application: the developer console that composes the modules. It reads their
-# public APIs and never their internals. Nothing depends on it.
+# The host application: it boots the modules and draws the routes; its tests drive whole
+# flows through the modules' public APIs. Nothing depends on it.
 enforce_dependencies: true
 dependencies:
   - engines/platform
@@ -9,5 +9,3 @@ dependencies:
   - engines/orders
   - engines/notifications
   - engines/loyalty
-  - engines/observability
-  - engines/simulation

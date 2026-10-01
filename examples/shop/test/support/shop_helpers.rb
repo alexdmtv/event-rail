@@ -37,5 +37,8 @@ module ShopHelpers
   end
 
   # Makes the carrier slow enough that its steps stay queued unless a test performs them.
-  def slow_carrier = Platform::FaultSettings.current.update!(carrier_delay_seconds: 3600)
+  def slow_carrier = Fulfillment::Carrier.adapter = Fulfillment::Carrier::Fake.new(delay: 1.hour)
+
+  # Makes the carrier's steps due at once, so working off the queue delivers.
+  def instant_carrier = Fulfillment::Carrier.adapter = Fulfillment::Carrier::Fake.new(delay: 0)
 end

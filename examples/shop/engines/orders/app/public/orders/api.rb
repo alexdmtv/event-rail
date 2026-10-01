@@ -35,8 +35,6 @@ module Orders
         cart_value(cart)
       end
 
-      def cart(id) = cart_value(Orders::Cart.find(id))
-
       # Places the cart's order and returns it, placed; whether it is confirmed or cancelled
       # follows. Placing a cart again returns the same order. Raises EmptyCart.
       def place_order(cart_id) = value(Orders::Cart.find(cart_id).place_order)
@@ -61,9 +59,6 @@ module Orders
       end
 
       def recent(limit: 50) = Orders::Order.includes(:line_items, :returns).recent.limit(limit).map { |order| value(order) }
-
-      # How many orders show each status.
-      def status_counts = Orders::Order.includes(:returns).find_each.map(&:status).tally
 
       private
         def cart_value(cart)

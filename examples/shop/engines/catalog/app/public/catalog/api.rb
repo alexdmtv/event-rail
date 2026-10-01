@@ -12,8 +12,6 @@ module Catalog
     end
 
     class << self
-      def products = Catalog::Product.order(:name).map { |product| product_value(product) }
-
       def product(sku) = product_value(Catalog::Product.find_by_sku!(sku))
 
       # Adds a product to the catalog with its opening stock.

@@ -27,13 +27,14 @@ require_relative "../engines/fulfillment/lib/fulfillment/engine"
 require_relative "../engines/orders/lib/orders/engine"
 require_relative "../engines/notifications/lib/notifications/engine"
 require_relative "../engines/loyalty/lib/loyalty/engine"
-require_relative "../engines/observability/lib/observability/engine"
-require_relative "../engines/simulation/lib/simulation/engine"
 
 module Shop
   class Application < Rails::Application
     # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.1
+
+    # The shop is driven over JSON: no views, sessions or assets.
+    config.api_only = true
 
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.

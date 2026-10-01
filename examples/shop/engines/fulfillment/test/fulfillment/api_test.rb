@@ -16,7 +16,7 @@ module Fulfillment
     end
 
     test "the carrier works on its own schedule" do
-      Platform::FaultSettings.current.update!(carrier_delay_seconds: 30)
+      Carrier.adapter = Carrier::Fake.new(delay: 30.seconds)
 
       request_shipment
 
@@ -33,7 +33,7 @@ module Fulfillment
     end
 
     test "a shipment cancelled before the carrier collects it never leaves" do
-      Platform::FaultSettings.current.update!(carrier_delay_seconds: 30)
+      Carrier.adapter = Carrier::Fake.new(delay: 30.seconds)
       request_shipment
 
       published = record_publications do
@@ -47,7 +47,7 @@ module Fulfillment
     end
 
     test "a dispatched shipment cannot be cancelled" do
-      Platform::FaultSettings.current.update!(carrier_delay_seconds: 30)
+      Carrier.adapter = Carrier::Fake.new(delay: 30.seconds)
       request_shipment
       perform_enqueued_jobs(only: DispatchJob)
 
@@ -65,7 +65,7 @@ module Fulfillment
     end
 
     test "a dispatch retried after its delivery could not be scheduled still delivers" do
-      Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
+      Carrier.adapter = Carrier::Fake.new(delay: 0)
       request_shipment
       clear_enqueued_jobs
       # Commits the dispatch, fails to schedule the delivery, and retries later.

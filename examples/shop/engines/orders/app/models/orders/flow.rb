@@ -1,10 +1,10 @@
 module Orders
   # Keeps every step of an order in the order's own flow, so everything that happens to it
-  # shares the correlation its checkout started and the console can show it as one tree.
+  # shares the correlation its checkout started and can be traced as one tree.
   #
   # Inside a job that already carries EventRail's context -- a subscriber reacting to
   # Payments, say -- the step is already in the flow. A step started from outside one -- the
-  # console, the simulator, the expiry scan -- joins the order's flow explicitly. That gives
+  # a web request, the expiry scan -- joins the order's flow explicitly. That gives
   # it lineage, not retries: nothing repeats a publication the step failed to make, so a step
   # that must see a publication through hands it to a job, whose retries do (see
   # Orders::Cancellation).

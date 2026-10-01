@@ -10,9 +10,6 @@ class CreatePlatformStagedJobs < ActiveRecord::Migration[8.1]
       # The flow the job was staged in, so that handing it over later keeps it in that flow.
       t.string :correlation_id
       t.string :causation_id
-      # For an event's subscriber job, the event it carries, so the flow's records can show the
-      # job under its event: a job read back from its row keeps its arguments serialized.
-      t.string :event_id
       t.datetime :created_at, null: false, index: true
     end
   end

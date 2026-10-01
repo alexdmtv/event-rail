@@ -42,7 +42,7 @@ EventRail is narrow on purpose: durable fanout across a boundary inside one appl
 
 ## See it in an application
 
-[`examples/shop`](examples/shop/README.md) is a small online shop built as a modular Rails application: nine engines with boundaries enforced by packwerk, talking through method calls where an answer is needed now and through EventRail events where it is not. It runs with a simulator and a live console that draws every order's causal tree, so you can dial in faults and watch retries, redeliveries and failure isolation happen. Its README explains which interactions are calls, which are commands and which are events, and why, and how a request that writes data stages the job that continues it, so nothing is lost between the commit and the queue.
+[`examples/shop`](examples/shop/README.md) is a small online shop built as a modular Rails application: seven engines with boundaries enforced by packwerk, talking through method calls where an answer is needed now and through EventRail events where it is not. Its tests drive whole orders through every module, with faults injected, to show retries, redeliveries and failure isolation. Its README explains which interactions are calls, which are commands and which are events, and why, and how a request that writes data stages the job that continues it, so nothing is lost between the commit and the queue.
 
 ## Requirements
 

@@ -8,7 +8,7 @@ class FlowTestCase < ActiveSupport::TestCase
 
   setup do
     stock_shelves
-    Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
+    instant_carrier
   end
 
   private

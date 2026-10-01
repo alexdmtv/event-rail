@@ -1,18 +1,15 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
-  # Jobs run all the time here -- the simulator's tick every second, even while it is off -- so
-  # the terminal shows requests at info level and jobs log to log/jobs.log. The console and
-  # /jobs are the places to watch jobs; RAILS_LOG_LEVEL=debug brings back every SQL query.
+  # Jobs run all the time here -- the staged-jobs relay every second -- so the terminal shows
+  # requests at info level and jobs log to log/jobs.log; RAILS_LOG_LEVEL=debug brings back
+  # every SQL query.
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
   config.active_job.logger = ActiveSupport::TaggedLogging.logger(Rails.root.join("log/jobs.log"))
 
   # Jobs run in Solid Queue, in their own database, inside the Puma process that bin/dev starts.
   config.active_job.queue_adapter = :solid_queue
   config.solid_queue.connects_to = { database: { writing: :queue } }
-  # The job dashboard at /jobs is open on a developer's machine. Mission Control asks for
-  # HTTP basic credentials everywhere else.
-  config.mission_control.jobs.http_basic_auth_enabled = false
 
   # Settings specified here will take precedence over those in config/application.rb.
 
@@ -59,14 +56,8 @@ Rails.application.configure do
   # Highlight code that triggered redirect in logs.
   config.action_dispatch.verbose_redirect_logs = true
 
-  # Suppress logger output for asset requests.
-  config.assets.quiet = true
-
   # Raises error for missing translations.
   # config.i18n.raise_on_missing_translations = true
-
-  # Annotate rendered view with file names.
-  config.action_view.annotate_rendered_view_with_filenames = true
 
   # Raise error when a before_action's only/except options reference missing actions.
   config.action_controller.raise_on_missing_callback_actions = true

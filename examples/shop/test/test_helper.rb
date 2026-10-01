@@ -18,6 +18,9 @@ module ActiveSupport
 
     parallelize(workers: :number_of_processors)
 
-    teardown { Payments::Gateway.adapter = nil }
+    teardown do
+      Payments::Gateway.adapter = nil
+      Fulfillment::Carrier.adapter = nil
+    end
   end
 end

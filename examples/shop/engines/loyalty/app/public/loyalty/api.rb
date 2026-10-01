@@ -1,5 +1,5 @@
 module Loyalty
-  # What the developer console shows of Loyalty.
+  # What may be read of Loyalty: a customer's balance, and the points each order earned.
   module Api
     class << self
       def balance(customer_id) = Loyalty::Entry.where(customer_id: customer_id).sum(:points)

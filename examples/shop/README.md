@@ -5,39 +5,20 @@ A small online shop — carts, placing and confirming orders, payment, shipping,
 - **How modules in one Rails application talk to each other.** A method call where the caller needs the answer now. An asynchronous command where the caller owns a step but need not wait for it. An event only for a fact the publisher would be complete without anyone hearing. And why each interaction below is the one it is.
 - **What EventRail adds when an event is the right tool.** Each subscriber is an ordinary Active Job with its own retries. An event keeps its identity across retries and redeliveries. Every flow carries a correlation you can follow. And a module can join by subscribing, with no existing module changing.
 
-It is not a real shop — no sign-in, no real payment provider, no storefront design — and it is not event sourcing. Everything that would hide the point was left out.
+It is not a real shop — no sign-in, no real payment provider, no storefront — and it is not event sourcing. Everything that would hide the point was left out.
 
 ## Run it
 
 ```sh
 cd examples/shop
-bin/setup   # installs gems, creates both databases, seeds products and customers, starts the server
+bin/setup   # installs gems, creates both databases, seeds the products, starts the server
 ```
 
-Then open <http://localhost:3000>. After the first time, `bin/dev` starts it again. Requires Ruby 3.3 or newer; the databases are SQLite files in `storage/`.
+After the first time, `bin/dev` starts it again. Requires Ruby 3.3 or newer; the databases are SQLite files in `storage/`.
 
-`bin/setup` is safe to run again after pulling changes: it keeps your data and applies what is new. To start over with a fresh shop instead — the demo data discarded, both databases rebuilt from `db/schema.rb` and seeded — run `bin/setup --reset`.
+`bin/setup` is safe to run again after pulling changes: it keeps your data and applies what is new. To start over with a fresh shop instead — its data discarded, both databases rebuilt from `db/schema.rb` and seeded — run `bin/setup --reset`.
 
-`bin/dev` is the only process: Solid Queue's dispatcher, scheduler and workers run inside Puma, so jobs and EventRail subscribers run as soon as the server does. The terminal shows web requests; jobs log to `log/jobs.log` (`tail -f log/jobs.log`), because some run every second even while the simulator is off. Set `RAILS_LOG_LEVEL=debug` to see every SQL query.
-
-## A tour of the console
-
-| Page | What to look at |
-| --- | --- |
-| **Console** | Start the simulator; dial in faults; watch the live feed of published events |
-| **Orders** | One column per module — Orders, Payments, Fulfillment, Loyalty — each that module's own view of the order. They fill in at different moments: that is eventual consistency, visible |
-| **Order** (click one) | Its whole flow as a tree: every event under the job that published it, every job under what caused it, every attempt with its error |
-| **New cart** | Fill a cart by hand and place it. *Place it twice at once* places the same cart twice, concurrently — and gets one order |
-| **Architecture** | The module graph read from `package.yml`, and which subscribers were seen reacting to which events |
-| **Jobs** | Mission Control: the queue itself. Every subscriber delivery is an ordinary job, with its own queue and retries |
-
-Things to try:
-
-1. **Start the simulator** at 60 orders a minute and open an order: `orders.order_placed`, the capture, the shipment, delivery, points.
-2. **Set "payment provider times out" to 40%.** Open a new order's flow: the capture job fails an attempt or two and then succeeds. Nothing else in the shop noticed.
-3. **Break Loyalty** — make `Loyalty::AwardPointsJob` fail its next 5 runs. Orders keep being delivered; Loyalty retries on its own schedule and catches up. Its failures are visible in its own branch of the tree, and in Jobs.
-4. **Set "capture refused" to 100%.** Orders are placed and confirmed, then cancelled: stock released, card hold voided, customer notified — and nothing ships.
-5. **Request the cancellation of a paid order** from its page before it ships, or **return a delivered one**: the refund appears as a new branch of the same flow. A cancellation requested after the carrier collected the parcel is refused, and the page says so.
+`bin/dev` is the only process: Solid Queue's dispatcher, scheduler and workers run inside Puma, so jobs and EventRail subscribers run as soon as the server does. The terminal shows web requests; jobs log to `log/jobs.log` (`tail -f log/jobs.log`), because the staged-jobs relay runs every second. Set `RAILS_LOG_LEVEL=debug` to see every SQL query.
 
 ## The modules
 
@@ -45,36 +26,32 @@ Each module is a Rails engine under `engines/`, with one namespace named after i
 
 | Module | Owns | Calls | Publishes (`<Module>::Events`) | Listens to |
 | --- | --- | --- | --- | --- |
-| `Platform` | base classes, demonstration fault settings | — | — | — |
+| `Platform` | base classes, the staged-jobs table | — | — | — |
 | `Catalog` | products, prices, stock, reservations | — | — | — |
 | `Payments` | authorizations, captures, voids, refunds; a fake gateway | — | `PaymentCaptured`, `CaptureFailed`, `AuthorizationVoided`, `RefundIssued`, `RefundFailed` | — |
 | `Fulfillment` | shipments and returns; a fake carrier | — | `ShipmentDispatched`, `ShipmentDelivered`, `ReturnReceived` | — |
 | `Orders` | carts, orders and their whole lifecycle, returns | Catalog, Payments, Fulfillment | `OrderPlaced` (v2, v1 kept), `OrderShipped`, `OrderDelivered`, `OrderCancelled`, `OrderRefunded` | Payments, Fulfillment |
 | `Notifications` | customer notifications (recorded, not emailed) | — | — | Orders |
 | `Loyalty` | a points ledger | — | — | Orders |
-| `Observability` | flow records for the console | — | — | instrumentation only |
-| `Simulation` | simulated customers and supplier | Catalog, Orders | — | — |
 
-The host application in `app/` is the developer console. It composes the modules and reads them only through their public APIs.
+The host application boots the modules and draws the routes; it has no code of its own.
 
 ```
-                 Console (host app)
-                        │
-    Notifications   Loyalty   Simulation ─────────┐
-          ╎            ╎          │               │
-          ╎╌╌╌╌╌╌╌╌╌╌╌╌╎╌╌╌╌╌╌╌╌╌╌▼               │
-                      Orders ─────────────────────┤
-          ┌──────────────┼──────────────┐         │
-          ▼              ▼              ▼         ▼
-       Payments     Fulfillment      Catalog ◄────┘      Observability
-          └──────────────┴──────┬───────┴──────────────────────┘
+    Notifications      Loyalty
+          ╎               ╎
+          ╎╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▼
+                       Orders
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+       Payments     Fulfillment      Catalog
+          └──────────────┴──────┬───────┘
                                 ▼
                              Platform
 
    ───►  may call (and hear)          ╌╌╌  hears published events only
 ```
 
-Calls point one way: down. Catalog, Payments and Fulfillment know nothing above them — Payments moves money *for a reference* and Fulfillment ships *to a reference*; neither knows what an order is. Notifications and Loyalty depend only on Orders' published events, and nothing depends on them, on Observability or on Simulation. Packwerk enforces all of it in CI (see [Boundaries](#boundaries-enforced-not-described)).
+Calls point one way: down. Catalog, Payments and Fulfillment know nothing above them — Payments moves money *for a reference* and Fulfillment ships *to a reference*; neither knows what an order is. Notifications and Loyalty depend only on Orders' published events, and nothing depends on them. Packwerk enforces all of it in CI (see [Boundaries](#boundaries-enforced-not-described)).
 
 ## What goes where
 
@@ -93,19 +70,12 @@ Every interaction between two modules in this application:
 | `Catalog::Api.release` | decides now | giving back Orders' own reservation, for a cancellation |
 | `Catalog::Api.ship` | decides now | the reserved stock leaves the warehouse when the parcel is dispatched |
 | `Catalog::Api.restock` | decides now | a returned parcel goes back on the shelf |
-| `Catalog::Api.products` | query | the simulator picks what to buy |
-| `Catalog::Api.receive_stock` | decides now | the simulated supplier refills a low shelf |
 | `Payments::Api.authorize` | decides now, calls the provider | confirming an order must know now whether the card was declined |
 | `Payments::Api.request_capture` | request | the provider is slow and flaky; Orders waits for the outcome event |
 | `Payments::Api.request_release` | request | a cancellation or a returned parcel gives back whatever the payment holds; Payments decides between void and refund, because only Payments knows whether a capture has landed |
 | `Fulfillment::Api.request_shipment` | request | the carrier works on its own schedule |
 | `Fulfillment::Api.cancel_shipment` | decides now | a cancellation must know whether the parcel has left, and only Fulfillment knows |
 | `Fulfillment::Api.request_return_pickup` | request | the carrier brings the parcel back when it does |
-| `Orders::Api.open_cart` | decides now | the simulator is a client filling a cart |
-| `Orders::Api.place_order` | request | the simulator places the cart; confirming it follows |
-| `Orders::Api.request_cancellation` | request | a simulated customer changing their mind; Fulfillment decides, a moment later |
-| `Orders::Api.request_return` | request | a simulated customer sending an order back |
-| `Orders::Api.recent` | query | the simulator picks an order to cancel or return |
 | `subscribes_to Payments::Events::PaymentCaptured` | event (Orders) | the outcome of Orders' capture request: pay, then ship |
 | `subscribes_to Payments::Events::CaptureFailed` | event (Orders) | the outcome of Orders' capture request: cancel |
 | `subscribes_to Payments::Events::RefundIssued` | event (Orders) | the outcome of a return's release request: complete the return |
@@ -120,7 +90,7 @@ Every interaction between two modules in this application:
 | `subscribes_to Orders::Events::OrderCancelled` | event (Notifications) | as above |
 | `subscribes_to Orders::Events::OrderRefunded` | event (Notifications, Loyalty) | as above |
 
-Inside a module, work with one known handler is a plain job, staged by name, not an event: confirming an order, carrying out a cancellation, the carrier's scheduled steps, the capture itself, the deadline sweep, the simulator's tick. An event would add indirection and nothing else. For the same reason this shop has **no internal events**: none passed the question above, and a plain job does the same work with less machinery.
+Inside a module, work with one known handler is a plain job, staged by name, not an event: confirming an order, carrying out a cancellation, the carrier's scheduled steps, the capture itself, the deadline sweep. An event would add indirection and nothing else. For the same reason this shop has **no internal events**: none passed the question above, and a plain job does the same work with less machinery.
 
 ### Anti-patterns this design avoids
 
@@ -142,11 +112,11 @@ request: open the cart → place it: price it, record the placed order with Orde
 job:     hold the stock → authorize the card → confirmed → request the capture
 ```
 
-A cart refuses what it can tell at once — a quantity that is not a whole number, a product the shop does not sell — and an empty cart cannot be placed. Placing records the order, priced as the products are now, and nothing outside Orders changes. Confirming happens in a job, under the order's own reference: it holds the stock and authorizes the card, then moves the order to confirmed and requests the capture. Out of stock, or a declined card, requests the order's cancellation with the reason. Every step is safe to repeat on the reference, so a retry, or a crash at any point, runs the job again to the same end. The order's page shows the order being confirmed, then confirmed or cancelled with the reason, usually within a second. That is the trade-off: the customer hears "declined" a moment after placing, rather than in the response, as with the many real shops that confirm an order by email.
+A cart refuses what it can tell at once — a quantity that is not a whole number, a product the shop does not sell — and an empty cart cannot be placed. Placing records the order, priced as the products are now, and nothing outside Orders changes. Confirming happens in a job, under the order's own reference: it holds the stock and authorizes the card, then moves the order to confirmed and requests the capture. Out of stock, or a declined card, requests the order's cancellation with the reason. Every step is safe to repeat on the reference, so a retry, or a crash at any point, runs the job again to the same end. Read back, the order shows as being confirmed, then confirmed or cancelled with the reason, usually within a second. That is the trade-off: the customer hears "declined" a moment after placing, rather than in the response, as with the many real shops that confirm an order by email.
 
 **Payment before shipping.** The card is *authorized* when the order is confirmed: a hold on the customer's balance, no money moved. It is *captured* — the charge itself — right after, and only a paid order is shipped. A temporary provider failure is retried inside Payments; a refused capture cancels the order before anything leaves the warehouse. (Capturing close to fulfilment is common card practice; the rules vary by card network and region.)
 
-**Cancellation is a request** (`Orders::Order::Cancellable`), as in most real shops. Anyone may ask — the customer, a refused capture, a deadline — and the request is recorded at once, under the order's lock. Whether it can still happen is Fulfillment's to say, in a job, because only Fulfillment knows whether the carrier has the parcel — even before Orders has heard. If it has, the cancellation is refused and the order page points to a return. Otherwise the order is cancelled, with `OrderCancelled` staged in the same transaction, and every run of the job gives back the stock and asks Payments to *release* the payment. Payments voids the hold if nothing was captured and refunds if something was, deciding from its own state when it runs: an order not yet marked paid can have a capture that landed before Orders heard of it.
+**Cancellation is a request** (`Orders::Order::Cancellable`), as in most real shops. Anyone may ask — the customer, a refused capture, a deadline — and the request is recorded at once, under the order's lock. Whether it can still happen is Fulfillment's to say, in a job, because only Fulfillment knows whether the carrier has the parcel — even before Orders has heard. If it has, the cancellation is refused, the refusal is recorded on the order, and a return is the way back. Otherwise the order is cancelled, with `OrderCancelled` staged in the same transaction, and every run of the job gives back the stock and asks Payments to *release* the payment. Payments voids the hold if nothing was captured and refunds if something was, deciding from its own state when it runs: an order not yet marked paid can have a capture that landed before Orders heard of it.
 
 **Deadlines, not retry counts, give up on an order.** Retrying is infrastructure: every job retries a temporary failure until it succeeds, or ends in the failed jobs to be replayed once the cause is fixed. Giving up is a business decision, taken by `Orders::DeadlineSweepJob` every minute: an order placed but not confirmed within two minutes, and an order confirmed but not paid within thirty, has its cancellation requested with the reason. A job still working on such an order finds it cancelled on its next run and does nothing — or, if it was confirming, gives back what it had just taken.
 
@@ -173,9 +143,9 @@ A cart refuses what it can tell at once — a quantity that is not a whole numbe
 
 The patterns, in short: **record the decision and stage what follows**; **ask the module that owns a step for its state before undoing it**; **identify each event by its fact, and stage it with the change it reports**; **take the next step whenever the state calls for it**; **retry an unmet prerequisite rather than dropping the fact**; **let deadlines, not retries, give up**.
 
-**Lineage.** Placing a cart opens EventRail's context with a message ID derived from the cart; every job that includes `EventRail::JobContext` carries it on, and every event records its correlation and causation. That is all the console needs to draw an order's tree. Jobs that *start* flows — the simulator's tick, the deadline sweep — deliberately carry no context, like a web request; a cancellation or a return they request joins the order's own flow (`Orders::Flow`), and so does one requested from the console.
+**Lineage.** Placing a cart opens EventRail's context with a message ID derived from the cart; every job that includes `EventRail::JobContext` carries it on, and every event records its correlation and causation. That is enough to follow an order's whole flow — in logs, in error reports, in traces. Work that *starts* flows — a web request, the deadline sweep — deliberately carries no context; a cancellation or a return it requests joins the order's own flow (`Orders::Flow`).
 
-**Every error says what a caller should do.** A module's error is named for what happened — `NotCancellable`, `Declined` — lives in the module's namespace, one public file each in `app/public/<module>/`, and includes one of Platform's categories, named after gRPC's status codes: `FailedPrecondition`, `Unavailable`, `Aborted` and the rest (`Platform::ErrorCategory`). Only infrastructure reads the category. `Platform::ApplicationJob` holds the shop's one retry policy: a temporary failure is retried with backoff, a lost race quickly, an expected failure nobody handled fails at once, a job whose own subject is gone is discarded, and an error with no category — a bug, or something nobody has classified — is retried and then left in the failed-jobs list. `Platform::ErrorSubscriber` is the one place errors are reported from: it counts expected failures rather than reporting them, and reports everything else with the flow it happened in.
+**Every error says what a caller should do.** A module's error is named for what happened — `NotCancellable`, `Declined` — lives in the module's namespace, one public file each in `app/public/<module>/`, and includes one of Platform's categories, named after gRPC's status codes: `FailedPrecondition`, `Unavailable`, `Aborted` and the rest (`Platform::ErrorCategory`). Only infrastructure reads the category. `Platform::ApplicationJob` holds the shop's one retry policy: a temporary failure is retried with backoff, a lost race quickly, an expected failure nobody handled fails at once, and an error with no category — a bug, or something nobody has classified — is retried and then left in the failed-jobs list. `Platform::ErrorSubscriber` is the one place errors are reported from: it counts expected failures rather than reporting them, and reports everything else with the flow it happened in.
 
 ## An event that changed shape
 
@@ -218,7 +188,7 @@ bin/packwerk validate   # the dependency graph has no cycle
 bin/packwerk check      # no module references another's internals or an undeclared module
 ```
 
-Both run in CI. `test/boundaries` plants rule-breaking files into a copy of the application — a private model reached from outside, an undeclared dependency, a transitive one, an upward call, a published event reaching into its module, another module subscribing to an internal event, a declared cycle — and asserts each is caught. The rules apply to tests too. `test/boundaries` also checks two things packwerk cannot see: every error has a category, which decides how it is retried, and the recurring schedule names jobs that exist.
+Both run in CI. `test/boundaries` plants rule-breaking files into a copy of the application — a private model reached from outside, an undeclared dependency, an upward call, a published event reaching into its module, another module subscribing to an internal event, a declared cycle — and asserts each is caught. The rules apply to tests too. `test/boundaries` also checks two things packwerk cannot see: every error has a category, which decides how it is retried, and the recurring schedule names jobs that exist.
 
 ## Alternatives we tried and rejected
 
@@ -236,9 +206,8 @@ Both run in CI. `test/boundaries` plants rule-breaking files into a copy of the 
 ## Tests
 
 ```sh
-bin/rails test test engines/*/test   # modules, whole flows, boundary probes, the console
-bin/rails test:system                # only the console, in headless Chrome
+bin/rails test test engines/*/test   # modules, whole flows, boundary probes
 bin/ci                               # everything CI runs
 ```
 
-Module tests live with their module in `engines/<module>/test`. Each engine has its own `bin/rails`, so `bin/rails generate model Refund` run in `engines/payments` writes `Payments::Refund` and a `payments_refunds` migration into Payments. System tests drive headless Chrome through [Cuprite](https://github.com/rubycdp/cuprite); set `BROWSER_PATH` if Chrome is not on your `PATH`. Whole-flow tests in `test/flows` work off the queue one job at a time, as a worker does, and check what every module ended up with through its public API. The `example` job in the gem's CI runs all of it on every pull request, against the gem's current source.
+Module tests live with their module in `engines/<module>/test`. Each engine has its own `bin/rails`, so `bin/rails generate model Refund` run in `engines/payments` writes `Payments::Refund` and a `payments_refunds` migration into Payments. Whole-flow tests in `test/flows` work off the queue one job at a time, as a worker does, and check what every module ended up with through its public API. The `example` job in the gem's CI runs all of it on every pull request, against the gem's current source.

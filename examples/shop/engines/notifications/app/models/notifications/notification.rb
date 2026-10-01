@@ -6,8 +6,6 @@ module Notifications
     # outage, a replayed "your order shipped" from yesterday would only confuse.
     STALE_AFTER = 1.hour
 
-    scope :recent, -> { order(created_at: :desc) }
-
     def self.send_for(event)
       return if event.occurred_at < STALE_AFTER.ago
 

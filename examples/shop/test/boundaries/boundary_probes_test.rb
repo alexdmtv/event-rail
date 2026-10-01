@@ -24,15 +24,6 @@ class BoundaryProbesTest < ActiveSupport::TestCase
       end
     RUBY
 
-    # Simulation depends on Orders, and Orders on Payments -- which gives Simulation nothing.
-    non_transitive: [ "engines/simulation/app/models/simulation/probe_non_transitive.rb", <<~RUBY ],
-      module Simulation
-        module ProbeNonTransitive
-          def self.call = Payments::Api.payment("x")
-        end
-      end
-    RUBY
-
     # Payments sits below Orders and must not call up into it.
     upward_call: [ "engines/payments/app/models/payments/probe_upward_call.rb", <<~RUBY ],
       module Payments
@@ -116,10 +107,6 @@ class BoundaryProbesTest < ActiveSupport::TestCase
 
   test "an undeclared dependency is reported" do
     assert_violation :undeclared_dependency, "Dependency violation: ::Orders::Api belongs to 'engines/orders', but 'engines/catalog' does not specify a dependency"
-  end
-
-  test "dependencies are not transitive" do
-    assert_violation :non_transitive, "Dependency violation: ::Payments::Api belongs to 'engines/payments', but 'engines/simulation' does not specify a dependency"
   end
 
   test "a lower module cannot call upward" do

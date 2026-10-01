@@ -1,5 +1,5 @@
-# Collects what EventRail published or staged while a block ran, through the same documented
-# notifications the Observability module records flows from.
+# Collects what EventRail published or staged while a block ran, through its documented
+# notifications.
 module PublicationRecorder
   Publication = Data.define(:event_type, :event_version, :event_id, :correlation_id, :causation_id)
 

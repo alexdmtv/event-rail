@@ -2,9 +2,7 @@ require_relative "flow_test_case"
 
 class FailureIsolationTest < FlowTestCase
   test "a Loyalty that fails every attempt leaves every order, payment and shipment untouched" do
-    Platform::FaultSettings.force_failures("Loyalty::AwardPointsJob", 100)
-
-    order, published = place_and_settle
+    order, published = failing_runs("Loyalty::AwardPointsJob", 100) { place_and_settle }
 
     assert_equal "delivered", order.status
     assert_equal "captured", Payments::Api.payment(order.reference).state
@@ -16,10 +14,8 @@ class FailureIsolationTest < FlowTestCase
   end
 
   test "a subscriber told to fail three times retries alone and then succeeds" do
-    Platform::FaultSettings.force_failures("Loyalty::AwardPointsJob", 3)
-
     order = nil
-    retries = retries_by_job { order, = place_and_settle }
+    retries = failing_runs("Loyalty::AwardPointsJob", 3) { retries_by_job { order, = place_and_settle } }
 
     assert_equal({ "Loyalty::AwardPointsJob" => 3 }, retries)
     assert_equal 38, points(order)
@@ -38,33 +34,42 @@ class FailureIsolationTest < FlowTestCase
   # covers that path.
   IN_NO_JOURNEY = %w[ Payments::VoidJob ].freeze
 
-  test "a failure forced on any job the console offers is retried, and every order still ends where it should" do
+  test "any job failing twice is retried, and every order still ends where it should" do
     Catalog::Api.receive_stock(sku: "MUG", quantity: 1_000)
     Catalog::Api.receive_stock(sku: "TEA", quantity: 1_000)
 
-    ForceableJobs.names.each do |job|
-      Platform::FaultSettings.force_failures(job, 2)
+    shop_jobs.each do |job|
+      failing_runs(job, 2) do |remaining|
+        JOURNEYS.each do |name, journey|
+          Payments::Gateway.adapter = ScriptedGateway.new(**journey.fetch(:provider, {}))
+          order = place
+          Orders::Api.request_cancellation(order.id) if journey[:first] == :cancel
+          work_off_queue
+          Orders::Api.request_return(order.id) if journey[:then] == :return
+          work_off_queue
 
-      JOURNEYS.each do |name, journey|
-        Payments::Gateway.adapter = ScriptedGateway.new(**journey.fetch(:provider, {}))
-        order = place
-        Orders::Api.request_cancellation(order.id) if journey[:first] == :cancel
-        work_off_queue
-        Orders::Api.request_return(order.id) if journey[:then] == :return
-        work_off_queue
-
-        order = Orders::Api.order(order.id)
-        if job == "Orders::CancelJob" && journey[:first] == :cancel
-          # A cancellation held up by its own failures loses the race to the carrier, as it
-          # would in a real shop: Fulfillment refuses it, and the order is delivered.
-          assert order.cancellation_refused_at, "#{name}, with #{job} failing twice"
-          assert_equal "delivered", order.status
-        else
-          assert_equal journey[:ends], order.status, "#{name}, with #{job} failing twice"
+          order = Orders::Api.order(order.id)
+          if job == "Orders::CancelJob" && journey[:first] == :cancel
+            # A cancellation held up by its own failures loses the race to the carrier, as it
+            # would in a real shop: Fulfillment refuses it, and the order is delivered.
+            assert order.cancellation_refused_at, "#{name}, with #{job} failing twice"
+            assert_equal "delivered", order.status
+          else
+            assert_equal journey[:ends], order.status, "#{name}, with #{job} failing twice"
+          end
         end
-      end
 
-      assert Platform::FaultSettings.current.forced_failures.fetch(job) < 2 || IN_NO_JOURNEY.include?(job), "no journey ran #{job}"
+        assert remaining.call < 2 || IN_NO_JOURNEY.include?(job), "no journey ran #{job}"
+      end
     end
   end
+
+  private
+    # Every concrete job of the shop's own; jobs declared by tests are left out.
+    def shop_jobs
+      Rails.application.eager_load!
+      Platform::ApplicationJob.descendants
+        .select { |job| job.name && job.descendants.empty? && Object.const_source_location(job.name)&.first.to_s.exclude?("/test/") }
+        .map(&:name).sort
+    end
 end

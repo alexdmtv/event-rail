@@ -2,10 +2,10 @@ module Platform
   # The shop's stager: jobs a boundary started in the same transaction as its business records,
   # whether a domain method staged one of its own (Platform::ApplicationJob.stage) or
   # EventRail.stage staged an event's subscribers (config.event_rail.stager names this class).
-  # The code staging them is a web request, the simulator, a scheduled scan, or a job -- code
-  # whose own retry cannot be relied on to repeat a lost enqueue. The queue lives in another
-  # database, so enqueuing cannot join the transaction; staging can. The records and the jobs
-  # commit together or not at all, and the jobs are then handed to the queue:
+  # The code staging them is a web request, a scheduled scan, or a job -- code whose own retry
+  # cannot be relied on to repeat a lost enqueue. The queue lives in another database, so
+  # enqueuing cannot join the transaction; staging can. The records and the jobs commit
+  # together or not at all, and the jobs are then handed to the queue:
   #
   #   * at once, once every open transaction has committed, and
   #   * by Platform::StagedJobRelayJob, for any row whose immediate hand-over was cut short.
@@ -39,8 +39,7 @@ module Platform
       now = Time.current
       insert_all!(jobs.map do |job|
         { job_id: job.job_id, job_class: job.class.name, payload: job.serialize,
-          correlation_id: EventRail::Current.correlation_id, causation_id: EventRail::Current.message_id,
-          event_id: (job.arguments.first.id if job.arguments.first.is_a?(EventRail::Event)), created_at: now }
+          correlation_id: EventRail::Current.correlation_id, causation_id: EventRail::Current.message_id, created_at: now }
       end)
 
       # Once every open transaction has committed, not just this connection's: enqueuing is
@@ -60,11 +59,9 @@ module Platform
       end
     end
 
-    # Enqueues the job within the flow it was staged in, so the flow's records show it under
-    # what started it, and deletes the row once the queue has taken the job. False if the
-    # row was kept for the relay. An event's subscriber job is enqueued inside a
-    # hand_over.platform notification naming the event, as EventRail's own
-    # enqueue_subscriber.event_rail does when it publishes.
+    # Enqueues the job within the flow it was staged in, so it carries the correlation and
+    # causation of what started it, and deletes the row once the queue has taken the job. False
+    # if the row was kept for the relay.
     #
     # Active Job reports a queue that declined the job by returning false with an enqueue
     # error rather than raising; the row then stays for the relay. An enqueue callback that
@@ -72,11 +69,7 @@ module Platform
     # -- so the row goes, with a warning. Any other error raises and leaves the row.
     def hand_over
       job = ActiveJob::Base.deserialize(payload)
-      in_its_flow do
-        next job.enqueue unless event_id
-
-        ActiveSupport::Notifications.instrument("hand_over.platform", job_id: job_id, event_id: event_id) { job.enqueue }
-      end
+      in_its_flow { job.enqueue }
 
       if job.successfully_enqueued?
         delete

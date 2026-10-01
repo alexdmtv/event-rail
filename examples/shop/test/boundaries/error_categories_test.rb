@@ -4,13 +4,10 @@ require "test_helper"
 # Platform's categories (see Platform::ErrorCategory). A base class that only groups a module's
 # errors needs none.
 class ErrorCategoriesTest < ActiveSupport::TestCase
-  # Raised by the console's fault switch to stand in for a failure nobody has classified.
-  UNCLASSIFIED_BY_DESIGN = %w[ Platform::InjectedFault ].freeze
-
   test "every error the shop defines includes a category" do
     Rails.application.eager_load!
 
-    missing = shop_errors.reject { |error| error.descendants.any? || UNCLASSIFIED_BY_DESIGN.include?(error.name) }
+    missing = shop_errors.reject { |error| error.descendants.any? }
       .select { |error| Platform::ErrorCategory::ALL.none? { |category| error <= category } }
 
     assert_empty missing.map(&:name), "errors without a category"

@@ -78,37 +78,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.index ["order_id", "kind"], name: "index_notifications_notifications_on_order_id_and_kind", unique: true
   end
 
-  create_table "observability_attempts", force: :cascade do |t|
-    t.string "job_id", null: false
-    t.string "job_class", null: false
-    t.integer "number", null: false
-    t.string "outcome", null: false
-    t.string "error_class"
-    t.string "error_message"
-    t.integer "duration_ms"
-    t.datetime "created_at", null: false
-    t.index ["created_at"], name: "index_observability_attempts_on_created_at"
-    t.index ["job_id"], name: "index_observability_attempts_on_job_id"
-  end
-
-  create_table "observability_nodes", force: :cascade do |t|
-    t.string "node_id", null: false
-    t.string "kind", null: false
-    t.string "name", null: false
-    t.integer "version"
-    t.string "source"
-    t.string "parent_id"
-    t.string "correlation_id"
-    t.string "published_by_job_id"
-    t.integer "subscriber_count"
-    t.string "outcome"
-    t.datetime "created_at", null: false
-    t.index ["correlation_id"], name: "index_observability_nodes_on_correlation_id"
-    t.index ["created_at"], name: "index_observability_nodes_on_created_at"
-    t.index ["node_id"], name: "index_observability_nodes_on_node_id", unique: true
-    t.index ["parent_id"], name: "index_observability_nodes_on_parent_id"
-  end
-
   create_table "orders_cart_items", force: :cascade do |t|
     t.integer "cart_id", null: false
     t.string "sku", null: false
@@ -198,47 +167,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.index ["reference"], name: "index_payments_payments_on_reference", unique: true
   end
 
-  create_table "platform_fault_settings", force: :cascade do |t|
-    t.float "authorization_decline_rate", default: 0.0, null: false
-    t.float "capture_refusal_rate", default: 0.0, null: false
-    t.float "refund_refusal_rate", default: 0.0, null: false
-    t.float "temporary_failure_rate", default: 0.0, null: false
-    t.integer "carrier_delay_seconds", default: 4, null: false
-    t.json "forced_failures", default: {}, null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-  end
-
   create_table "platform_staged_jobs", force: :cascade do |t|
     t.string "job_id", null: false
     t.string "job_class", null: false
     t.json "payload", null: false
     t.string "correlation_id"
     t.string "causation_id"
-    t.string "event_id"
     t.datetime "created_at", null: false
     t.index ["created_at"], name: "index_platform_staged_jobs_on_created_at"
     t.index ["job_id"], name: "index_platform_staged_jobs_on_job_id"
-  end
-
-  create_table "simulation_customers", force: :cascade do |t|
-    t.string "customer_id", null: false
-    t.string "name", null: false
-    t.string "email", null: false
-    t.string "address", null: false
-    t.index ["customer_id"], name: "index_simulation_customers_on_customer_id", unique: true
-  end
-
-  create_table "simulation_settings", force: :cascade do |t|
-    t.boolean "running", default: false, null: false
-    t.integer "orders_per_minute", default: 20, null: false
-    t.float "cancel_rate", default: 0.1, null: false
-    t.float "return_rate", default: 0.1, null: false
-    t.integer "checkout_count", default: 0, null: false
-    t.integer "refused_count", default: 0, null: false
-    t.string "last_refusal"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
   end
 
   add_foreign_key "catalog_reservations", "catalog_products", column: "product_id"

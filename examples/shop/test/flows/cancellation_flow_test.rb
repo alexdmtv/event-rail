@@ -43,8 +43,9 @@ class CancellationFlowTest < FlowTestCase
 
   test "cancelling an order whose capture landed before the order heard of it refunds it" do
     order = place
-    Platform::FaultSettings.force_failures("Orders::MarkPaidJob", 1)
-    work_off_queue(due_only: true) # captured; recording it on the order failed and waits to retry
+    failing_runs("Orders::MarkPaidJob", 1) do
+      work_off_queue(due_only: true) # captured; recording it on the order failed and waits to retry
+    end
     assert_equal [ "confirmed", "captured" ], [ Orders::Api.order(order.id).state, Payments::Api.payment(order.reference).state ]
 
     published = record_publications do
@@ -62,9 +63,9 @@ class CancellationFlowTest < FlowTestCase
 
   test "an unpaid order whose capture had in fact landed is refunded" do
     order = place
-    Platform::FaultSettings.force_failures("Orders::MarkPaidJob", 10) # every attempt
-    failures = work_off_queue(due_only: true)
-    failures += work_off_queue # its retries, until it ends in the failed jobs
+    failures = failing_runs("Orders::MarkPaidJob", 10) do # every attempt
+      work_off_queue(due_only: true) + work_off_queue # its retries, until it ends in the failed jobs
+    end
     assert_equal [ "Orders::MarkPaidJob" ], failures.map(&:job_class)
 
     travel(31.minutes) do
@@ -78,10 +79,11 @@ class CancellationFlowTest < FlowTestCase
   end
 
   test "a cancellation of an order the carrier has dispatched, before the order has heard, is refused and the order carries on" do
-    Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
+    instant_carrier
     order = place
-    Platform::FaultSettings.force_failures("Orders::MarkShippedJob", 1)
-    work_off_queue(due_only: true) # dispatched and delivered; the order still thinks it is paid
+    failing_runs("Orders::MarkShippedJob", 1) do
+      work_off_queue(due_only: true) # dispatched and delivered; the order still thinks it is paid
+    end
     assert_equal "paid", Orders::Api.order(order.id).status
 
     Orders::Api.request_cancellation(order.id)
@@ -95,7 +97,7 @@ class CancellationFlowTest < FlowTestCase
   end
 
   test "a dispatched order cannot be cancelled and carries on" do
-    Platform::FaultSettings.current.update!(carrier_delay_seconds: 0)
+    instant_carrier
     order, = place_and_settle
 
     assert_raises(Orders::NotCancellable) { Orders::Api.request_cancellation(order.id) }
