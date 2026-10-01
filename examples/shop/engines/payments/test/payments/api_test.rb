@@ -56,17 +56,32 @@ module Payments
       assert_empty second
     end
 
-    test "captures enqueued by separate callers under random job IDs report one PaymentCaptured" do
+    test "a capture job delivered twice captures once and reports once" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new
+      Api.request_capture(reference: "ref-1")
+      enqueued_jobs << enqueued_jobs.sole.dup # the relay handed it over twice
 
-      published = record_publications do
-        2.times { CaptureJob.perform_later("ref-1") }
-        perform_enqueued_jobs
-      end
+      published = record_publications { work_off_queue }
 
       assert_equal 1, gateway.calls[:capture]
-      assert_equal [ "payments.payment_captured" ], published.map(&:event_type), "the run that captured reports it"
+      assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
+    end
+
+    test "a second delivery of a capture, run after the payment moved on, changes nothing" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new
+      Api.request_capture(reference: "ref-1")
+      late = enqueued_jobs.sole.dup
+      work_off_queue
+      perform_enqueued_jobs { Api.request_release(reference: "ref-1") }
+      assert_equal "refunded", Api.payment("ref-1").state
+
+      published = record_publications { enqueued_jobs << late; work_off_queue }
+
+      assert_empty published
+      assert_equal 1, gateway.calls[:capture]
+      assert_equal "refunded", Api.payment("ref-1").state, "the late answer does not overwrite the refund"
     end
 
     test "temporary provider failures are retried until the capture succeeds" do
@@ -89,7 +104,7 @@ module Payments
       assert_equal "capture_failed", Api.payment("ref-1").state
     end
 
-    test "a provider that never answers leaves the capture retrying, and then in the failed jobs" do
+    test "a provider that never answers leaves the capture pending, retrying, and then in the failed jobs" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout ] * 10)
       Api.request_capture(reference: "ref-1")
@@ -99,34 +114,43 @@ module Payments
 
       assert_equal 10, gateway.calls[:capture]
       assert_equal [ "Payments::CaptureJob" ], failures.map(&:job_class)
-      assert_empty published, "no outcome is reported: the capture has not happened, nor been refused"
-      assert_equal "authorized", Api.payment("ref-1").state
+      assert_empty published, "no outcome is reported: nobody knows whether the capture was taken"
+      payment = Api.payment("ref-1")
+      assert_equal [ "authorized", "capture" ], [ payment.state, payment.pending_operation ]
+      assert payment.operation_sent_at
+
+      replay(failures) # the provider is back
+      work_off_queue
+
+      assert_equal [ "captured", nil ], [ Api.payment("ref-1").state, Api.payment("ref-1").pending_operation ]
     end
 
-    test "void releases an uncaptured authorization" do
+    test "release voids an uncaptured authorization" do
       authorize
 
-      published = record_publications { perform_enqueued_jobs { Api.request_void(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
       assert_equal "voided", Api.payment("ref-1").state
     end
 
-    test "void leaves a captured payment alone" do
+    test "a capture asked for after the release does nothing" do
       authorize
-      perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
+      Gateway.adapter = gateway = ScriptedGateway.new
+      perform_enqueued_jobs { Api.request_release(reference: "ref-1") }
 
-      published = record_publications { perform_enqueued_jobs { Api.request_void(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
 
       assert_empty published
-      assert_equal "captured", Api.payment("ref-1").state
+      assert_equal 0, gateway.calls[:capture]
+      assert_equal "voided", Api.payment("ref-1").state
     end
 
-    test "a refund returns captured money and reports it" do
+    test "release refunds captured money and reports it" do
       authorize
       perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
 
-      published = record_publications { perform_enqueued_jobs { Api.request_refund(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_issued" ], published.map(&:event_type)
       assert_equal "refunded", Api.payment("ref-1").state
@@ -137,17 +161,17 @@ module Payments
       perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
       Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
 
-      published = record_publications { perform_enqueued_jobs { Api.request_refund(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_failed" ], published.map(&:event_type)
     end
 
-    test "a refused capture's hold is voided at the provider, and repeating the capture reports nothing new" do
+    test "a refused capture's hold is voided by the release, and repeating the capture reports nothing new" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :refuse ])
       perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
 
-      voided = record_publications { perform_enqueued_jobs { Api.request_void(reference: "ref-1") } }
+      voided = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
       again = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
 
       assert_equal 1, gateway.calls[:void]
@@ -172,38 +196,48 @@ module Payments
       assert_equal %w[ payments.authorization_voided payments.refund_issued ], published.map(&:event_type).sort
     end
 
-    test "a void arriving while a capture is at the provider waits, and the capture stands" do
+    test "a release asked for while the capture is at the provider waits for its answer, then refunds" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new
       gateway.define_singleton_method(:capture) do |**options|
-        VoidJob.perform_now("ref-1") # the void finds the payment claimed and retries later
+        Api.request_release(reference: "ref-1") # only the capture's answer says whether to void or refund
         super(**options)
       end
+      Api.request_capture(reference: "ref-1")
 
-      published = record_publications do
-        CaptureJob.perform_now("ref-1")
-        work_off_queue
-      end
+      published = record_publications { work_off_queue }
 
-      assert_equal [ 1, 0 ], [ gateway.calls[:capture], gateway.calls[:void] ]
-      assert_equal "captured", Api.payment("ref-1").state
-      assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
+      assert_equal [ 1, 0, 1 ], gateway.calls.values_at(:capture, :void, :refund)
+      assert_equal "refunded", Api.payment("ref-1").state
+      assert_equal %w[ payments.payment_captured payments.refund_issued ], published.map(&:event_type)
     end
 
-    test "a capture arriving while a void is at the provider waits, and the void stands" do
+    test "a release asked for while the capture is at the provider voids, once the capture is refused" do
       authorize
-      Gateway.adapter = gateway = ScriptedGateway.new
-      gateway.define_singleton_method(:void) do |**options|
-        CaptureJob.perform_now("ref-1")
+      Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :refuse ])
+      gateway.define_singleton_method(:capture) do |**options|
+        Api.request_release(reference: "ref-1")
         super(**options)
       end
+      Api.request_capture(reference: "ref-1")
+
+      published = record_publications { work_off_queue }
+
+      assert_equal [ 1, 1 ], gateway.calls.values_at(:capture, :void)
+      assert_equal %w[ payments.capture_failed payments.authorization_voided ], published.map(&:event_type)
+    end
+
+    test "a release asked for before the capture was sent calls the capture off and voids" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new
+      Api.request_capture(reference: "ref-1") # staged; not yet run
 
       published = record_publications do
-        VoidJob.perform_now("ref-1")
+        Api.request_release(reference: "ref-1")
         work_off_queue
       end
 
-      assert_equal [ 0, 1 ], [ gateway.calls[:capture], gateway.calls[:void] ]
+      assert_equal [ 0, 1 ], gateway.calls.values_at(:capture, :void)
       assert_equal "voided", Api.payment("ref-1").state
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
     end
@@ -236,11 +270,10 @@ module Payments
       assert_equal [ "auth_winner" ], Payments::Payment.where(reference: "ref-1").pluck(:authorization_code)
     end
 
-    test "a command for a reference with no payment does nothing" do
+    test "a request for a reference with no payment does nothing" do
       Gateway.adapter = gateway = ScriptedGateway.new
 
       published = record_publications do
-        Api.request_void(reference: "never-authorized")
         Api.request_release(reference: "never-authorized")
         Api.request_capture(reference: "never-authorized")
         perform_enqueued_jobs
@@ -248,13 +281,18 @@ module Payments
 
       assert_empty published
       assert_equal 0, gateway.calls.values.sum
-      assert_no_enqueued_jobs # no retry of a command that found nothing
+      assert_no_enqueued_jobs
     end
 
-    test "a command the queue refuses raises rather than returning" do
+    test "a request whose job the queue refuses at the commit is carried out by the relay" do
       authorize
+      refusing_enqueue { Api.request_capture(reference: "ref-1") }
+      assert_no_enqueued_jobs
 
-      assert_raises(ActiveJob::EnqueueError) { refusing_enqueue { Api.request_void(reference: "ref-1") } }
+      relay_staged_jobs
+      work_off_queue
+
+      assert_equal "captured", Api.payment("ref-1").state
     end
 
     test "payments are looked up for many references at once" do

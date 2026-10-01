@@ -186,8 +186,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.string "state", null: false
     t.string "authorization_code", null: false
     t.string "failure_reason"
-    t.string "operation"
-    t.string "operation_job_id"
+    t.string "pending_operation"
+    t.datetime "operation_sent_at"
+    t.integer "operation_generation", default: 0, null: false
+    t.datetime "release_requested_at"
     t.datetime "captured_at"
     t.datetime "voided_at"
     t.datetime "refunded_at"

@@ -1,10 +1,7 @@
 module Payments
   # Releases an authorization that will never be captured -- one never captured, or one whose
-  # capture was refused. A payment already captured is not voided; ReleaseJob refunds it
-  # instead. Accepted by Api.request_void.
+  # capture was refused. Started by the payment for a release (Payment#request_release).
   class VoidJob < ApplicationJob
-    # A reference with no payment -- its authorization declined, or never reached the provider --
-    # has nothing to void.
-    def perform(reference) = Payment.find_by(reference: reference)&.void(claimant: job_id)
+    def perform(payment, generation) = payment.carry_out(generation)
   end
 end

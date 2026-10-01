@@ -97,8 +97,7 @@ Every interaction between two modules in this application:
 | `Catalog::Api.receive_stock` | decides now | the simulated supplier refills a low shelf |
 | `Payments::Api.authorize` | decides now, calls the provider | confirming an order must know now whether the card was declined |
 | `Payments::Api.request_capture` | request | the provider is slow and flaky; Orders waits for the outcome event |
-| `Payments::Api.request_release` | request | a cancellation gives back whatever the payment holds; Payments decides between void and refund, because only Payments knows whether a capture has landed |
-| `Payments::Api.request_refund` | request | giving money back for a returned parcel |
+| `Payments::Api.request_release` | request | a cancellation or a returned parcel gives back whatever the payment holds; Payments decides between void and refund, because only Payments knows whether a capture has landed |
 | `Fulfillment::Api.request_shipment` | request | the carrier works on its own schedule |
 | `Fulfillment::Api.cancel_shipment` | decides now | a cancellation must know whether the parcel has left, and only Fulfillment knows |
 | `Fulfillment::Api.request_return_pickup` | request | the carrier brings the parcel back when it does |
@@ -109,8 +108,8 @@ Every interaction between two modules in this application:
 | `Orders::Api.recent` | query | the simulator picks an order to cancel or return |
 | `subscribes_to Payments::Events::PaymentCaptured` | event (Orders) | the outcome of Orders' capture request: pay, then ship |
 | `subscribes_to Payments::Events::CaptureFailed` | event (Orders) | the outcome of Orders' capture request: cancel |
-| `subscribes_to Payments::Events::RefundIssued` | event (Orders) | the outcome of Orders' refund request: complete the return |
-| `subscribes_to Payments::Events::RefundFailed` | event (Orders) | the outcome of Orders' refund request: set the order aside |
+| `subscribes_to Payments::Events::RefundIssued` | event (Orders) | the outcome of a return's release request: complete the return |
+| `subscribes_to Payments::Events::RefundFailed` | event (Orders) | the outcome of a release request: set the order aside |
 | `subscribes_to Fulfillment::Events::ShipmentDispatched` | event (Orders) | Fulfillment cannot call upward; Orders hears the carrier's progress |
 | `subscribes_to Fulfillment::Events::ShipmentDelivered` | event (Orders) | as above |
 | `subscribes_to Fulfillment::Events::ReturnReceived` | event (Orders) | as above: restock and refund |
@@ -168,7 +167,9 @@ A cart refuses what it can tell at once — a quantity that is not a whole numbe
 - Every event is staged in the transaction that records its fact, wherever that runs — placing an order in a request, capturing a payment in a job — so the fact and its announcement commit together, once. A step retried after its change committed finds the fact recorded and stages nothing again: the first run's event is already on its way.
 - The identity still matters: the relay can hand a staged job over twice, and a subscriber then sees one event ID twice.
 
-**Every reaction is idempotent** — a conditional update of the row, or a unique index on the order and the kind of fact — because delivery is at least once. A handler repeated after an interruption takes every step its state calls for, not only the ones that follow a change it made itself. And every job retries under one policy, chosen by the failure's category rather than declared job by job, so one failed attempt never strands an order. A job whose worker dies mid-run is failed by Solid Queue outside any `retry_on`; `Platform::RetryInterruptedJobsJob` runs such jobs again every minute. A Payments command that gives up gives up its claim on the payment with it, so the next command can reach the provider.
+**Every reaction is idempotent** — a conditional update of the row, or a unique index on the order and the kind of fact — because delivery is at least once. A handler repeated after an interruption takes every step its state calls for, not only the ones that follow a change it made itself. And every job retries under one policy, chosen by the failure's category rather than declared job by job, so one failed attempt never strands an order. A job whose worker dies mid-run is failed by Solid Queue outside any `retry_on`; `Platform::RetryInterruptedJobsJob` runs such jobs again every minute.
+
+**A payment makes one provider call at a time** (`Payments::Payment`). Callers ask for two things — the money taken, and the money given back — and each request is recorded on the payment under its lock. The payment then makes at most one call, its pending operation, marked sent just before the call is made. A release, once asked for, stays asked for: a capture never starts after it, a capture not yet sent is called off, and one already sent is waited for, since only its answer says whether to void or refund. A capture that times out stays pending, because nobody knows whether the money was taken; it retries, and if it ends in the failed jobs, replaying it asks the provider again under the same idempotency key, and the release follows its answer. Each job carries the generation of the call it was started for, so a second delivery, or one replayed after the answer was recorded, changes nothing. Real providers keep idempotency keys for a limited time — about a day, for some — so a real application also needs a reconciliation sweep that asks the provider for the payment's state; the example leaves it out.
 
 The patterns, in short: **record the decision and stage what follows**; **ask the module that owns a step for its state before undoing it**; **identify each event by its fact, and stage it with the change it reports**; **take the next step whenever the state calls for it**; **retry an unmet prerequisite rather than dropping the fact**; **let deadlines, not retries, give up**.
 

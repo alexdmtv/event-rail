@@ -27,7 +27,7 @@ module Orders
       return unless received?
 
       Catalog::Api.restock(reservation_id: order.reference)
-      Payments::Api.request_refund(reference: order.reference)
+      Payments::Api.request_release(reference: order.reference)
     end
 
     def complete_refund

@@ -1,12 +1,21 @@
 module Payments
   # One card payment for one caller reference, from authorization to capture, void or
-  # refund. Every transition is a conditional update, so a command delivered twice moves
-  # the payment once.
+  # refund.
   #
-  # A provider call is made under a claim (see Payment::ProviderCall): no other job may call
-  # the provider for this payment until the answer is recorded.
+  # Callers ask for two things: the money taken (a capture), and the money given back (a
+  # release). Each request is recorded on the payment under its lock, and the payment then
+  # makes at most one provider call at a time -- its pending operation -- carried out by a job.
+  # A capture and a void of one authorization must never race at the provider. A call is
+  # marked sent just before it is made, and one sent whose answer is unknown, a timeout, stays
+  # pending until its answer is known: replaying its job asks again under the same idempotency
+  # key.
+  #
+  # A release, once asked for, stays asked for. A capture never starts after it; a pending
+  # capture not yet sent is called off; and one already sent is followed by the release once
+  # its answer is recorded: a refund if the money was taken, a void if not.
   class Payment < ApplicationRecord
     STATES = %w[ authorized captured capture_failed voided refunded refund_failed ].freeze
+    OPERATIONS = { "capture" => CaptureJob, "void" => VoidJob, "refund" => RefundJob }.freeze
 
     validates :state, inclusion: { in: STATES }
 
@@ -29,13 +38,10 @@ module Payments
       raise Unavailable, failure.message
     end
 
-    # Requests are accepted by enqueuing the job that carries them out, for a reference that may
-    # have no payment: its authorization was declined, or never reached the provider. The job
-    # then does nothing. The outcome arrives as an event.
-    def self.capture_later(reference) = CaptureJob.perform_later!(reference)
-    def self.void_later(reference) = VoidJob.perform_later!(reference)
-    def self.refund_later(reference) = RefundJob.perform_later!(reference)
-    def self.release_later(reference) = ReleaseJob.perform_later!(reference)
+    # A request may name a reference with no payment -- its authorization declined, or never
+    # reached the provider -- and then there is nothing to do.
+    def self.request_capture(reference) = find_by(reference: reference)&.request_capture
+    def self.request_release(reference) = find_by(reference: reference)&.request_release
 
     # What each provider call needs to find. A refused capture leaves the card's hold open
     # until it is voided, so an uncaptured authorization is voidable whether its capture
@@ -44,35 +50,77 @@ module Payments
     def voidable? = (authorized? || capture_failed?) && voided_at.nil?
     def refundable? = captured?
 
-    # Each command runs under the claim of the one taking it, and reports the change it made, in
-    # the transaction that records it.
-    def capture(claimant:) = ProviderCall.new(self, claimant).capture
-    def void(claimant:) = ProviderCall.new(self, claimant).void
-    def refund(claimant:) = ProviderCall.new(self, claimant).refund
+    def pending?(generation = operation_generation) = pending_operation.present? && operation_generation == generation
 
-    # Gives back whatever the payment holds, decided under the claim: a captured payment is
-    # refunded, an uncaptured authorization is voided. A caller undoing its payment -- a
-    # cancelled order -- need not know whether a capture has already landed; Payments does.
-    def release(claimant:) = ProviderCall.new(self, claimant).release
-
-    # Claims the payment for one provider call; true if the claimant holds it.
-    def claim(operation, claimant)
-      claimed = self.class.where(id: id).where("operation IS NULL OR operation_job_id = ?", claimant)
-        .update_all(operation: operation, operation_job_id: claimant, updated_at: Time.current)
-      reload
-      claimed == 1
+    # Asks for the money. A capture already pending is the same request; a release asked for
+    # first wins.
+    def request_capture
+      with_lock { start("capture") if capturable? && !release_requested_at? && pending_operation.nil? }
     end
 
-    # Gives up a claim the claimant still holds, without an answer.
-    def give_up_claim(claimant) = self.class.where(id: id, operation_job_id: claimant).update_all(operation: nil, operation_job_id: nil, updated_at: Time.current)
-
-    # Records the provider's answer, if any, and gives the claim up. A block commits with the
-    # answer: the event reporting it.
-    def settle(**attributes)
-      transaction do
-        update!(**attributes, operation: nil, operation_job_id: nil)
-        yield if block_given?
+    # Asks for the money back: refunded if it was taken, voided if not. A call already sent
+    # is waited for, since only its answer says which.
+    def request_release
+      with_lock do
+        update!(release_requested_at: Time.current) unless release_requested_at?
+        start_release if pending_operation.nil? || (pending_operation == "capture" && operation_sent_at.nil?)
       end
     end
+
+    # Makes the pending call, if it is still the one the job was started for, and records the
+    # answer. The call is marked sent under the payment's lock and made outside it; a temporary
+    # failure is raised for the job to retry, and the call stays pending.
+    def carry_out(generation)
+      sending = with_lock do
+        update!(operation_sent_at: Time.current) if pending?(generation) && operation_sent_at.nil?
+        pending?(generation)
+      end
+      settle(generation, ProviderCall.new(self).public_send(pending_operation)) if sending
+    end
+
+    private
+      # A pending call not yet sent is replaced; its job then finds another generation.
+      def start(operation)
+        update!(pending_operation: operation, operation_sent_at: nil, operation_generation: operation_generation + 1)
+        OPERATIONS.fetch(operation).stage(self, operation_generation)
+      end
+
+      def start_release
+        if refundable? then start("refund")
+        elsif voidable? then start("void")
+        else update!(pending_operation: nil, operation_sent_at: nil)
+        end
+      end
+
+      # Records the answer, with the event reporting it, under the lock -- but only for the
+      # call that is still pending: a second delivery of the same job, or one replayed after
+      # the answer was recorded, changes nothing. A release asked for while a capture was
+      # pending follows it in the same transaction.
+      def settle(generation, answer)
+        with_lock do
+          next unless pending?(generation)
+
+          operation = pending_operation
+          update!(**answer, pending_operation: nil, operation_sent_at: nil)
+          report(operation)
+          start_release if operation == "capture" && release_requested_at?
+        end
+      end
+
+      def report(operation)
+        event =
+          case operation
+          when "capture"
+            if captured? then Events::PaymentCaptured.new(reference:, amount_cents:, currency:)
+            elsif capture_failed? then Events::CaptureFailed.new(reference:, reason: failure_reason)
+            end
+          when "void" then Events::AuthorizationVoided.new(reference:) if voided_at?
+          when "refund"
+            if refunded? then Events::RefundIssued.new(reference:, amount_cents:, currency:)
+            elsif refund_failed? then Events::RefundFailed.new(reference:, reason: failure_reason)
+            end
+          end
+        EventRail.stage(event) if event
+      end
   end
 end

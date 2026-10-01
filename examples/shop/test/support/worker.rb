@@ -6,7 +6,7 @@
 # enqueue that created them: a failing subscriber would raise out of the publisher that
 # enqueued it, which is the opposite of how the shop behaves.
 module Worker
-  Failure = Data.define(:job_class, :error)
+  Failure = Data.define(:job_class, :error, :job)
 
   # With due_only, jobs scheduled for later -- a slow carrier's next step -- stay queued.
   def work_off_queue(max_jobs: 1_000, due_only: false)
@@ -17,9 +17,15 @@ module Worker
       begin
         ActiveJob::Base.execute(job.stringify_keys.except("job", "args", "at", "queue", "priority"))
       rescue => error
-        failures << Failure.new(job_class: job["job_class"], error: error)
+        failures << Failure.new(job_class: job["job_class"], error: error, job: job)
       end
     end
     raise "the queue did not drain within #{max_jobs} jobs"
+  end
+
+  # Puts failed jobs back on the queue, as a person replaying them from the failed jobs does:
+  # the same job, under the same ID.
+  def replay(*failures)
+    failures.flatten.each { |failure| queue_adapter.enqueued_jobs << failure.job.except(:at) }
   end
 end

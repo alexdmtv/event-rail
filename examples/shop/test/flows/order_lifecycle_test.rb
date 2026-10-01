@@ -41,18 +41,26 @@ class OrderLifecycleTest < FlowTestCase
     assert_one_flow(order, published)
   end
 
-  test "a capture that never succeeds leaves the order to its payment deadline, within the order's flow" do
+  test "a capture that never answers leaves the order to its payment deadline, and its payment to the capture's replay" do
     Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout ] * 10)
 
     order, published = place_and_settle
-    assert_equal [ "Payments::CaptureJob" ], @job_failures.map(&:job_class), "the capture ends in the failed jobs"
+    capture_failures = @job_failures
+    assert_equal [ "Payments::CaptureJob" ], capture_failures.map(&:job_class), "the capture ends in the failed jobs"
     published += travel(31.minutes) { record_publications { enqueue_scheduled(:enforce_order_deadlines); settle } }
 
-    assert_equal 10, gateway.calls[:capture]
     order = Orders::Api.order(order.id)
-    assert_equal "cancelled", order.state
-    assert_equal "not paid in time", order.cancel_reason
-    assert Payments::Api.payment(order.reference).voided_at, "the hold is voided"
+    assert_equal [ "cancelled", "not paid in time" ], [ order.state, order.cancel_reason ]
+    payment = Payments::Api.payment(order.reference)
+    assert_equal "capture", payment.pending_operation, "nobody knows whether the capture was taken"
+    assert payment.release_requested_at, "the release waits for the capture's answer"
+    assert_empty @job_failures, "nothing else fails while it waits"
+
+    travel(32.minutes) { published += record_publications { replay(capture_failures); settle } } # the provider is back
+
+    assert_equal 11, gateway.calls[:capture]
+    payment = Payments::Api.payment(order.reference)
+    assert_equal [ "refunded", nil ], [ payment.state, payment.pending_operation ]
     assert_equal %w[ cancelled placed ], notified_kinds(order)
     assert_one_flow(order, published)
   end

@@ -6,8 +6,10 @@ module Platform
     include EventRail::JobContext
 
     # The shop's one retry policy, chosen by an error's category (see Platform::ErrorCategory).
-    # A job declares none of its own: giving up is a business decision, taken in the domain,
-    # usually as a deadline a sweep enforces, never by counting a job's attempts.
+    # A job overrides it only for a specific error, with a reason, and never for a broad class
+    # that would also catch errors meant to fail at once. Giving up is a business decision,
+    # taken in the domain, usually as a deadline a sweep enforces, never by counting a job's
+    # attempts.
     #
     # Nothing is discarded by policy: a job that vanished without a trace would hide a bug, or a
     # blip -- Active Job raises DeserializationError for a database hiccup while loading a job's
