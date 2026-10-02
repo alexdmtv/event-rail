@@ -26,8 +26,9 @@ Orders has a small JSON API, mounted by the host at `/`. Open a cart, place it, 
 
 ```sh
 curl -s localhost:3000/carts -H 'Content-Type: application/json' -d '{
-  "customer": { "id": "cus_1", "name": "Ada Lovelace", "email": "ada@example.com", "address": "1 Example Street, London" },
-  "items": { "MUG-STONE": 2, "TEA-GREEN": 1 }
+  "customer_id": "cus_1", "customer_name": "Ada Lovelace", "customer_email": "ada@example.com",
+  "shipping_address": "1 Example Street, London",
+  "items": [ { "sku": "MUG-STONE", "quantity": 2 }, { "sku": "TEA-GREEN", "quantity": 1 } ]
 }'
 curl -s -X POST localhost:3000/carts/1/order          # placed; posting again returns the same order
 curl -s localhost:3000/orders/1                       # confirmed, paid, shipped, delivered, over a few seconds
@@ -37,7 +38,7 @@ curl -s -X POST localhost:3000/orders/1/cancellation  # or, on another order, be
 
 | Request | Answer |
 | --- | --- |
-| `POST /carts` | `201` with the cart; `422` with every problem in the request: a customer detail missing, a quantity that is not a whole number, a product the shop does not sell |
+| `POST /carts` | `201` with the cart; `422` with every problem in the request: a customer detail missing, a quantity that is not a whole number above zero, a product the shop does not sell or lists twice |
 | `POST /carts/:id/order` | `201` with the order, placed. Posting again returns the same order |
 | `GET /orders/:id` | the order and its status |
 | `POST /orders/:id/cancellation` | `202`: the request is recorded and carried out a moment later; `409` once the order has shipped |
@@ -50,15 +51,15 @@ Every error is answered in one shape, problem details ([RFC 9457](https://www.rf
 ```json
 {
   "title": "Unprocessable Content", "status": 422, "code": "invalid_input",
-  "detail": "customer.email can't be blank; items.SPOON is not a product the shop sells",
+  "detail": "customer_email can't be blank; items[1].sku is not a product the shop sells",
   "errors": [
-    { "pointer": "/customer/email", "code": "blank", "detail": "can't be blank" },
-    { "pointer": "/items/SPOON", "code": "unknown_product", "detail": "is not a product the shop sells" }
+    { "pointer": "/customer_email", "code": "blank", "detail": "can't be blank" },
+    { "pointer": "/items/1/sku", "code": "unknown_product", "detail": "is not a product the shop sells" }
   ]
 }
 ```
 
-The request is checked as a whole before anything is written (`Orders::Cart::Opening`, an Active Model validation), and its errors are named by the request's own fields, not the cart's columns: a module raises `Platform::InvalidInput` with every violation, whoever called it. An unknown route, or a bug, gets the same shape from `Platform::ExceptionsApp`, with no detail. The API has no version in its path because nothing outside this repository calls it; a public one would.
+The request's fields are the cart's own, and its items are nested records (`accepts_nested_attributes_for`), so the cart's Active Record validations check the whole request at once, each item's errors numbered by its position. `Cart.open` raises them as one `Platform::InvalidInput`, the error any module raises for input it refuses, whoever called it. An unknown route, or a bug, gets the same shape from `Platform::ExceptionsApp`, with no detail.
 
 Everything after each answer runs in jobs; `tail -f log/jobs.log` shows them. The faults the shop is built to survive — a provider timing out, a capture refused, a subscriber failing every attempt — are injected by the flow tests in `test/flows`.
 
@@ -154,7 +155,7 @@ request: open the cart → place it: price it, record the placed order with Orde
 job:     hold the stock → authorize the card → confirmed → request the capture
 ```
 
-A cart refuses what it can tell at once — a quantity that is not a whole number, a product the shop does not sell — and an empty cart cannot be placed. Placing records the order, priced as the products are now, and nothing outside Orders changes. Confirming happens in a job, under the order's own reference: it holds the stock and authorizes the card, then moves the order to confirmed and requests the capture. Out of stock, or a declined card, requests the order's cancellation with the reason. Every step is safe to repeat on the reference, so a retry, or a crash at any point, runs the job again to the same end. Read back, the order shows as being confirmed, then confirmed or cancelled with the reason, usually within a second. That is the trade-off: the customer hears "declined" a moment after placing, rather than in the response, as with the many real shops that confirm an order by email.
+A cart refuses what it can tell at once — a quantity that is not a whole number above zero, a product the shop does not sell — and an empty cart cannot be placed. Placing records the order, priced as the products are now, and nothing outside Orders changes. Confirming happens in a job, under the order's own reference: it holds the stock and authorizes the card, then moves the order to confirmed and requests the capture. Out of stock, or a declined card, requests the order's cancellation with the reason. Every step is safe to repeat on the reference, so a retry, or a crash at any point, runs the job again to the same end. Read back, the order shows as being confirmed, then confirmed or cancelled with the reason, usually within a second. That is the trade-off: the customer hears "declined" a moment after placing, rather than in the response, as with the many real shops that confirm an order by email.
 
 **Payment before shipping.** The card is *authorized* when the order is confirmed: a hold on the customer's balance, no money moved. It is *captured* — the charge itself — right after, and only a paid order is shipped. A temporary provider failure is retried inside Payments; a refused capture cancels the order before anything leaves the warehouse. (Capturing close to fulfilment is common card practice; the rules vary by card network and region.)
 

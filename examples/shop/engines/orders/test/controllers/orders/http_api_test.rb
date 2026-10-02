@@ -4,12 +4,12 @@ module Orders
   class HttpApiTest < ActionDispatch::IntegrationTest
     include ShopHelpers
 
-    CUSTOMER_PARAMS = { id: "cus_ada", name: "Ada Lovelace", email: "ada@example.com", address: "12 St James's Square, London" }.freeze
+    CUSTOMER_PARAMS = { customer_id: "cus_ada", customer_name: "Ada Lovelace", customer_email: "ada@example.com", shipping_address: "12 St James's Square, London" }.freeze
 
     setup { stock_shelves }
 
-    def open_cart(items = { "MUG" => 2, "TEA" => 1 })
-      post "/carts", params: { customer: CUSTOMER_PARAMS, items: items }, as: :json
+    def open_cart(items = [ { sku: "MUG", quantity: 2 }, { sku: "TEA", quantity: 1 } ])
+      post "/carts", params: { **CUSTOMER_PARAMS, items: items }, as: :json
       response.parsed_body
     end
 
@@ -41,23 +41,23 @@ module Orders
     end
 
     test "a refused cart is answered with every problem, each pointing at its field" do
-      post "/carts", params: { customer: CUSTOMER_PARAMS.except(:email), items: { "MUG" => "two", "SPOON" => 1 } }, as: :json
+      post "/carts", params: { **CUSTOMER_PARAMS.except(:customer_email), items: [ { sku: "MUG", quantity: "two" }, { sku: "SPOON", quantity: 1 } ] }, as: :json
 
       assert_response :unprocessable_content
       assert_equal "application/problem+json", response.media_type
       problem = response.parsed_body
       assert_equal [ 422, "invalid_input" ], problem.values_at("status", "code")
-      assert_equal [ [ "/customer/email", "blank" ], [ "/items/MUG", "not_a_quantity" ], [ "/items/SPOON", "unknown_product" ] ],
-        problem["errors"].map { |error| error.values_at("pointer", "code") }
-      assert_equal "can't be blank", problem["errors"].first["detail"]
+      assert_equal [ [ "/customer_email", "blank" ], [ "/items/0/quantity", "not_a_number" ], [ "/items/1/sku", "unknown_product" ] ],
+        problem["errors"].map { |error| error.values_at("pointer", "code") }.sort
+      assert_equal "can't be blank", problem["errors"].find { |error| error["pointer"] == "/customer_email" }["detail"]
       assert_equal 0, Cart.count
     end
 
-    test "a cart with no customer is refused, pointing at the missing field" do
-      post "/carts", params: { items: { "MUG" => 1 } }, as: :json
+    test "a cart with no customer details is refused, pointing at each" do
+      post "/carts", params: { items: [ { sku: "MUG", quantity: 1 } ] }, as: :json
 
       assert_response :unprocessable_content
-      assert_equal [ [ "/customer", "missing" ] ], response.parsed_body["errors"].map { |error| error.values_at("pointer", "code") }
+      assert_equal %w[ /customer_email /customer_id /customer_name /shipping_address ], response.parsed_body["errors"].map { |error| error["pointer"] }.sort
     end
 
     test "a cancellation is accepted, and carried out a moment later" do

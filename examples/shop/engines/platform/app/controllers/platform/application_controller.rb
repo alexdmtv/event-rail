@@ -6,7 +6,7 @@ module Platform
   #
   # Every error is answered as problem details (RFC 9457): a title and status, the error's
   # detail, and a code naming what happened (not_cancellable). Refused input adds errors, one
-  # per violation, each with a JSON Pointer into the request (/customer/email), a code and a
+  # per violation, each with a JSON Pointer into the request (/items/1/quantity), a code and a
   # detail, so a form can show each one beside its field.
   class ApplicationController < ActionController::API
     STATUSES = {
@@ -45,6 +45,7 @@ module Platform
         end
       end
 
-      def pointer(field) = field.split(".").map { |part| "/" + part.gsub("~", "~0").gsub("/", "~1") }.join
+      # items[1].quantity -> /items/1/quantity
+      def pointer(field) = field.scan(/[^.\[\]]+/).map { |part| "/" + part.gsub("~", "~0").gsub("/", "~1") }.join
   end
 end

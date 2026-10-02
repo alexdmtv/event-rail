@@ -3,37 +3,24 @@ module Orders
   # order, which holds the cart's ID under a unique index: a cart gives at most one order, so
   # placing it again -- a double click, a retry after a timeout -- returns that order.
   class Cart < ApplicationRecord
-    has_many :items, class_name: "CartItem", dependent: :delete_all
+    # A cart's items arrive with it and are validated with it, each error numbered by the item's
+    # position in the request (items[1].quantity).
+    has_many :items, class_name: "CartItem", inverse_of: :cart, dependent: :delete_all, index_errors: true
+    accepts_nested_attributes_for :items
     has_one :order
 
     validates :customer_id, :customer_name, :customer_email, :shipping_address, presence: true
+    validates :customer_email, format: { with: URI::MailTo::EMAIL_REGEXP }, allow_blank: true
 
-    # Opens a cart for the customer with the items, once Opening finds the whole request valid;
-    # raises Platform::InvalidInput with every violation otherwise. The cart and its items
-    # commit together.
-    def self.open(customer:, items:)
-      opening = Opening.new(customer:, items:)
-      raise Platform::InvalidInput.from(opening.errors) if opening.invalid?
-
-      transaction do
-        cart = create!(customer_id: customer.id, customer_name: customer.name, customer_email: customer.email, shipping_address: customer.address)
-        opening.quantities.each { |sku, quantity| cart.add(sku, quantity) }
-        cart
-      end
-    end
-
-    def ordered? = order.present?
-
-    # Adds a product, or more of one already in the cart. The product must exist; its price is
-    # read when the order is placed, not now.
-    def add(sku, quantity)
-      raise CartAlreadyOrdered, "cart #{id} was already ordered" if ordered?
-
-      Catalog::Api.product(sku)
-      item = items.find_or_initialize_by(sku: sku)
-      item.update!(quantity: (item.quantity || 0) + quantity.count)
-    rescue Catalog::UnknownProduct => unknown
-      raise UnknownProduct, unknown.message
+    # Opens a cart with the customer's details and the items, [{ sku:, quantity: }], validated
+    # together so the client hears every problem at once: Platform::InvalidInput lists each one,
+    # named by the request's own fields (customer_email, items[1].quantity). The cart and its
+    # items commit together.
+    def self.open(attributes)
+      attributes = attributes.to_h.symbolize_keys
+      create!(**attributes.except(:items), items_attributes: Array(attributes[:items]))
+    rescue ActiveRecord::RecordInvalid => invalid
+      raise Platform::InvalidInput.from(invalid.record.errors)
     end
 
     # Places the order: prices the items as they are now, records the order and its lines, and

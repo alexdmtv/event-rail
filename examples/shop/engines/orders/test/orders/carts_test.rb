@@ -8,17 +8,20 @@ module Orders
 
     def open_cart(items = { "MUG" => 2, "TEA" => 1 }) = TestSupport.open_cart(customer: CUSTOMER, items: items)
 
-    test "a cart holds the customer's items, and a line of zero is left out" do
-      cart = open_cart("MUG" => "2", "TEA" => "0")
+    def violations(error) = error.violations.map { |violation| [ violation.field, violation.code ] }.sort
 
-      assert_equal({ "MUG" => 2 }, cart.items.to_h { |item| [ item.sku, item.quantity ] })
-      assert_not cart.ordered?
+    test "a cart holds the customer's items" do
+      cart = open_cart("MUG" => "2", "TEA" => 1)
+
+      assert_equal({ "MUG" => 2, "TEA" => 1 }, cart.items.to_h { |item| [ item.sku, item.quantity ] })
+      assert_nil cart.order
     end
 
     test "a quantity that is not a whole number above zero is refused before a cart is opened" do
-      [ -2, "-2", "1.5", 1.5, "two", nil, "" ].each do |quantity|
+      { -2 => "greater_than", "0" => "greater_than", "1.5" => "not_an_integer", 1.5 => "not_an_integer",
+        "two" => "not_a_number", nil => "not_a_number", "" => "not_a_number" }.each do |quantity, code|
         error = assert_raises(Platform::InvalidInput, quantity.inspect) { open_cart("MUG" => quantity) }
-        assert_equal [ [ "items.MUG", "not_a_quantity" ] ], error.violations.map { |violation| [ violation.field, violation.code ] }
+        assert_equal [ [ "items[0].quantity", code ] ], violations(error), quantity.inspect
       end
 
       assert_equal 0, Cart.count
@@ -29,8 +32,8 @@ module Orders
 
       error = assert_raises(Platform::InvalidInput) { TestSupport.open_cart(customer: customer, items: { "MUG" => "two", "SPOON" => 1, "TEA" => 1 }) }
 
-      assert_equal [ [ "customer.email", "blank" ], [ "customer.address", "blank" ], [ "items.MUG", "not_a_quantity" ], [ "items.SPOON", "unknown_product" ] ],
-        error.violations.map { |violation| [ violation.field, violation.code ] }
+      assert_equal [ [ "customer_email", "blank" ], [ "items[0].quantity", "not_a_number" ], [ "items[1].sku", "unknown_product" ], [ "shipping_address", "blank" ] ],
+        violations(error)
       assert_equal Platform::InvalidArgument, Platform::ErrorCategory.of(error)
       assert_equal 0, Cart.count
     end
@@ -38,7 +41,16 @@ module Orders
     test "an email address that is not one is refused" do
       error = assert_raises(Platform::InvalidInput) { TestSupport.open_cart(customer: CUSTOMER.with(email: "ada"), items: {}) }
 
-      assert_equal [ [ "customer.email", "invalid" ] ], error.violations.map { |violation| [ violation.field, violation.code ] }
+      assert_equal [ [ "customer_email", "invalid" ] ], violations(error)
+    end
+
+    test "a product listed twice is refused" do
+      error = assert_raises(Platform::InvalidInput) do
+        Cart.open(customer_id: "c", customer_name: "Ada", customer_email: "ada@example.com", shipping_address: "London",
+          items: [ { sku: "MUG", quantity: 1 }, { sku: "MUG", quantity: 2 } ])
+      end
+
+      assert_equal [ [ "items[1].sku", "taken" ] ], violations(error)
     end
 
     test "placing a cart records a placed order priced as the products are now, and holds nothing yet" do
@@ -85,13 +97,6 @@ module Orders
       assert_equal 1, Orders::Order.count
       assert_equal 1, enqueued_jobs.count { |job| job["job_class"] == ConfirmJob.name }, "the loser's staged confirmation rolled back"
       assert_equal 0, Platform::StagedJob.count
-    end
-
-    test "an ordered cart takes no more items" do
-      cart = open_cart
-      TestSupport.place_order(cart.id)
-
-      assert_raises(CartAlreadyOrdered) { Cart.find(cart.id).add("TEA", Quantity.parse(1)) }
     end
 
     test "an order placed while the queue could not take its confirmation is confirmed without the caller retrying" do

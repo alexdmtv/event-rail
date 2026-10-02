@@ -1,9 +1,9 @@
 module Platform
   # Input refused, with every reason at once: each violation names the field it concerns, in the
-  # caller's own terms (customer.email, items.MUG -- a dot between the levels of the input), with
-  # a stable code a client can act on and a message a person can read. A module raises it for
-  # input it checks as a whole, so a form hears about all its mistakes in one answer, not one at
-  # a time.
+  # caller's own terms and Active Model's notation (customer_email, items[1].quantity), with a
+  # stable code a client can act on and a message a person can read. A module raises it for
+  # input it validates as a whole, so a form hears about all its mistakes in one answer, not one
+  # at a time.
   class InvalidInput < StandardError
     include InvalidArgument
 
