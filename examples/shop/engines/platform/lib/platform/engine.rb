@@ -9,6 +9,13 @@ module Platform
     isolate_namespace Platform
     share_migrations
 
+    # Every error answer is problem details (RFC 9457), whoever renders it.
+    initializer "platform.problem_details" do |app|
+      require_relative "exceptions_app"
+      Mime::Type.register "application/problem+json", :problem
+      app.config.exceptions_app = Platform::ExceptionsApp
+    end
+
     initializer "platform.error_subscriber" do
       require_relative "error_subscriber"
       Rails.error.subscribe(Platform::ErrorSubscriber.new)

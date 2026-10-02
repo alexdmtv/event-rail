@@ -40,25 +40,24 @@ module Orders
       assert_equal 1, Order.count
     end
 
-    test "a cart the shop refuses is answered with the reason" do
-      open_cart("SPOON" => 1)
+    test "a refused cart is answered with every problem, each pointing at its field" do
+      post "/carts", params: { customer: CUSTOMER_PARAMS.except(:email), items: { "MUG" => "two", "SPOON" => 1 } }, as: :json
 
       assert_response :unprocessable_content
-      assert_match(/SPOON/, response.parsed_body["error"])
+      assert_equal "application/problem+json", response.media_type
+      problem = response.parsed_body
+      assert_equal [ 422, "invalid_input" ], problem.values_at("status", "code")
+      assert_equal [ [ "/customer/email", "blank" ], [ "/items/MUG", "not_a_quantity" ], [ "/items/SPOON", "unknown_product" ] ],
+        problem["errors"].map { |error| error.values_at("pointer", "code") }
+      assert_equal "can't be blank", problem["errors"].first["detail"]
       assert_equal 0, Cart.count
     end
 
-    test "a customer with details missing is refused" do
-      post "/carts", params: { customer: CUSTOMER_PARAMS.except(:email), items: { "MUG" => 1 } }, as: :json
-
-      assert_response :unprocessable_content
-    end
-
-    test "a cart with no customer is refused" do
+    test "a cart with no customer is refused, pointing at the missing field" do
       post "/carts", params: { items: { "MUG" => 1 } }, as: :json
 
       assert_response :unprocessable_content
-      assert_match(/customer/, response.parsed_body["error"])
+      assert_equal [ [ "/customer", "missing" ] ], response.parsed_body["errors"].map { |error| error.values_at("pointer", "code") }
     end
 
     test "a cancellation is accepted, and carried out a moment later" do
@@ -79,7 +78,10 @@ module Orders
       post "/orders/#{order["id"]}/return", as: :json
 
       assert_response :conflict
-      assert response.parsed_body["error"]
+      problem = response.parsed_body
+      assert_equal [ 409, "Conflict", "not_returnable" ], problem.values_at("status", "title", "code")
+      assert problem["detail"]
+      assert_not problem.key?("errors")
     end
 
     test "a delivered order's return is accepted" do
@@ -96,6 +98,20 @@ module Orders
       get "/orders/0", as: :json
 
       assert_response :not_found
+      assert_equal [ 404, "record_not_found" ], response.parsed_body.values_at("status", "code")
+    end
+
+    test "a path no route matches is answered as problem details too, as in production" do
+      # Tests, like development, answer with Rails' debugging details; production does not.
+      detailed = Rails.application.env_config["action_dispatch.show_detailed_exceptions"]
+      Rails.application.env_config["action_dispatch.show_detailed_exceptions"] = false
+      get "/nowhere", as: :json
+
+      assert_response :not_found
+      assert_equal "application/problem+json", response.media_type
+      assert_equal({ "title" => "Not Found", "status" => 404 }, response.parsed_body)
+    ensure
+      Rails.application.env_config["action_dispatch.show_detailed_exceptions"] = detailed
     end
   end
 end

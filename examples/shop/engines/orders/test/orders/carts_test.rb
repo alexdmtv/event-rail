@@ -17,16 +17,28 @@ module Orders
 
     test "a quantity that is not a whole number above zero is refused before a cart is opened" do
       [ -2, "-2", "1.5", 1.5, "two", nil, "" ].each do |quantity|
-        assert_raises(InvalidQuantity, quantity.inspect) { open_cart("MUG" => quantity) }
+        error = assert_raises(Platform::InvalidInput, quantity.inspect) { open_cart("MUG" => quantity) }
+        assert_equal [ [ "items.MUG", "not_a_quantity" ] ], error.violations.map { |violation| [ violation.field, violation.code ] }
       end
 
       assert_equal 0, Cart.count
     end
 
-    test "a product the shop does not sell is refused as the customer's mistake" do
-      error = assert_raises(UnknownProduct) { open_cart("SPOON" => 1) }
+    test "every problem in a request is reported at once, named by the request's own fields" do
+      customer = CUSTOMER.with(email: "", address: nil)
 
+      error = assert_raises(Platform::InvalidInput) { TestSupport.open_cart(customer: customer, items: { "MUG" => "two", "SPOON" => 1, "TEA" => 1 }) }
+
+      assert_equal [ [ "customer.email", "blank" ], [ "customer.address", "blank" ], [ "items.MUG", "not_a_quantity" ], [ "items.SPOON", "unknown_product" ] ],
+        error.violations.map { |violation| [ violation.field, violation.code ] }
       assert_equal Platform::InvalidArgument, Platform::ErrorCategory.of(error)
+      assert_equal 0, Cart.count
+    end
+
+    test "an email address that is not one is refused" do
+      error = assert_raises(Platform::InvalidInput) { TestSupport.open_cart(customer: CUSTOMER.with(email: "ada"), items: {}) }
+
+      assert_equal [ [ "customer.email", "invalid" ] ], error.violations.map { |violation| [ violation.field, violation.code ] }
     end
 
     test "placing a cart records a placed order priced as the products are now, and holds nothing yet" do

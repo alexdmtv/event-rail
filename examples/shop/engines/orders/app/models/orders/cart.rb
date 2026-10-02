@@ -8,17 +8,16 @@ module Orders
 
     validates :customer_id, :customer_name, :customer_email, :shipping_address, presence: true
 
-    # Opens a cart with its items: { "sku" => quantity }, each a whole number above zero, as an
-    # Integer or the digits a form submits; a line of zero is left out. customer: a
-    # Customer snapshot, kept on the order the cart becomes. Every quantity is checked
-    # before the cart is opened, and the cart and its items commit together. Raises
-    # InvalidQuantity, UnknownProduct, or ActiveRecord::RecordInvalid for a customer with
-    # details missing.
+    # Opens a cart for the customer with the items, once Opening finds the whole request valid;
+    # raises Platform::InvalidInput with every violation otherwise. The cart and its items
+    # commit together.
     def self.open(customer:, items:)
-      quantities = items.to_h.to_h { |sku, quantity| [ sku.to_s, quantity.to_s == "0" ? nil : Quantity.parse(quantity) ] }.compact
+      opening = Opening.new(customer:, items:)
+      raise Platform::InvalidInput.from(opening.errors) if opening.invalid?
+
       transaction do
         cart = create!(customer_id: customer.id, customer_name: customer.name, customer_email: customer.email, shipping_address: customer.address)
-        quantities.each { |sku, quantity| cart.add(sku, quantity) }
+        opening.quantities.each { |sku, quantity| cart.add(sku, quantity) }
         cart
       end
     end

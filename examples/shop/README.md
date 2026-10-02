@@ -37,13 +37,28 @@ curl -s -X POST localhost:3000/orders/1/cancellation  # or, on another order, be
 
 | Request | Answer |
 | --- | --- |
-| `POST /carts` | `201` with the cart; `422` for a quantity that is not a whole number, a product the shop does not sell, or no customer, or one with details missing |
+| `POST /carts` | `201` with the cart; `422` with every problem in the request: a customer detail missing, a quantity that is not a whole number, a product the shop does not sell |
 | `POST /carts/:id/order` | `201` with the order, placed. Posting again returns the same order |
 | `GET /orders/:id` | the order and its status |
 | `POST /orders/:id/cancellation` | `202`: the request is recorded and carried out a moment later; `409` once the order has shipped |
 | `POST /orders/:id/return` | `202`: the carrier brings the parcel back, then the order is refunded; `409` outside the return window |
 
-Each controller makes one call to the model and renders. The JSON is written out field by field in `Orders::ApplicationController`, a contract of its own rather than a record's attributes. An error with a category is answered with the status that category calls for (`Platform::ApplicationController`), so no action rescues anything. The API has no version in its path because nothing outside this repository calls it; a public one would.
+Each controller makes one call to the model and renders. The JSON is written out field by field in `Orders::ApplicationController`, a contract of its own rather than a record's attributes.
+
+Every error is answered in one shape, problem details ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)), with the status its category calls for, so no action rescues anything (`Platform::ApplicationController`). Refused input lists every problem at once, each with a JSON Pointer into the request, so a form can show it beside its field:
+
+```json
+{
+  "title": "Unprocessable Content", "status": 422, "code": "invalid_input",
+  "detail": "customer.email can't be blank; items.SPOON is not a product the shop sells",
+  "errors": [
+    { "pointer": "/customer/email", "code": "blank", "detail": "can't be blank" },
+    { "pointer": "/items/SPOON", "code": "unknown_product", "detail": "is not a product the shop sells" }
+  ]
+}
+```
+
+The request is checked as a whole before anything is written (`Orders::Cart::Opening`, an Active Model validation), and its errors are named by the request's own fields, not the cart's columns: a module raises `Platform::InvalidInput` with every violation, whoever called it. An unknown route, or a bug, gets the same shape from `Platform::ExceptionsApp`, with no detail. The API has no version in its path because nothing outside this repository calls it; a public one would.
 
 Everything after each answer runs in jobs; `tail -f log/jobs.log` shows them. The faults the shop is built to survive — a provider timing out, a capture refused, a subscriber failing every attempt — are injected by the flow tests in `test/flows`.
 
