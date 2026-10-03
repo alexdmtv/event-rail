@@ -1,5 +1,8 @@
 module Fulfillment
   class Shipment < ApplicationRecord
+    # Its bang methods (delivered!) skip the shipment's transitions; never call them.
+    enum :state, %w[ requested dispatched delivered cancelled ].index_by(&:itself), validate: true
+
     def self.find_by_reference!(reference) = find_by!(reference: reference)
 
     # A shipment cancelled before this request arrives stays cancelled.
@@ -23,10 +26,7 @@ module Fulfillment
       raise AlreadyDispatched, "shipment #{reference} has been dispatched" if shipment.dispatched_or_later?
     end
 
-    def requested? = state == "requested"
-    def dispatched? = state == "dispatched"
-    def dispatched_or_later? = state.in?(%w[ dispatched delivered ])
-    def delivered? = state == "delivered"
+    def dispatched_or_later? = dispatched? || delivered?
 
     # Hands on to the carrier whenever dispatched, not only after this call's move, so a retry
     # after the move committed still does.

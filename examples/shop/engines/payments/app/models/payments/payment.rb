@@ -4,12 +4,10 @@ module Payments
   # again under the same idempotency key; the generation tells a stale job to do nothing. A
   # release, once asked for, stays asked for, and follows any capture already sent.
   class Payment < ApplicationRecord
-    STATES = %w[ authorized captured capture_failed voided refunded refund_failed ].freeze
     OPERATIONS = { "capture" => CaptureJob, "void" => VoidJob, "refund" => RefundJob }.freeze
 
-    validates :state, inclusion: { in: STATES }
-
-    STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
+    # Its bang methods (captured!) skip the payment's transitions; never call them.
+    enum :state, %w[ authorized captured capture_failed voided refunded refund_failed ].index_by(&:itself), validate: true
 
     # Safe to repeat: two calls racing for one reference share an idempotency key at the
     # provider, and the loser of the insert returns the winner's payment.

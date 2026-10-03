@@ -4,7 +4,9 @@ module Catalog
   class Reservation < ApplicationRecord
     belongs_to :product
 
-    scope :held, -> { where(state: "held") }
+    # Its bang methods (shipped!) skip the reservation's steps; never call them.
+    enum :state, %w[ held released shipped restocked ].index_by(&:itself), validate: true
+
     scope :for, ->(reservation_id) { where(reservation_id: reservation_id) }
 
     # All items or none; repeating a reservation ID holds nothing more. Products are locked in
@@ -37,7 +39,7 @@ module Catalog
 
     def self.restock
       transaction do
-        where(state: "shipped").lock.each do |reservation|
+        shipped.lock.each do |reservation|
           Product.update_counters(reservation.product_id, on_hand: reservation.quantity)
           reservation.update!(state: "restocked")
         end
