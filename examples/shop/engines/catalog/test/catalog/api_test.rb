@@ -9,6 +9,16 @@ module Catalog
 
     def available(sku) = Product.find_by_sku!(sku).available
 
+    test "the SKUs the shop sells nothing under are found in one query" do
+      assert_queries_count(1) do
+        assert_equal %w[ SPOON ], Api.unknown_skus(%w[ MUG SPOON TEA MUG ])
+      end
+    end
+
+    test "a quote prices every item in one query" do
+      assert_queries_count(1) { Api.quote("MUG" => 2, "TEA" => 1) }
+    end
+
     test "quotes return plain values with a total" do
       quote = Api.quote("MUG" => 2, "TEA" => 1)
 

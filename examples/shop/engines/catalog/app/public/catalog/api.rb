@@ -3,7 +3,6 @@ module Catalog
   # continue without the answer: checkout must know the price and whether the stock exists
   # before it can accept an order. Results are plain values, never records.
   module Api
-    Product = Data.define(:sku, :name, :price_cents)
     Line = Data.define(:sku, :name, :quantity, :unit_price_cents) do
       def total_cents = quantity * unit_price_cents
     end
@@ -12,13 +11,14 @@ module Catalog
     end
 
     class << self
-      # The product the shop sells under this SKU; raises UnknownProduct.
-      def product(sku) = product_value(Catalog::Product.find_by_sku!(sku))
+      # Which of these SKUs the shop sells no product under, in one query.
+      def unknown_skus(skus) = skus.uniq - Catalog::Product.where(sku: skus).pluck(:sku)
 
-      # items: { "sku" => quantity }
+      # items: { "sku" => quantity }, priced in one query. Raises UnknownProduct.
       def quote(items)
+        products = Catalog::Product.where(sku: items.keys).index_by(&:sku)
         Quote.new(lines: items.map do |sku, quantity|
-          product = Catalog::Product.find_by_sku!(sku)
+          product = products[sku] or raise UnknownProduct, "unknown product #{sku}"
           Line.new(sku: product.sku, name: product.name, quantity: Integer(quantity), unit_price_cents: product.price_cents)
         end)
       end
@@ -36,11 +36,6 @@ module Catalog
 
       # Puts goods that came back into the warehouse. Restocking twice changes nothing.
       def restock(reservation_id:) = Catalog::Reservation.for(reservation_id).restock.then { true }
-
-      private
-        def product_value(product)
-          Product.new(sku: product.sku, name: product.name, price_cents: product.price_cents)
-        end
     end
   end
 end

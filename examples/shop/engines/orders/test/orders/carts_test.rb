@@ -44,6 +44,10 @@ module Orders
       assert_equal [ [ "customer_email", "invalid" ] ], violations(error)
     end
 
+    test "a cart asks Catalog once about all its products" do
+      assert_queries_match(/FROM "catalog_products"/, count: 1) { open_cart("MUG" => 1, "TEA" => 1) }
+    end
+
     test "a product listed twice is refused" do
       error = assert_raises(Platform::InvalidInput) do
         Cart.open(customer_id: "c", customer_name: "Ada", customer_email: "ada@example.com", shipping_address: "London",

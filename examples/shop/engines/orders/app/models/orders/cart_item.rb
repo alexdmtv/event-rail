@@ -16,9 +16,7 @@ module Orders
       end
 
       def product_is_sold
-        Catalog::Api.product(sku)
-      rescue Catalog::UnknownProduct
-        errors.add(:sku, :unknown_product, message: "is not a product the shop sells")
+        errors.add(:sku, :unknown_product, message: "is not a product the shop sells") if cart.unknown_skus.include?(sku)
       end
   end
 end

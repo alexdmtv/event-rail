@@ -23,6 +23,10 @@ module Orders
       raise Platform::InvalidInput.from(invalid.record.errors)
     end
 
+    # The SKUs among the cart's items that the shop sells no product under, asked of Catalog once
+    # for every item's validation.
+    def unknown_skus = @unknown_skus ||= Catalog::Api.unknown_skus(items.filter_map(&:sku))
+
     # Places the order: prices the items as they are now, records the order and its lines, and
     # stages its confirmation, in one transaction. The flow of the order starts here, and a
     # repeat continues it.
