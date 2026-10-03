@@ -40,14 +40,12 @@ module Orders
     # nil for a reference that is not an order's: Payments and Fulfillment serve other callers too.
     def self.for_reference(reference) = find_by(reference: reference)
 
-    # Returns how many cancellations it requested.
-    def self.cancel_overdue
-      [ [ unconfirmed_past_deadline, "not confirmed in time" ], [ unpaid_past_deadline, "not paid in time" ] ].sum do |overdue, reason|
-        overdue.find_each.count do |order|
-          order.request_cancellation(reason: reason)
-        rescue NotCancellable
-          false # it shipped while the sweep ran
-        end
+    # For the traits' deadlines; an order that shipped while the sweep ran is skipped.
+    def self.request_cancellations(orders, reason:)
+      orders.find_each do |order|
+        order.request_cancellation(reason: reason)
+      rescue NotCancellable
+        next
       end
     end
 

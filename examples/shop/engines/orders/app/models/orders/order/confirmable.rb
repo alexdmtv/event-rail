@@ -9,6 +9,10 @@ module Orders
         scope :unconfirmed_past_deadline, -> { where(state: "placed").where(created_at: ...CONFIRMATION_DEADLINE.ago) }
       end
 
+      class_methods do
+        def cancel_unconfirmed = request_cancellations(unconfirmed_past_deadline, reason: "not confirmed in time")
+      end
+
       # Safe to repeat: every step is keyed by the order's reference, so a retry, or a crash at
       # any point, runs it again to the same end.
       def confirm

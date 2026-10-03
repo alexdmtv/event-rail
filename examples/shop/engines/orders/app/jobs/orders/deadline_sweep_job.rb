@@ -6,6 +6,9 @@ module Orders
 
     queue_as :orders
 
-    def perform = Order.cancel_overdue
+    def perform
+      Order.cancel_unconfirmed
+      Order.cancel_unpaid
+    end
   end
 end
