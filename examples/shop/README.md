@@ -148,6 +148,23 @@ Inside a module, work with one known handler is a plain job, staged by name, not
 
 **An order has three states and many facts.** Its lifecycle is `placed`, `confirmed`, `cancelled`. Everything after confirming is a fact with its time — `paid_at`, `shipped_at`, `delivered_at`, `cancellation_requested_at`, `cancellation_refused_at` — because payment and shipping have states of their own, in Payments and Fulfillment, and the order keeps only what it acts on. What a person sees — *placed, confirmed, paid, shipped, delivered, returning, refunded, cancelled, needs attention* — is its **status**, derived from the state, the facts and its return.
 
+**The whole life of an order.** Orders drives it; each step that needs another module ends with a request, and the next step starts when that module's answer arrives as an event (`⇢`). Every request verb names its answers in a comment, so the chain can be followed from either end.
+
+```
+place            the order and OrderPlaced, with ConfirmJob staged
+ConfirmJob       hold the stock, authorize the card → confirmed → request the capture
+                 out of stock or declined → request the cancellation
+⇢ PaymentCaptured     mark_paid → request the shipment
+⇢ CaptureFailed       request the cancellation
+⇢ ShipmentDispatched  mark_shipped → ship the stock; OrderShipped
+⇢ ShipmentDelivered   mark_delivered; OrderDelivered
+cancellation     until dispatch: CancelJob cancels the shipment, cancels the order (OrderCancelled),
+                 releases the stock and the payment ⇢ RefundFailed sets the order aside
+return           within 14 days of delivery: pickup ⇢ ReturnReceived → restock, release the payment
+                 ⇢ RefundIssued → refunded (OrderRefunded), or RefundFailed → set aside
+deadlines        DeadlineSweepJob requests the cancellation of an order not confirmed or not paid in time
+```
+
 **Placing and confirming** (`Orders::Cart#place_order`, `Orders::Order::Confirmable`):
 
 ```

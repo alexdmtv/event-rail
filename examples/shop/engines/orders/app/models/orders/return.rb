@@ -11,9 +11,11 @@ module Orders
 
     def collect_later = CollectReturnJob.stage(self)
 
+    # Answered by ReturnReceived (receive).
     def collect = (Fulfillment::Api.request_return_pickup(reference: order.reference) if requested?)
 
-    # The release makes Payments refund the capture; it reports the refund with RefundIssued.
+    # The release makes Payments refund the capture. Answered by RefundIssued (complete_refund)
+    # or RefundFailed (Order#flag_refused_refund).
     def receive
       update_if({ state: "requested" }, state: "received", received_at: Time.current)
       return unless received?

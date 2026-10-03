@@ -62,7 +62,8 @@ module Orders
       # Catalog and Fulfillment take an order's goods as quantities by SKU.
       def quantities_by_sku = line_items.to_h { |line| [ line.sku, line.quantity ] }
 
-      # Safe to repeat, and to call for an order whose stock or payment was never held.
+      # Safe to repeat, and to call for an order whose stock or payment was never held. Of the
+      # release's answers, only RefundFailed concerns a cancelled order (flag_refused_refund).
       def release_holds
         Catalog::Api.release(reservation_id: reference)
         Payments::Api.request_release(reference: reference)

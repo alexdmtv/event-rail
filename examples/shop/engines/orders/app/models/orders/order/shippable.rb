@@ -2,6 +2,7 @@ module Orders
   class Order
     module Shippable
       # Only a paid order is shipped. Safe to repeat: Fulfillment ships once per reference.
+      # Answered by ShipmentDispatched (mark_shipped), then ShipmentDelivered (mark_delivered).
       def request_shipment
         return unless confirmed? && paid_at?
 
