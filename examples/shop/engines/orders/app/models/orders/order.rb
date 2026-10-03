@@ -3,7 +3,7 @@ module Orders
   # its time (paid_at, shipped_at, ...); Payments and Fulfillment keep their own states, and the
   # order keeps only the facts it acts on.
   class Order < ApplicationRecord
-    include Confirmable, Payable, Shippable, Cancellable, Returnable
+    include Confirmable, Payable, Shippable, Expirable, Cancellable, Returnable
 
     STATES = %w[ placed confirmed cancelled ].freeze
     CURRENCY = "EUR"
@@ -39,15 +39,6 @@ module Orders
 
     # nil for a reference that is not an order's: Payments and Fulfillment serve other callers too.
     def self.for_reference(reference) = find_by(reference: reference)
-
-    # For the traits' deadlines; an order that shipped while the sweep ran is skipped.
-    def self.request_cancellations(orders, reason:)
-      orders.find_each do |order|
-        order.request_cancellation(reason: reason)
-      rescue NotCancellable
-        next
-      end
-    end
 
     # Rules that span the traits. A verb that depends on one checks it under the order's lock.
     def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?

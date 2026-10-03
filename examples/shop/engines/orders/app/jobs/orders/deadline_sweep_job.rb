@@ -6,9 +6,6 @@ module Orders
 
     queue_as :orders
 
-    def perform
-      Order.cancel_unconfirmed
-      Order.cancel_unpaid
-    end
+    def perform = Order.expire_overdue
   end
 end
