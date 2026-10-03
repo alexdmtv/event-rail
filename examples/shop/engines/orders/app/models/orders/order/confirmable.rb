@@ -6,7 +6,7 @@ module Orders
       def confirm
         hold_and_authorize if placed?
         if confirmed?
-          Payments::Api.request_capture(reference: reference)
+          request_payment
         elsif cancelled?
           # Cancelled while this ran: release what this run took after the cancellation released
           # what it found.

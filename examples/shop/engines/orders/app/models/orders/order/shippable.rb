@@ -1,6 +1,15 @@
 module Orders
   class Order
     module Shippable
+      # Only a paid order is shipped (Payable). Safe to repeat: Fulfillment ships once per reference.
+      def request_shipment
+        Fulfillment::Api.request_shipment(
+          reference: reference,
+          recipient: Fulfillment::Api::Recipient.new(name: customer_name, address: shipping_address),
+          items: items
+        )
+      end
+
       # Ships the stock on every run, not only the one that records the fact, so a retry after
       # the change committed still ships it.
       def mark_shipped(tracking_code:)
