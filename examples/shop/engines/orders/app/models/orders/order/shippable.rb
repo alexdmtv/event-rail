@@ -1,8 +1,10 @@
 module Orders
   class Order
     module Shippable
-      # Only a paid order is shipped (Payable). Safe to repeat: Fulfillment ships once per reference.
+      # Only a paid order is shipped. Safe to repeat: Fulfillment ships once per reference.
       def request_shipment
+        return unless confirmed? && paid_at?
+
         Fulfillment::Api.request_shipment(
           reference: reference,
           recipient: Fulfillment::Api::Recipient.new(name: customer_name, address: shipping_address),

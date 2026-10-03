@@ -18,6 +18,25 @@ module Orders
       assert_equal 8, on_hand("MUG")
     end
 
+    test "an order is paid for only once confirmed" do
+      order = checkout
+      clear_enqueued_jobs # placed, its confirmation not run
+
+      assert_nothing_raised do
+        failing(Payments::Api, :request_capture, "an unconfirmed order asked to be paid") { order.request_payment }
+      end
+    end
+
+    test "an order is shipped only once paid" do
+      slow_carrier
+      order = place
+      clear_enqueued_jobs # confirmed, its capture not run
+
+      order.request_shipment
+
+      assert_nil Fulfillment::TestSupport.shipment(order.reference)
+    end
+
     test "temporary capture failures are retried and the order is paid with a single capture" do
       Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout, :timeout ])
       order = nil

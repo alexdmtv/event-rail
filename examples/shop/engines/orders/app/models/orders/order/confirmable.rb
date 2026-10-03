@@ -5,13 +5,10 @@ module Orders
       # any point, runs it again to the same end.
       def confirm
         hold_and_authorize if placed?
-        if confirmed?
-          request_payment
-        elsif cancelled?
-          # Cancelled while this ran: release what this run took after the cancellation released
-          # what it found.
-          release_holds
-        end
+        request_payment
+        # Cancelled while this ran: release what this run took after the cancellation released
+        # what it found.
+        release_holds if cancelled?
       rescue Catalog::OutOfStock => out_of_stock
         request_cancellation(reason: out_of_stock.message)
       rescue Payments::Declined => declined
