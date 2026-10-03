@@ -133,7 +133,7 @@ Every interaction between two modules in this application (`test/docs/readme_gui
 | `subscribes_to Orders::Events::OrderCancelled` | event (Notifications) | as above |
 | `subscribes_to Orders::Events::OrderRefunded` | event (Notifications, Loyalty) | as above |
 
-Inside a module, work with one known handler is a plain job, staged by name, not an event: confirming an order, carrying out a cancellation, the carrier's scheduled steps, the capture itself, the deadline sweep. An event would add indirection and nothing else. For the same reason this shop has **no internal events**: none passed the question above, and a plain job does the same work with less machinery.
+Inside a module, work with one known handler is a plain job, staged by name, not an event: confirming an order, carrying out a cancellation, the carrier's scheduled steps, the capture itself, the deadline sweep. An event would add indirection and nothing else. A side effect the process doesn't need is different: it is a subscriber, so adding one never changes the process. It subscribes to the public event when other modules care about the fact, and to an **internal event** — one only its own module hears — when none does. The shop has no internal events because none of its reactions is such a side effect yet; one that may be lost, such as analytics, would be instrumented with `ActiveSupport::Notifications` or `Rails.event` rather than delivered as a job.
 
 ### Anti-patterns this design avoids
 
