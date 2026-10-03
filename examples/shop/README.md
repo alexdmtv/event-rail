@@ -107,7 +107,7 @@ Every interaction between two modules in this application:
 
 | Interaction | Mechanism | Why |
 | --- | --- | --- |
-| `Catalog::Api.unknown_skus` | query | a cart takes only products the shop sells; one question for all its items |
+| `Catalog::Api.products` | query | a cart takes only products the shop sells; one question for all its items |
 | `Catalog::Api.quote` | query | placing an order freezes the prices it was placed at |
 | `Catalog::Api.reserve` | decides now | confirming an order must know now whether the stock is there |
 | `Catalog::Api.release` | decides now | giving back Orders' own reservation, for a cancellation |

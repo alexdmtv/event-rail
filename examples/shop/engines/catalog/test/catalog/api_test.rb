@@ -9,9 +9,9 @@ module Catalog
 
     def available(sku) = Product.find_by_sku!(sku).available
 
-    test "the SKUs the shop sells nothing under are found in one query" do
+    test "products are looked up for many SKUs in one query, leaving out what the shop does not sell" do
       assert_queries_count(1) do
-        assert_equal %w[ SPOON ], Api.unknown_skus(%w[ MUG SPOON TEA MUG ])
+        assert_equal %w[ MUG TEA ], Api.products(%w[ MUG SPOON TEA ]).map(&:sku).sort
       end
     end
 

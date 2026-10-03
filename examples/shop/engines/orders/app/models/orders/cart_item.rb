@@ -16,7 +16,7 @@ module Orders
       end
 
       def product_is_sold
-        errors.add(:sku, :unknown_product, message: "is not a product the shop sells") if cart.unknown_skus.include?(sku)
+        errors.add(:sku, :unknown_product, message: "is not a product the shop sells") unless cart.catalog_products.key?(sku)
       end
   end
 end

@@ -3,6 +3,7 @@ module Catalog
   # continue without the answer: checkout must know the price and whether the stock exists
   # before it can accept an order. Results are plain values, never records.
   module Api
+    Product = Data.define(:sku, :name, :price_cents)
     Line = Data.define(:sku, :name, :quantity, :unit_price_cents) do
       def total_cents = quantity * unit_price_cents
     end
@@ -11,8 +12,9 @@ module Catalog
     end
 
     class << self
-      # Which of these SKUs the shop sells no product under, in one query.
-      def unknown_skus(skus) = skus.uniq - Catalog::Product.where(sku: skus).pluck(:sku)
+      # The products the shop sells under these SKUs, in one query; a SKU it sells nothing under
+      # is left out.
+      def products(skus) = Catalog::Product.where(sku: skus).map { |product| Product.new(sku: product.sku, name: product.name, price_cents: product.price_cents) }
 
       # items: { "sku" => quantity }, priced in one query. Raises UnknownProduct.
       def quote(items)
