@@ -1,8 +1,7 @@
 require "test_helper"
 
 module Platform
-  # The test environment has no queue database, so Solid Queue's failed executions are stood
-  # in for by values that answer the same two questions: why the job failed, and retry.
+  # The test environment has no queue database, so failed executions are stood in for.
   class RetryInterruptedJobsJobTest < ActiveSupport::TestCase
     FailedExecution = Struct.new(:exception_class, :retried) do
       def retry = self.retried = true

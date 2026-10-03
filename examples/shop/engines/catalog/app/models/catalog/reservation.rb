@@ -1,20 +1,14 @@
 module Catalog
-  # Stock held for a caller, one row per product, all sharing the caller's reservation ID.
-  # `on_hand` counts what is physically in the warehouse; a held reservation makes part of it
-  # unavailable without moving it. Every step is safe to repeat: each moves only the rows still
-  # in the state it starts from.
+  # One row per product, sharing the caller's reservation ID. on_hand is what is physically in the
+  # warehouse, so a hold leaves it alone. Each step moves only rows still in its starting state.
   class Reservation < ApplicationRecord
     belongs_to :product
 
     scope :held, -> { where(state: "held") }
     scope :for, ->(reservation_id) { where(reservation_id: reservation_id) }
 
-    # Holds stock for every item or for none; items: { "sku" => positive Integer }. Repeating
-    # a reservation ID holds nothing more.
-    #
-    # One reservation spans several products, and each product guards its own stock, so the
-    # transaction takes several products' locks: taken in SKU order, so that two reservations
-    # sharing products cannot deadlock.
+    # All items or none; repeating a reservation ID holds nothing more. Products are locked in
+    # SKU order so two reservations sharing products cannot deadlock.
     def self.hold(reservation_id, items)
       transaction do
         next if self.for(reservation_id).exists?
@@ -30,10 +24,8 @@ module Catalog
       end
     end
 
-    # Gives held stock back.
     def self.release = held.update_all(state: "released", updated_at: Time.current)
 
-    # Turns held stock into goods that left the warehouse.
     def self.ship
       transaction do
         held.lock.each do |reservation|
@@ -43,7 +35,6 @@ module Catalog
       end
     end
 
-    # Puts goods that came back into the warehouse.
     def self.restock
       transaction do
         where(state: "shipped").lock.each do |reservation|

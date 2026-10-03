@@ -1,7 +1,5 @@
 module Orders
-  # A delivered order coming back, whole: requested, then received at the warehouse, then
-  # refunded -- or refund_failed, when the card issuer refuses the refund, for a person to
-  # resolve. Every step is safe to repeat.
+  # A delivered order coming back, whole. Every step is safe to repeat.
   class Return < ApplicationRecord
     STATES = %w[ requested received refunded refund_failed ].freeze
 
@@ -11,17 +9,14 @@ module Orders
 
     STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
 
-    # The return for a reference Fulfillment or Payments reports, or nil: they serve any caller,
-    # and a refund for a cancelled order has no return.
+    # nil for a reference with no return, such as a cancelled order's refund.
     def self.for_reference(reference) = joins(:order).find_by(orders_orders: { reference: reference })
 
     def collect_later = CollectReturnJob.stage(self)
 
-    # Asks the carrier to bring the parcel back.
     def collect = (Fulfillment::Api.request_return_pickup(reference: order.reference) if requested?)
 
-    # The parcel is back: its items go back on the shelf and the customer's money goes back to
-    # their card. The refund is reported by Payments.
+    # The release makes Payments refund the capture; it reports the refund with RefundIssued.
     def receive
       update_if({ state: "requested" }, state: "received", received_at: Time.current)
       return unless received?
@@ -36,7 +31,6 @@ module Orders
       end
     end
 
-    # Retrying will not change the issuer's mind, and the customer is owed money.
     def record_refund_failure(reason)
       update_if({ state: "received" }, state: "refund_failed", failure_reason: "refund refused: #{reason}")
     end

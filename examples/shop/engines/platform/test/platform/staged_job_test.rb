@@ -1,8 +1,7 @@
 require "test_helper"
 require "event_rail/test_helper"
 
-# An event and two subscribers of its own, so EventRail.stage can be shown going through this
-# stager without reaching into another module.
+# An event of its own, to test EventRail.stage through this stager without another module.
 EventRail::TestHelper.declare do
   module Platform
     module StagedJobFixtures
@@ -35,14 +34,12 @@ end
 module Platform
   class StagedJobTest < ActiveSupport::TestCase
     include EventRail::TestHelper
-    # A job that notes the flow it ran in.
     class ProbeJob < Platform::ApplicationJob
       cattr_accessor :runs, default: []
 
       def perform(label) = runs << [ label, job_id, EventRail::Current.correlation_id ]
     end
 
-    # A job that declines to be enqueued.
     class DeclinedJob < ProbeJob
       before_enqueue { throw :abort }
     end
@@ -147,8 +144,6 @@ module Platform
 
       assert_equal [ [ "staged", job.job_id, "checkout-k" ] ], ProbeJob.runs
     end
-
-    # --- EventRail.stage goes through the same stager ---------------------------------
 
     test "a staged event reaches both subscribers after the commit, with its ID and the flow it was staged in" do
       staged = with_subscribers(StagedJobFixtures::NoticeJob, StagedJobFixtures::OtherNoticeJob) do

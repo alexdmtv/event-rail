@@ -1,8 +1,6 @@
 require "test_helper"
 
-# Every error the shop raises says what a caller should do about it, by including one of
-# Platform's categories (see Platform::ErrorCategory). A base class that only groups a module's
-# errors needs none.
+# A base class that only groups a module's errors needs no category.
 class ErrorCategoriesTest < ActiveSupport::TestCase
   test "every error the shop defines includes a category" do
     Rails.application.eager_load!

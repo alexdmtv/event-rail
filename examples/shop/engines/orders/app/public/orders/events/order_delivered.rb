@@ -1,6 +1,5 @@
 module Orders
   module Events
-    # The customer received the order.
     class OrderDelivered < EventRail::Event
       event_type "orders.order_delivered"
       version 1

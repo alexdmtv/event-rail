@@ -1,13 +1,9 @@
 module Orders
-  # What other modules' tests need of Orders: a customer's carts and orders, driven through
-  # Orders' own verbs, and the order read back as a record. It lives with Orders, so it may use
-  # Orders' models; it is outside the load paths, so only tests can load it.
   module TestSupport
-    # Who is buying, as a test describes them.
     Customer = Data.define(:id, :name, :email, :address)
 
     class << self
-      # items: { "sku" => quantity }, for brevity; a cart takes them as a list.
+      # items: { "sku" => quantity }
       def open_cart(customer:, items:)
         Cart.open(customer_id: customer.id, customer_name: customer.name, customer_email: customer.email, shipping_address: customer.address,
           items: items.map { |sku, quantity| { sku: sku, quantity: quantity } })

@@ -1,16 +1,13 @@
 module Payments
-  # The payment provider, as Payments sees it: the seam where an application plugs in its
-  # provider, and so part of Payments' public surface. An adapter answers `authorize`,
-  # `capture`, `void` and `refund`, and raises Refused or TemporaryFailure. The example
-  # ships Gateway::Fake, which stays private to Payments; tests install a scripted adapter.
+  # The provider seam: an adapter answers `authorize`, `capture`, `void` and `refund`, and
+  # raises Refused or TemporaryFailure.
   module Gateway
-    # The provider refused, definitively: a declined authorization, a refused capture or
-    # refund. Retrying will not help.
+    # A definitive refusal; retrying will not help.
     class Refused < StandardError
       include Platform::FailedPrecondition
     end
 
-    # The provider could not answer this time: a timeout, a 503. Retrying is the right move.
+    # No answer this time (a timeout, a 503); retrying may help.
     class TemporaryFailure < StandardError
       include Platform::Unavailable
     end

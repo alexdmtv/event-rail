@@ -1,13 +1,10 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
-  # Jobs run all the time here -- the staged-jobs relay every second -- so the terminal shows
-  # requests at info level and jobs log to log/jobs.log; RAILS_LOG_LEVEL=debug brings back
-  # every SQL query.
+  # The relay runs a job every second, so jobs log apart and the terminal stays at info.
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
   config.active_job.logger = ActiveSupport::TaggedLogging.logger(Rails.root.join("log/jobs.log"))
 
-  # Jobs run in Solid Queue, in their own database, inside the Puma process that bin/dev starts.
   config.active_job.queue_adapter = :solid_queue
   config.solid_queue.connects_to = { database: { writing: :queue } }
 

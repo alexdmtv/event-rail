@@ -1,9 +1,8 @@
 module Notifications
-  # A message sent to a customer about their order: one per order and kind of fact, so a fact
-  # delivered twice, or under two identities, is sent once.
+  # Unique by order and kind rather than event ID, so a fact delivered under two identities is
+  # sent once.
   class Notification < ApplicationRecord
-    # A notice about something that happened longer ago than this is not worth sending: after an
-    # outage, a replayed "your order shipped" from yesterday would only confuse.
+    # After an outage, a replayed "your order shipped" from yesterday would only confuse.
     STALE_AFTER = 1.hour
 
     def self.send_for(event)

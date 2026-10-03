@@ -1,6 +1,5 @@
 module Orders
-  # A product and how many of it, in a cart. The product must be one the shop sells; its price
-  # is read when the order is placed, not now.
+  # Holds no price: the order prices its items when it is placed.
   class CartItem < ApplicationRecord
     belongs_to :cart
 
@@ -9,7 +8,8 @@ module Orders
     validate :product_is_sold, :listed_once, if: :sku?
 
     private
-      # The table holds one row per product in a cart, so a request listing one twice is refused.
+      # A unique index allows one row per product; checking here reports a duplicate as invalid
+      # input rather than a database error.
       def listed_once
         earlier = cart.items.take_while { |item| !item.equal?(self) }
         errors.add(:sku, :taken, message: "is listed more than once") if earlier.any? { |item| item.sku == sku }

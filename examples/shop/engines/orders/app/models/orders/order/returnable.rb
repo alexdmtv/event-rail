@@ -1,8 +1,5 @@
 module Orders
   class Order
-    # A delivered order coming back, whole, within its return window. The return is an
-    # aggregate of its own: the order checks its own rules and creates it, and from then on the
-    # return lives its own life (Orders::Return).
     module Returnable
       extend ActiveSupport::Concern
 
@@ -10,8 +7,7 @@ module Orders
         has_many :returns, dependent: :destroy
       end
 
-      # A request repeated for an order already coming back returns that return: the window
-      # applies to the first request.
+      # Safe to repeat: returns the existing return, even once the window has closed.
       def request_return
         Flow.continue(self, step: "return") do
           with_lock do

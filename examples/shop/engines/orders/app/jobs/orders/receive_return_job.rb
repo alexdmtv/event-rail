@@ -1,5 +1,4 @@
 module Orders
-  # A returned parcel is back at the warehouse.
   class ReceiveReturnJob < ApplicationJob
     subscribes_to Fulfillment::Events::ReturnReceived
 

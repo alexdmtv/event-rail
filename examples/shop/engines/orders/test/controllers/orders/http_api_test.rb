@@ -102,7 +102,7 @@ module Orders
     end
 
     test "a path no route matches is answered as problem details too, as in production" do
-      # Tests, like development, answer with Rails' debugging details; production does not.
+      # Tests answer with Rails' debugging details, as development does; switch to production's.
       detailed = Rails.application.env_config["action_dispatch.show_detailed_exceptions"]
       Rails.application.env_config["action_dispatch.show_detailed_exceptions"] = false
       get "/nowhere", as: :json

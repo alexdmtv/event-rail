@@ -1,9 +1,6 @@
 module Platform
-  # Input refused, with every reason at once: each violation names the field it concerns, in the
-  # caller's own terms and Active Model's notation (customer_email, items[1].quantity), with a
-  # stable code a client can act on and a message a person can read. A module raises it for
-  # input it validates as a whole, so a form hears about all its mistakes in one answer, not one
-  # at a time.
+  # Every violation at once. A field is in the caller's terms and Active Model's notation
+  # (items[1].quantity); a code is stable for clients to act on.
   class InvalidInput < StandardError
     include InvalidArgument
 
@@ -11,7 +8,7 @@ module Platform
 
     attr_reader :violations
 
-    # From the errors of an ActiveModel validation, whose attribute names are the fields.
+    # Takes the attribute names of the validation's errors as the fields.
     def self.from(errors)
       new(errors.map { |error| Violation.new(field: error.attribute.to_s, code: error.type.to_s, message: error.message) })
     end

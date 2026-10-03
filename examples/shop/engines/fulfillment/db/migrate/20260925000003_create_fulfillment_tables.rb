@@ -2,8 +2,7 @@ class CreateFulfillmentTables < ActiveRecord::Migration[8.1]
   def change
     create_table :fulfillment_shipments do |t|
       t.string :reference, null: false, index: { unique: true }
-      # A shipment cancelled before it was requested has no recipient: it only stops a
-      # request still on its way from reviving it.
+      # Null for a shipment cancelled before it was requested.
       t.string :recipient_name
       t.string :address
       t.json :items, null: false, default: {}

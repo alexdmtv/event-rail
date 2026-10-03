@@ -1,8 +1,5 @@
 require "test_helper"
 
-# The README's "What goes where" guide names every interaction between two modules, with
-# its mechanism and the reason for it. This fails when a module starts calling another
-# module's API, or subscribing to its events, and the guide does not say why.
 class ReadmeGuideTest < ActiveSupport::TestCase
   test "the guide lists every cross-module call and subscription" do
     guide = Rails.root.join("README.md").read[/^## What goes where$.*?(?=^## )/m]

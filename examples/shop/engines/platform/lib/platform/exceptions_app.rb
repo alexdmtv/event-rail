@@ -1,7 +1,6 @@
 module Platform
-  # Rails' exceptions app, for the errors no controller answered: an unknown route, or a bug.
-  # It answers with the same problem details as Platform::ApplicationController, without a
-  # detail, so a client parses one shape for every error and learns nothing of the failure.
+  # For errors no controller answered: problem details without a detail, so a client learns
+  # nothing of the failure.
   class ExceptionsApp
     def self.call(env)
       status = env["PATH_INFO"].delete_prefix("/").to_i

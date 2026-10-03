@@ -1,5 +1,5 @@
-# A payment provider whose answers a test scripts in advance, one per call and per method:
-# :ok, :refuse or :timeout. Unscripted calls succeed.
+# Answers each call with the next scripted :ok, :refuse or :timeout for its method;
+# unscripted calls succeed.
 class ScriptedGateway
   attr_reader :calls
 

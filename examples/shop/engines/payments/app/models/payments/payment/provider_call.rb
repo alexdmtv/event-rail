@@ -1,9 +1,7 @@
 module Payments
   class Payment
-    # One call to the provider for a payment, answering with the attributes that record its
-    # outcome. A refusal is an answer; a temporary failure is raised, for the job to retry.
-    # Every call carries an idempotency key per payment and operation, so asking again after a
-    # timeout returns the provider's real answer rather than acting twice.
+    # Answers with the attributes recording the outcome; a refusal is an answer, a temporary
+    # failure raises. The idempotency key makes asking again after a timeout safe.
     class ProviderCall
       def initialize(payment)
         @payment = payment
@@ -21,8 +19,7 @@ module Payments
         gateway.void(idempotency_key: key("void"), authorization_code: @payment.authorization_code)
         { state: @payment.authorized? ? "voided" : @payment.state, voided_at: Time.current }
       rescue Gateway::Refused => refusal
-        # An authorization nobody can void expires at the card issuer on its own after days;
-        # there is nothing further to report.
+        # An unvoidable authorization expires at the issuer on its own; only report it.
         Rails.error.report(Gateway::Refused.new("could not void payment #{@payment.reference}: #{refusal.message}"), handled: true, severity: :warning)
         {}
       end

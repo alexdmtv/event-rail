@@ -1,4 +1,4 @@
 module Platform
-  # Error category: lost a race; the whole operation is tried again. Retried; HTTP 409. See Platform::ErrorCategory.
+  # Error category: lost a race. Retried quickly; HTTP 409.
   module Aborted; end
 end

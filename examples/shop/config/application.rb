@@ -18,8 +18,7 @@ require "rails/test_unit/railtie"
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
-# The shop's modules, in dependency order. Each engine also requires the engines it builds
-# on, so it can boot on its own for its generators.
+# The shop's modules, in dependency order.
 require_relative "../engines/platform/lib/platform/engine"
 require_relative "../engines/catalog/lib/catalog/engine"
 require_relative "../engines/payments/lib/payments/engine"
@@ -33,7 +32,6 @@ module Shop
     # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.1
 
-    # The shop is driven over JSON: no views, sessions or assets.
     config.api_only = true
 
     # Please, add to the `ignore` list any other `lib` subdirectories that do
@@ -41,15 +39,10 @@ module Shop
     # Common ones are `templates`, `generators`, or `middleware`, for example.
     config.autoload_lib(ignore: %w[assets tasks])
 
-    # Every module's published events live under its public folder, in
-    # app/public/<module>/events. Naming that folder makes EventRail discover them at boot,
-    # even an event no subscriber has referenced yet. The folder is an engine eager-load path,
-    # so Rails loads it in every environment.
+    # Discovers every module's published events at boot, even one no subscriber references yet.
     config.event_rail.roots << "app/public"
 
-    # Where EventRail.stage puts an event's subscriber jobs: the same staged-jobs table a domain
-    # method stages its own jobs in (Platform::ApplicationJob.stage), so one relay hands both to
-    # the queue. By name, because the class is reloadable application code.
+    # A name, not the class: the class is reloadable application code.
     config.event_rail.stager = "Platform::StagedJob"
 
     # Configuration for the application, engines, and railties goes here.

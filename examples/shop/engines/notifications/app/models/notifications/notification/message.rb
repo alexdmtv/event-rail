@@ -1,6 +1,5 @@
 module Notifications
   class Notification
-    # The words of each customer-facing order fact.
     module Message
       def self.for(event)
         greeting = "Hello #{event.customer_name},"
@@ -20,7 +19,6 @@ module Notifications
         end
       end
 
-      # Version 1 carried an integer total; version 2 carries a Money.
       def self.placed_total_cents(event)
         event.is_a?(Orders::Events::OrderPlacedV1) ? event.total_cents : event.total.amount_cents
       end

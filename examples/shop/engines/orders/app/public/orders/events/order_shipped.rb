@@ -1,6 +1,5 @@
 module Orders
   module Events
-    # The order left the warehouse.
     class OrderShipped < EventRail::Event
       event_type "orders.order_shipped"
       version 1

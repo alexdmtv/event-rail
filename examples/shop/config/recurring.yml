@@ -1,5 +1,3 @@
-# Scheduled work. Each of these jobs starts outside every flow, so none carries EventRail's
-# context; what they cause joins the flows of the orders they act on.
 shop: &shop
   hand_over_staged_jobs:
     class: Platform::StagedJobRelayJob
@@ -10,8 +8,8 @@ shop: &shop
   enforce_order_deadlines:
     class: Orders::DeadlineSweepJob
     schedule: every minute
-  # Solid Queue keeps finished jobs for a day; this deletes older ones. With the relay running
-  # every second, the queue database would otherwise grow without end in development too.
+  # Solid Queue keeps finished jobs until cleared; with the relay running every second, the
+  # queue database would otherwise grow without end, in development too.
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
@@ -19,7 +17,7 @@ shop: &shop
 development:
   <<: *shop
 
-# Nothing runs the schedule in tests; they enqueue a task by its key (see test/support/schedule.rb).
+# Nothing runs the schedule in tests; test/support/schedule.rb enqueues tasks by key.
 test:
   <<: *shop
 

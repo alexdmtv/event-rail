@@ -1,4 +1,4 @@
 module Platform
-  # Error category: a rate limit or quota; tried again later. Retried with a longer wait; HTTP 429. See Platform::ErrorCategory.
+  # Error category: a rate limit or quota. Retried with backoff; HTTP 429.
   module ResourceExhausted; end
 end

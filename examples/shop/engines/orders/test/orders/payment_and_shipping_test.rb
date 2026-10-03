@@ -118,9 +118,7 @@ module Orders
     end
 
     private
-      # Delivers the same event to the subscriber twice. The second delivery must leave the
-      # order as the first left it, and anything it republishes must carry the identity the
-      # first delivery's publication had.
+      # Delivers the event twice; the second delivery must change nothing and stage nothing.
       def assert_redelivery_changes_nothing(subscriber, event)
         stamped = EventRail.publish(event).event
         clear_enqueued_jobs

@@ -1,11 +1,7 @@
 module Orders
   class Order
-    # Calling an order off. Anyone may ask -- the customer, a refused capture, a deadline -- and
-    # the request is recorded at once; whether it can still happen is Fulfillment's to say, in
-    # a job, because only Fulfillment knows whether the parcel has left.
     module Cancellable
-      # Records the request and stages the cancellation, under the order's lock. A second
-      # request, or one for an order already cancelled, changes nothing.
+      # Safe to repeat: a second request, or one for a cancelled order, changes nothing.
       def request_cancellation(reason:)
         Flow.continue(self, step: "cancel") do
           with_lock do
@@ -19,9 +15,8 @@ module Orders
         self
       end
 
-      # Stops the shipment if Fulfillment still can, and then cancels the order, announcing it
-      # in the same transaction, and gives back its stock and its payment -- every run, so that
-      # a run retried after the cancellation committed still gives them back.
+      # Releases the holds on every run, not only the one that cancelled, so a retry after the
+      # cancellation committed still releases them.
       def cancel
         Fulfillment::Api.cancel_shipment(reference: reference)
         update_if({ state: %w[ placed confirmed ] }, state: "cancelled", cancelled_at: Time.current) do

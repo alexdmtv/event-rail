@@ -1,5 +1,3 @@
-# Fulfillment' published events: the only part of Fulfillment a module that merely reacts to it
-# needs. It depends on nothing, so an event can never reach into Fulfillment' internals, and
-# depending on it grants those events and nothing else.
+# Depends on nothing, so an event can never reach into Fulfillment.
 enforce_dependencies: true
 dependencies: []

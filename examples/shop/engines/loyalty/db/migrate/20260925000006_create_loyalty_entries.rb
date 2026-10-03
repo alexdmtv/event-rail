@@ -7,8 +7,6 @@ class CreateLoyaltyEntries < ActiveRecord::Migration[8.1]
       t.integer :points, null: false
       t.string :event_id, null: false
       t.datetime :created_at, null: false
-      # One award and at most one revocation per order: a redelivered event, or the same fact
-      # republished, changes no balance.
       t.index [ :order_id, :kind ], unique: true
     end
   end

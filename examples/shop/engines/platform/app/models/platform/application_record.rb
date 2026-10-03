@@ -1,17 +1,11 @@
 module Platform
-  # Each module's own ApplicationRecord inherits from this one, which is the application's
-  # single primary abstract class.
   class ApplicationRecord < ActiveRecord::Base
     primary_abstract_class
 
     private
-      # Makes the change if the row still meets the condition, in one statement, so that a
-      # step repeated or raced by another process changes the row once; true if this call made
-      # the change. The record is reloaded either way. For a model's own transition methods.
-      #
-      # With a block, the change and the block commit together, and the block runs only when
-      # this call made the change: where a step stages the event that reports it, so the fact
-      # and its announcement commit as one, once.
+      # One conditional statement, so a repeated or raced step changes the row once; true if
+      # this call made the change, and the record is reloaded either way. The block runs only
+      # then, in the same transaction.
       def update_if(condition, **attributes, &block)
         return change_if(condition, attributes) unless block
 

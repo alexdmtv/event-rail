@@ -88,7 +88,6 @@ class OrderLifecycleTest < FlowTestCase
   end
 
   private
-    # How often each job class ran while the block's orders were placed and settled.
     def jobs_run
       runs = Hash.new(0)
       count = ->(event) { runs[event.payload[:job].class.name] += 1 }

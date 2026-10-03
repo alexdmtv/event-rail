@@ -1,11 +1,9 @@
 module Loyalty
-  # A line in a customer's points ledger. The balance is the sum of the lines. One line per
-  # order and kind, so a fact delivered twice is counted once.
+  # A line in a customer's points ledger, whose balance is the sum. Unique by order and kind
+  # rather than event ID, so a fact delivered twice, under any identity, counts once.
   class Entry < ApplicationRecord
-    # One point per whole euro of a delivered order.
     def self.award(delivered) = record(delivered, kind: "award", points: points_for(delivered.total))
 
-    # A refunded order takes its points back.
     def self.revoke(refunded) = record(refunded, kind: "revoke", points: -points_for(refunded.total))
 
     def self.points_for(total) = total.amount_cents / 100

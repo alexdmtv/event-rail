@@ -1,14 +1,9 @@
-# Works off the test queue the way a Solid Queue worker does: one job at a time, oldest
-# first, each failure contained in its own job. Retries are scheduled in the future by
-# retry_on; the worker does not wait for them, as if time had passed.
-#
-# Flow tests use this instead of performing jobs inline, because inline jobs run inside the
-# enqueue that created them: a failing subscriber would raise out of the publisher that
-# enqueued it, which is the opposite of how the shop behaves.
+# Works off the queue as a worker does, one job at a time with each failure contained. Not
+# inline: an inline job's failure would raise out of the code that enqueued it.
 module Worker
   Failure = Data.define(:job_class, :error, :job)
 
-  # With due_only, jobs scheduled for later -- a slow carrier's next step -- stay queued.
+  # Runs retries without waiting for them, as if time had passed, unless due_only.
   def work_off_queue(max_jobs: 1_000, due_only: false)
     failures = []
     max_jobs.times do
@@ -23,8 +18,7 @@ module Worker
     raise "the queue did not drain within #{max_jobs} jobs"
   end
 
-  # Puts failed jobs back on the queue, as a person replaying them from the failed jobs does:
-  # the same job, under the same ID.
+  # Requeues failed jobs under the same IDs, as replaying them from the failed jobs does.
   def replay(*failures)
     failures.flatten.each { |failure| queue_adapter.enqueued_jobs << failure.job.except(:at) }
   end

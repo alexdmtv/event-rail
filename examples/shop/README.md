@@ -71,8 +71,8 @@ Each module is a Rails engine under `engines/`, with one namespace named after i
 | --- | --- | --- | --- | --- |
 | `Platform` | base classes, the staged-jobs table | — | — | — |
 | `Catalog` | products, prices, stock, reservations | — | — | — |
-| `Payments` | authorizations, captures, voids, refunds; a fake gateway | — | `PaymentCaptured`, `CaptureFailed`, `AuthorizationVoided`, `RefundIssued`, `RefundFailed` | — |
-| `Fulfillment` | shipments and returns; a fake carrier | — | `ShipmentDispatched`, `ShipmentDelivered`, `ReturnReceived` | — |
+| `Payments` | authorizations, captures, voids, refunds; the gateway seam (`Payments::Gateway`) and a fake provider | — | `PaymentCaptured`, `CaptureFailed`, `AuthorizationVoided`, `RefundIssued`, `RefundFailed` | — |
+| `Fulfillment` | shipments and returns; the carrier seam (`Fulfillment::Carrier`) and a fake carrier | — | `ShipmentDispatched`, `ShipmentDelivered`, `ReturnReceived` | — |
 | `Orders` | carts, orders and their whole lifecycle, returns | Catalog, Payments, Fulfillment | `OrderPlaced` (v2, v1 kept), `OrderShipped`, `OrderDelivered`, `OrderCancelled`, `OrderRefunded` | Payments, Fulfillment |
 | `Notifications` | customer notifications (recorded, not emailed) | — | — | Orders |
 | `Loyalty` | a points ledger | — | — | Orders |
@@ -103,7 +103,7 @@ One question decides between a call, a request and an event: **if nobody reacted
 - **Yes** — then the step is the publisher's to cause. A **call that decides now** when it cannot continue without the answer: when it returns, the outcome is final, and a refusal is raised. A **request** — an API method named `request_*` that records it, or enqueues the module's own job, and returns — when the work is slow, unreliable or behind an external provider; its outcome arrives later as an event, or the request waits in the failed jobs to be replayed.
 - **No** — then it is someone else's business, and it is an **event**.
 
-Every interaction between two modules in this application:
+Every interaction between two modules in this application (`test/docs/readme_guide_test.rb` fails when one is missing from this table):
 
 | Interaction | Mechanism | Why |
 | --- | --- | --- |
@@ -161,11 +161,11 @@ A cart refuses what it can tell at once — a quantity that is not a whole numbe
 
 **Cancellation is a request** (`Orders::Order::Cancellable`), as in most real shops. Anyone may ask — the customer, a refused capture, a deadline — and the request is recorded at once, under the order's lock. Whether it can still happen is Fulfillment's to say, in a job, because only Fulfillment knows whether the carrier has the parcel — even before Orders has heard. If it has, the cancellation is refused, the refusal is recorded on the order, and a return is the way back. Otherwise the order is cancelled, with `OrderCancelled` staged in the same transaction, and every run of the job gives back the stock and asks Payments to *release* the payment. Payments voids the hold if nothing was captured and refunds if something was, deciding from its own state when it runs: an order not yet marked paid can have a capture that landed before Orders heard of it.
 
-**Deadlines, not retry counts, give up on an order.** Retrying is infrastructure: every job retries a temporary failure until it succeeds, or ends in the failed jobs to be replayed once the cause is fixed. Giving up is a business decision, taken by `Orders::DeadlineSweepJob` every minute: an order placed but not confirmed within two minutes, and an order confirmed but not paid within thirty, has its cancellation requested with the reason. A job still working on such an order finds it cancelled on its next run and does nothing — or, if it was confirming, gives back what it had just taken.
+**Deadlines, not retry counts, give up on an order.** Retrying is infrastructure: every job retries a temporary failure until it succeeds, or ends in the failed jobs to be replayed once the cause is fixed. Giving up is a business decision, taken by `Orders::DeadlineSweepJob` every minute: an order placed but not confirmed within two minutes, so the customer hears within minutes whatever is failing, and an order confirmed but not paid within thirty, has its cancellation requested with the reason. A job still working on such an order finds it cancelled on its next run and does nothing — or, if it was confirming, gives back what it had just taken.
 
 **Carrier reports arrive in any order.** The workers run in parallel and EventRail promises no ordering, so a delivery can be handled before the dispatch it follows. Orders' delivery subscriber then raises and is retried until the dispatch is recorded, rather than succeeding without effect and losing the delivery.
 
-**Returns** are an aggregate of their own (`Orders::Return`). The order checks its own rules — delivered, within 14 days, not already coming back — under its lock, and creates the return; from then on the return lives its own life: the carrier brings the parcel back, Orders restocks it and requests a refund, and the return is refunded when Payments reports it. A refund the provider definitively refuses sets the return aside for a person rather than retrying forever.
+An order and its line items are one aggregate. **Returns** are an aggregate of their own (`Orders::Return`). The order checks its own rules — delivered, within 14 days, not already coming back — under its lock, and creates the return; from then on the return lives its own life: the carrier brings the parcel back, Orders restocks it and requests a refund, and the return is refunded when Payments reports it. A refund the provider definitively refuses sets the return aside for a person rather than retrying forever.
 
 ## Errors, retries and idempotency
 
@@ -188,7 +188,7 @@ The patterns, in short: **record the decision and stage what follows**; **ask th
 
 **Lineage.** Placing a cart opens EventRail's context with a message ID derived from the cart; every job that includes `EventRail::JobContext` carries it on, and every event records its correlation and causation. That is enough to follow an order's whole flow — in logs, in error reports, in traces. Work that *starts* flows — a web request, the deadline sweep — deliberately carries no context; a cancellation or a return it requests joins the order's own flow (`Orders::Flow`).
 
-**Every error says what a caller should do.** A module's error is named for what happened — `NotCancellable`, `Declined` — lives in the module's namespace, one public file each in `app/public/<module>/`, and includes one of Platform's categories, named after gRPC's status codes: `FailedPrecondition`, `Unavailable`, `Aborted` and the rest (`Platform::ErrorCategory`). Only infrastructure reads the category. `Platform::ApplicationJob` holds the shop's one retry policy: a temporary failure is retried with backoff, a lost race quickly, an expected failure nobody handled fails at once, and an error with no category — a bug, or something nobody has classified — is retried and then left in the failed-jobs list. `Platform::ErrorSubscriber` is the one place errors are reported from: it counts expected failures rather than reporting them, and reports everything else with the flow it happened in.
+**Every error says what a caller should do.** A module's error is named for what happened — `NotCancellable`, `Declined` — lives in the module's namespace, one public file each in `app/public/<module>/`, and includes one of Platform's categories, named after gRPC's status codes: `FailedPrecondition`, `Unavailable`, `Aborted` and the rest (`Platform::ErrorCategory`). Only infrastructure reads the category. `Platform::ApplicationJob` holds the shop's one retry policy: a temporary failure is retried with backoff, a lost race quickly, an expected failure nobody handled fails at once, and an error with no category — a bug, or something nobody has classified — is retried and then left in the failed-jobs list. `Platform::ErrorSubscriber` is the one place errors are reported from: it counts expected failures rather than reporting them, and reports everything else with the flow it happened in. Code never logs an error and raises it again. The shop reports to its log; a real application adds its error tracker's subscriber, and alerts from the tracker.
 
 ## An event that changed shape
 
@@ -208,7 +208,7 @@ Loyalty was added after the rest of the shop. It took an engine, one `require_re
 
 ```
 engines/orders/
-  lib/orders/engine.rb             isolate_namespace Orders; requires the engines it builds on
+  lib/orders/engine.rb             isolate_namespace Orders; requires the engines it builds on, so it boots alone for its generators
   bin/rails                        the module's own Rails command: generators write into the module
   package.yml                      its dependencies, enforced by packwerk
   app/public/orders/*.rb           Orders' public errors, one file each

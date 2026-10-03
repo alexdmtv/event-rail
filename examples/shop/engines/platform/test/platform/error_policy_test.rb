@@ -14,13 +14,11 @@ module Platform
       include Aborted
     end
 
-    # Raises whatever error it is given, by name.
     class ProbeJob < ApplicationJob
       def perform(error_class) = raise(error_class.constantize.new)
     end
 
-    # Fails as Active Job does when it cannot load a record among its arguments -- deleted, or
-    # the database briefly unreachable.
+    # Fails as Active Job does when the database is briefly unreachable while loading arguments.
     class OrphanedJob < ApplicationJob
       def perform
         raise ActiveRecord::ConnectionNotEstablished

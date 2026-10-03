@@ -1,13 +1,8 @@
 module Orders
   class Order
-    # Confirming a placed order: its stock held and its card authorized, in a job staged when it
-    # was placed. Every step is safe to repeat on the order's reference, so a retry, or a crash
-    # at any point, runs it again to the same end.
     module Confirmable
       extend ActiveSupport::Concern
 
-      # A placed order not confirmed by then is cancelled (see DeadlineSweepJob), so the
-      # customer hears within minutes, whatever is failing.
       CONFIRMATION_DEADLINE = 2.minutes
 
       included do
@@ -16,7 +11,8 @@ module Orders
 
       def confirm_later = ConfirmJob.stage(self)
 
-      # Announces the order, in the transaction that records it.
+      # Call inside the transaction that records the order, so the order and its event commit
+      # together.
       def announce_placement
         EventRail.stage(Events::OrderPlaced.new(
           **event_attributes, total: event_total,
@@ -26,13 +22,15 @@ module Orders
         ))
       end
 
+      # Safe to repeat: every step is keyed by the order's reference, so a retry, or a crash at
+      # any point, runs it again to the same end.
       def confirm
         hold_and_authorize if placed?
         if confirmed?
           Payments::Api.request_capture(reference: reference)
         elsif cancelled?
-          # Cancelled while this ran: give back whatever this run may have taken after the
-          # cancellation gave back what it found.
+          # Cancelled while this ran: release what this run took after the cancellation released
+          # what it found.
           release_holds
         end
       rescue Catalog::OutOfStock => out_of_stock

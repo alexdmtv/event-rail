@@ -1,9 +1,6 @@
 module Platform
-  # Hands to the queue every staged job whose immediate hand-over, right after its
-  # transaction committed, was cut short -- by a crash, or a queue that could not accept it.
-  # Run every second from config/recurring.yml. A scheduled chore outside every flow, so it
-  # carries no EventRail context of its own; each job it hands over rejoins the flow it was
-  # staged in.
+  # Not a Platform::ApplicationJob: it carries no EventRail context of its own, so each job it
+  # hands over rejoins the flow it was staged in.
   class StagedJobRelayJob < ActiveJob::Base
     queue_as :default
 

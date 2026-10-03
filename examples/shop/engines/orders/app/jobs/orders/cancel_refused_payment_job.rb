@@ -1,5 +1,4 @@
 module Orders
-  # The card issuer refused the capture: the order cannot be paid, so it is cancelled.
   class CancelRefusedPaymentJob < ApplicationJob
     subscribes_to Payments::Events::CaptureFailed
 

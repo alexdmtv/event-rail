@@ -1,4 +1,4 @@
 module Platform
-  # Error category: temporary; the call is tried again. Retried with backoff; HTTP 503. See Platform::ErrorCategory.
+  # Error category: a temporary failure. Retried with backoff; HTTP 503.
   module Unavailable; end
 end

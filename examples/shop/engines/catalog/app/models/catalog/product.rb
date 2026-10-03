@@ -7,7 +7,6 @@ module Catalog
 
     def self.find_by_sku!(sku) = find_by(sku: sku) || raise(UnknownProduct, "unknown product #{sku}")
 
-    # Stock not held by a reservation.
     def available = on_hand - reservations.held.sum(:quantity)
   end
 end

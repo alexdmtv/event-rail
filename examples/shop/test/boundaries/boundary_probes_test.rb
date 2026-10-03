@@ -1,9 +1,7 @@
 require "test_helper"
 require "open3"
 
-# The README's structural claims, as tests. Each probe plants a file that breaks one rule into
-# a copy of the application, packwerk checks the copy, and the test asserts the rule caught
-# it. The real application must stay clean; CI runs packwerk on it separately.
+# Each probe plants a rule-breaking file into a copy of the application; packwerk must report it.
 class BoundaryProbesTest < ActiveSupport::TestCase
   PROBES = {
     # Orders may call Catalog, but not reach past its public API.

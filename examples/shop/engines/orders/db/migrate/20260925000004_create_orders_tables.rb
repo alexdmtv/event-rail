@@ -1,7 +1,5 @@
 class CreateOrdersTables < ActiveRecord::Migration[8.1]
   def change
-    # A customer's list of intended purchases. It becomes one order: the order holds the cart's
-    # ID under a unique index, and a cart is ordered when its order exists.
     create_table :orders_carts do |t|
       t.string :customer_id, null: false, index: true
       t.string :customer_name, null: false
@@ -20,10 +18,7 @@ class CreateOrdersTables < ActiveRecord::Migration[8.1]
 
     create_table :orders_orders do |t|
       t.references :cart, null: false, index: { unique: true }, foreign_key: { to_table: :orders_carts }
-      # The order's own reference, generated when it is placed: what Orders gives Catalog,
-      # Payments and Fulfillment, and what their events name the order by.
       t.string :reference, null: false, index: { unique: true }
-      # placed, confirmed or cancelled. What happened after confirming is recorded as facts.
       t.string :state, null: false
       t.string :customer_id, null: false, index: true
       t.string :customer_name, null: false
@@ -55,10 +50,8 @@ class CreateOrdersTables < ActiveRecord::Migration[8.1]
       t.integer :unit_price_cents, null: false
     end
 
-    # A delivered order coming back, whole.
     create_table :orders_returns do |t|
       t.references :order, null: false, index: { unique: true }, foreign_key: { to_table: :orders_orders }
-      # requested, received, refunded or refund_failed.
       t.string :state, null: false
       t.datetime :received_at
       t.datetime :refunded_at

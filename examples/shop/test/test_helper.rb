@@ -10,8 +10,7 @@ require_relative "support/scripted_gateway"
 require_relative "support/shop_helpers"
 require_relative "support/worker"
 
-# Error answers are problem details (see Platform::ApplicationController); response.parsed_body
-# parses them as the JSON they are.
+# So response.parsed_body parses problem details, the shape of every error answer, as JSON.
 ActionDispatch::IntegrationTest.register_encoder :problem, response_parser: ->(body) { JSON.parse(body) }
 
 module ActiveSupport

@@ -4,9 +4,8 @@ module Notifications
   class NotifyCustomerJobTest < ActiveSupport::TestCase
     CUSTOMER = { customer_id: "cus_ada", customer_name: "Ada Lovelace", customer_email: "ada@example.com" }.freeze
 
-    # A delivery of version 1 of OrderPlaced exactly as the release before version 2 left it in
-    # the queue: the subscriber job's serialized argument. Performing it deserializes it, which
-    # only works while version 1 is still registered.
+    # A version 1 OrderPlaced delivery as the release before version 2 left it in the queue;
+    # it deserializes only while version 1 is still registered.
     QUEUED_V1_DELIVERY = {
       "_aj_serialized" => "EventRail::Internal::EventSerializer", "format" => 1,
       "event_type" => "orders.order_placed", "event_version" => 1,
@@ -32,8 +31,7 @@ module Notifications
     end
 
     test "a version 1 delivery still queued from before the upgrade is handled" do
-      # Performed soon after it was published, as a delivery left in the queue by the release
-      # before is.
+      # Soon after it was published, so it is not stale.
       travel_to(Time.utc(2026, 9, 20, 10, 5)) do
         ActiveJob::Base.execute(NotifyCustomerJob.new.serialize.merge("arguments" => [ QUEUED_V1_DELIVERY ]))
 
@@ -49,8 +47,8 @@ module Notifications
 
     test "the same fact under two identities notifies once" do
       current = publish(Orders::Events::OrderCancelled.new(order_id: "7", **CUSTOMER, reason: "customer"))
-      # The same cancellation as a release before the identity change stamped it, under an ID
-      # derived the old way: a copy a subscriber can still receive across an upgrade.
+      # The same cancellation under an ID derived before an identity change, as a subscriber can
+      # still receive it across an upgrade.
       earlier = EventRail::Envelope.new(
         contract: EventRail::Contract.of(Orders::Events::OrderCancelled),
         metadata: EventRail::Metadata.complete(id: "cancelled-before-the-upgrade", source: current.source,

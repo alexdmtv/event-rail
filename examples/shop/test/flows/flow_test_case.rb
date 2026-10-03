@@ -1,8 +1,5 @@
 require "test_helper"
 
-# Whole-flow tests drive an order through every module the way the running shop does -- the
-# worker performs one job at a time and contains each failure -- and then check what each
-# module ended up with, through each module's test support.
 class FlowTestCase < ActiveSupport::TestCase
   include ShopHelpers
 
@@ -12,7 +9,6 @@ class FlowTestCase < ActiveSupport::TestCase
   end
 
   private
-    # Checks out and works off everything that follows, recording what was published.
     def place_and_settle(**checkout_options)
       order = nil
       publications = record_publications do

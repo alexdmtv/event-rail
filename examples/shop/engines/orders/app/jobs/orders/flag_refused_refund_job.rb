@@ -1,6 +1,6 @@
 module Orders
-  # The card issuer refused a refund. Retrying will not change its mind, and the customer is
-  # owed money, so a person has to resolve it.
+  # A refused refund is final and the customer is owed money, so it is flagged for a person
+  # rather than retried.
   class FlagRefusedRefundJob < ApplicationJob
     subscribes_to Payments::Events::RefundFailed
 

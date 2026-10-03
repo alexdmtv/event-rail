@@ -22,7 +22,6 @@ class FailureIsolationTest < FlowTestCase
     assert_empty @job_failures
   end
 
-  # Every journey an order can take, with where it must end.
   JOURNEYS = {
     "delivered, then returned" => { ends: "refunded", then: :return },
     "cancelled before capture" => { ends: "cancelled", first: :cancel },
@@ -30,8 +29,7 @@ class FailureIsolationTest < FlowTestCase
     "refund refused" => { ends: "needs_attention", provider: { refund: [ :refuse ] }, then: :return }
   }.freeze
 
-  # Only a checkout that fails after authorizing voids through VoidJob; Orders' checkout test
-  # covers that path.
+  # VoidJob runs only when checkout fails after authorizing; Orders' checkout test covers it.
   IN_NO_JOURNEY = %w[ Payments::VoidJob ].freeze
 
   test "any job failing twice is retried, and every order still ends where it should" do
@@ -50,8 +48,7 @@ class FailureIsolationTest < FlowTestCase
 
           order = Orders::TestSupport.order(order.id)
           if job == "Orders::CancelJob" && journey[:first] == :cancel
-            # A cancellation held up by its own failures loses the race to the carrier, as it
-            # would in a real shop: Fulfillment refuses it, and the order is delivered.
+            # Held up by its own failures, the cancellation loses the race to the carrier.
             assert order.cancellation_refused_at, "#{name}, with #{job} failing twice"
             assert_equal "delivered", order.status
           else
@@ -65,7 +62,7 @@ class FailureIsolationTest < FlowTestCase
   end
 
   private
-    # Every concrete job of the shop's own; jobs declared by tests are left out.
+    # Leaves out jobs declared by tests.
     def shop_jobs
       Rails.application.eager_load!
       Platform::ApplicationJob.descendants

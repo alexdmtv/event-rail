@@ -1,11 +1,7 @@
 module Orders
   module Events
-    # The customer placed an order: its items and prices, as they were then. Whether it is
-    # confirmed or cancelled follows.
-    #
-    # Version 2. Version 1 carried the total as an integer `total_cents`; version 2 carries a
-    # Money with its currency. Retyping a field breaks every reader, which is what a new
-    # version is for: see OrderPlacedV1 for how both are handled while old messages drain.
+    # Version 2 retyped the total from integer cents to Money; OrderPlacedV1 still reads version 1
+    # messages that are queued.
     class OrderPlaced < EventRail::Event
       event_type "orders.order_placed"
       version 2

@@ -1,6 +1,5 @@
 module Orders
-  # Orders' HTTP API, for outside clients. Its JSON is written out here field by field: it is a
-  # contract of its own, separate from the records, so a change to a record cannot change it by
+  # The JSON is written out field by field, so that changing a record cannot change the API by
   # accident.
   class ApplicationController < Platform::ApplicationController
     private

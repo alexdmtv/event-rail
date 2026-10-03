@@ -1,13 +1,7 @@
 module Orders
-  # Keeps every step of an order in the order's own flow, so everything that happens to it
-  # shares the correlation its checkout started and can be traced as one tree.
-  #
-  # Inside a job that already carries EventRail's context -- a subscriber reacting to
-  # Payments, say -- the step is already in the flow. A step started from outside one -- the
-  # a web request, the expiry scan -- joins the order's flow explicitly. That gives
-  # it lineage, not retries: nothing repeats a publication the step failed to make, so a step
-  # that must see a publication through hands it to a job, whose retries do (see
-  # Orders::Cancellation).
+  # Runs a step in the order's flow. A step started outside a job (a web request, the deadline
+  # sweep) joins it explicitly, which gives lineage but no retries: a publication the step must
+  # see through belongs in a staged job.
   module Flow
     def self.continue(order, step:, &block)
       if EventRail::Current.correlation_id

@@ -1,5 +1,4 @@
 module Orders
-  # An amount of one currency.
   Money = Data.define(:cents, :currency) do
     def self.zero(currency) = new(cents: 0, currency: currency)
 

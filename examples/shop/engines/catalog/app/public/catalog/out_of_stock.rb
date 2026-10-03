@@ -1,5 +1,4 @@
 module Catalog
-  # Not enough of a product is available to hold.
   class OutOfStock < Error
     include Platform::FailedPrecondition
 

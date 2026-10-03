@@ -1,18 +1,8 @@
 module Payments
-  # One card payment for one caller reference, from authorization to capture, void or
-  # refund.
-  #
-  # Callers ask for two things: the money taken (a capture), and the money given back (a
-  # release). Each request is recorded on the payment under its lock, and the payment then
-  # makes at most one provider call at a time -- its pending operation -- carried out by a job.
-  # A capture and a void of one authorization must never race at the provider. A call is
-  # marked sent just before it is made, and one sent whose answer is unknown, a timeout, stays
-  # pending until its answer is known: replaying its job asks again under the same idempotency
-  # key.
-  #
-  # A release, once asked for, stays asked for. A capture never starts after it; a pending
-  # capture not yet sent is called off; and one already sent is followed by the release once
-  # its answer is recorded: a refund if the money was taken, a void if not.
+  # Makes at most one provider call at a time, its pending operation, so a capture and a void
+  # never race at the provider. A sent call whose answer is unknown stays pending and is asked
+  # again under the same idempotency key; the generation tells a stale job to do nothing. A
+  # release, once asked for, stays asked for, and follows any capture already sent.
   class Payment < ApplicationRecord
     STATES = %w[ authorized captured capture_failed voided refunded refund_failed ].freeze
     OPERATIONS = { "capture" => CaptureJob, "void" => VoidJob, "refund" => RefundJob }.freeze
@@ -21,10 +11,8 @@ module Payments
 
     STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
 
-    # Places a hold of the amount on the customer's card. Repeating it for the same reference
-    # returns the existing authorization rather than holding the amount twice, and two calls
-    # racing for one reference end with one payment: the provider sees one idempotency key,
-    # and the loser of the insert returns the winner's payment.
+    # Safe to repeat: two calls racing for one reference share an idempotency key at the
+    # provider, and the loser of the insert returns the winner's payment.
     def self.authorize(reference:, amount_cents:, currency:)
       find_by(reference: reference) || begin
         code = Gateway.current.authorize(idempotency_key: "authorize-#{reference}", amount_cents: amount_cents, currency: currency)
@@ -38,28 +26,22 @@ module Payments
       raise Unavailable, failure.message
     end
 
-    # A request may name a reference with no payment -- its authorization declined, or never
-    # reached the provider -- and then there is nothing to do.
     def self.request_capture(reference) = find_by(reference: reference)&.request_capture
     def self.request_release(reference) = find_by(reference: reference)&.request_release
 
-    # What each provider call needs to find. A refused capture leaves the card's hold open
-    # until it is voided, so an uncaptured authorization is voidable whether its capture
-    # was never tried or was refused.
+    # A refused capture leaves the card's hold open, so it is still voidable.
     def capturable? = authorized?
     def voidable? = (authorized? || capture_failed?) && voided_at.nil?
     def refundable? = captured?
 
     def pending?(generation = operation_generation) = pending_operation.present? && operation_generation == generation
 
-    # Asks for the money. A capture already pending is the same request; a release asked for
-    # first wins.
     def request_capture
       with_lock { start("capture") if capturable? && !release_requested_at? && pending_operation.nil? }
     end
 
-    # Asks for the money back: refunded if it was taken, voided if not. A call already sent
-    # is waited for, since only its answer says which.
+    # Refunds if the money was taken, voids if not; a call already sent is waited for, since
+    # only its answer says which.
     def request_release
       with_lock do
         update!(release_requested_at: Time.current) unless release_requested_at?
@@ -67,9 +49,8 @@ module Payments
       end
     end
 
-    # Makes the pending call, if it is still the one the job was started for, and records the
-    # answer. The call is marked sent under the payment's lock and made outside it; a temporary
-    # failure is raised for the job to retry, and the call stays pending.
+    # Marks the call sent under the lock and makes it outside; a temporary failure is raised
+    # for the job to retry, and the call stays pending.
     def carry_out(generation)
       sending = with_lock do
         update!(operation_sent_at: Time.current) if pending?(generation) && operation_sent_at.nil?
@@ -92,10 +73,8 @@ module Payments
         end
       end
 
-      # Records the answer, with the event reporting it, under the lock -- but only for the
-      # call that is still pending: a second delivery of the same job, or one replayed after
-      # the answer was recorded, changes nothing. A release asked for while a capture was
-      # pending follows it in the same transaction.
+      # Only the call still pending is recorded, so a duplicate or replayed job changes nothing.
+      # A release asked for during a capture follows it in the same transaction.
       def settle(generation, answer)
         with_lock do
           next unless pending?(generation)

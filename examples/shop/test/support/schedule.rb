@@ -1,10 +1,5 @@
-# Scheduled work, as tests reach it. Nothing runs the schedule in tests, so a test enqueues a
-# task from config/recurring.yml by its key, then runs the queue as it would any other jobs:
-# no module needs an Api method for tests to start its scheduled work, and a test that does
-# this also proves the schedule names a real job.
-#
-# Solid Queue's own RecurringTask can't be used: it is an Active Record model, and the test
-# environment has no queue database. So the checks below are the ones it makes.
+# Enqueues a task from config/recurring.yml by its key. Solid Queue's RecurringTask is an
+# Active Record model and tests have no queue database, so its checks are repeated here.
 require "fugit" # what Solid Queue parses schedules with
 
 module Schedule
@@ -15,8 +10,7 @@ module Schedule
     job.set(**task.slice(:queue, :priority)).perform_later(*arguments)
   end
 
-  # The problems Solid Queue's scheduler would reject a task for, by key: a job class that
-  # doesn't exist, no class or command at all, or a schedule that isn't one cron.
+  # What Solid Queue's scheduler would reject a task for, by key.
   def schedule_problems
     scheduled_tasks.filter_map do |key, task|
       problem =

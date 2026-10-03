@@ -1,5 +1,4 @@
-# The bottom layer. Everything in it is available to every module: it holds only base
-# classes and the staged-jobs table, so it enforces no privacy of its own.
+# No privacy: everything here, base classes and the staged-jobs table, is for every module.
 enforce_dependencies: true
 enforce_privacy: false
 dependencies: []

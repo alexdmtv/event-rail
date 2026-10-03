@@ -1,9 +1,6 @@
 require "test_helper"
 require "open3"
 
-# Each module ships its own bin/rails, so Rails' generators run inside a module write into
-# that module: its namespace, its folders, its table prefix. Run in a copy of the
-# application, so nothing generated lands in the real one.
 class ModuleGeneratorsTest < ActiveSupport::TestCase
   test "a model generated inside a module lands in the module under its namespace" do
     Dir.mktmpdir("shop-generators") do |copy|

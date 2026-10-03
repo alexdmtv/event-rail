@@ -1,5 +1,4 @@
 module Orders
-  # The customer has the parcel.
   class MarkDeliveredJob < ApplicationJob
     subscribes_to Fulfillment::Events::ShipmentDelivered
 

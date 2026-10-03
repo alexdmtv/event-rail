@@ -1,8 +1,6 @@
 module Fulfillment
   module Carrier
-    # A stand-in parcel carrier. It picks a shipment up, dispatches it and delivers it, one
-    # scheduled job per step, `delay` apart. A real carrier would call back through a webhook;
-    # the scheduled jobs play that part. Tests install one with the delay they need.
+    # Its scheduled jobs, `delay` apart, stand in for a real carrier's webhook callbacks.
     class Fake
       def initialize(delay: 4.seconds)
         @delay = delay

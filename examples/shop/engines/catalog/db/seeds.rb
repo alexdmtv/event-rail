@@ -1,4 +1,3 @@
-# A small catalog, priced so that loyalty points (one per whole euro) are easy to follow.
 [
   [ "TEA-GREEN", "Green tea, 100 g", 890, 400 ],
   [ "TEA-BLACK", "Assam black tea, 100 g", 790, 400 ],

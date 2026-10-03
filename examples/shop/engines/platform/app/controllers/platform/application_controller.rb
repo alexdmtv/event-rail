@@ -1,13 +1,6 @@
 module Platform
-  # Each module's own ApplicationController inherits from this one. The shop speaks JSON, and
-  # an error with a category is answered with the status that category calls for, so no action
-  # rescues anything. It is still reported, and the error subscriber counts an expected one and
-  # logs the rest. An error with no category -- a bug -- is left to Platform::ExceptionsApp.
-  #
-  # Every error is answered as problem details (RFC 9457): a title and status, the error's
-  # detail, and a code naming what happened (not_cancellable). Refused input adds errors, one
-  # per violation, each with a JSON Pointer into the request (/items/1/quantity), a code and a
-  # detail, so a form can show each one beside its field.
+  # Answers a categorised error as problem details (RFC 9457); an uncategorised one, a bug, is
+  # left to Platform::ExceptionsApp.
   class ApplicationController < ActionController::API
     STATUSES = {
       InvalidArgument => :unprocessable_content,
@@ -33,9 +26,8 @@ module Platform
         render json: problem, status: status, content_type: Mime[:problem].to_s
       end
 
-      # Rails' own input errors are given violations too, in the same shape. A record's
-      # validation names the record's attributes, not the request's fields: a module checks its
-      # input before it builds a record, so this is a backstop.
+      # RecordInvalid is a backstop for one a module did not turn into InvalidInput: its
+      # attributes need not be the request's fields.
       def violations_of(error)
         case error
         when InvalidInput then error.violations

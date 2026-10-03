@@ -1,14 +1,9 @@
-# Module boundaries, checked statically in CI. Every engine under engines/ is a package; so
-# is each module's published-event folder, app/public/<module>/events, which gets its own
-# package.yml so that other modules can depend on a module's events without depending on
-# the module.
 include:
   - "**/*.{rb,rake,erb}"
 exclude:
   - "{bin,node_modules,script,tmp,vendor,log,storage}/**/*"
 
-# Adds the privacy checker: a package with `enforce_privacy: true` exposes only what is under
-# its app/public folder.
+# The privacy checker: a package with `enforce_privacy: true` exposes only its app/public.
 require:
   - packwerk-extensions
 

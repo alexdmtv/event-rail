@@ -1,5 +1,4 @@
 module Orders
-  # The carrier has the parcel.
   class MarkShippedJob < ApplicationJob
     subscribes_to Fulfillment::Events::ShipmentDispatched
 
