@@ -9,16 +9,6 @@ module Orders
         scope :unconfirmed_past_deadline, -> { where(state: "placed").where(created_at: ...CONFIRMATION_DEADLINE.ago) }
       end
 
-      # Records a new order (see Order.place) with its announcement and its confirmation, which
-      # commit or roll back with it.
-      def place
-        transaction do
-          save!
-          announce_placement
-          ConfirmJob.stage(self)
-        end
-      end
-
       # Safe to repeat: every step is keyed by the order's reference, so a retry, or a crash at
       # any point, runs it again to the same end.
       def confirm
@@ -37,15 +27,6 @@ module Orders
       end
 
       private
-        def announce_placement
-          EventRail.stage(Events::OrderPlaced.new(
-            **event_attributes, total: event_total,
-            line_items: line_items.map do |line|
-              { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
-            end
-          ))
-        end
-
         def hold_and_authorize
           Catalog::Api.reserve(reservation_id: reference, items: items)
           Payments::Api.authorize(reference: reference, amount_cents: total_cents, currency: currency)

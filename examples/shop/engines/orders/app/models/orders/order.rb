@@ -30,6 +30,16 @@ module Orders
       ).tap(&:place)
     end
 
+    # Records a new order (see Order.place) with its announcement and its confirmation, which
+    # commit or roll back with it.
+    def place
+      transaction do
+        save!
+        announce_placement
+        ConfirmJob.stage(self)
+      end
+    end
+
     # nil for a reference that is not an order's: Payments and Fulfillment serve other callers too.
     def self.for_reference(reference) = find_by(reference: reference)
 
@@ -79,6 +89,15 @@ module Orders
     end
 
     private
+      def announce_placement
+        EventRail.stage(Events::OrderPlaced.new(
+          **event_attributes, total: event_total,
+          line_items: line_items.map do |line|
+            { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
+          end
+        ))
+      end
+
       # Safe to repeat, and to call for an order whose stock or payment was never held.
       def release_holds
         Catalog::Api.release(reservation_id: reference)
