@@ -18,7 +18,7 @@ module Orders
       def cancel
         Fulfillment::Api.cancel_shipment(reference: reference)
         update_if({ state: %w[ placed confirmed ] }, state: "cancelled", cancelled_at: Time.current) do
-          EventRail.stage(Events::OrderCancelled.new(**event_attributes, reason: cancel_reason))
+          EventRail.stage(announcements.cancelled)
         end
         return unless cancelled?
 

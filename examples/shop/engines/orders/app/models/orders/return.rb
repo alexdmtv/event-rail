@@ -24,7 +24,7 @@ module Orders
 
     def complete_refund
       update_if({ state: "received" }, state: "refunded", refunded_at: Time.current) do
-        EventRail.stage(Events::OrderRefunded.new(**order.event_attributes, total: order.event_total))
+        EventRail.stage(order.announcements.refunded)
       end
     end
 

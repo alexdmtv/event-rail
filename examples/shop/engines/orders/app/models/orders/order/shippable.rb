@@ -16,7 +16,7 @@ module Orders
       # the change committed still ships it.
       def mark_shipped(tracking_code:)
         update_if({ shipped_at: nil }, shipped_at: Time.current, tracking_code: tracking_code) do
-          EventRail.stage(Events::OrderShipped.new(**event_attributes, tracking_code: self.tracking_code))
+          EventRail.stage(announcements.shipped)
         end
         Catalog::Api.ship(reservation_id: reference)
       end
@@ -27,7 +27,7 @@ module Orders
         raise NotYetShipped, "order #{id} was delivered before its dispatch was recorded" unless shipped_at?
 
         update_if({ delivered_at: nil }, delivered_at: Time.current) do
-          EventRail.stage(Events::OrderDelivered.new(**event_attributes, total: event_total))
+          EventRail.stage(announcements.delivered)
         end
       end
     end

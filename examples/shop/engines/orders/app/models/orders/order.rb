@@ -29,7 +29,7 @@ module Orders
             LineItem.new(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
           end
         ).tap do |order|
-          EventRail.stage(order.placed_event)
+          EventRail.stage(order.announcements.placed)
           ConfirmJob.stage(order)
         end
       end
@@ -54,20 +54,7 @@ module Orders
       end
     end
 
-    def event_attributes
-      { order_id: id.to_s, customer_id: customer_id, customer_name: customer_name, customer_email: customer_email }
-    end
-
-    def event_total = { amount_cents: total_cents, currency: currency }
-
-    def placed_event
-      Events::OrderPlaced.new(
-        **event_attributes, total: event_total,
-        line_items: line_items.map do |line|
-          { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
-        end
-      )
-    end
+    def announcements = Announcements.new(self)
 
     # With no return, the refused refund is a cancelled order's, for a capture that had landed.
     def flag_refused_refund(reason)
