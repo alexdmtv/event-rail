@@ -9,10 +9,10 @@ module Orders
     # nil for a reference with no return, such as a cancelled order's refund.
     def self.for_reference(reference) = joins(:order).find_by(orders_orders: { reference: reference })
 
-    def collect_later = CollectReturnJob.stage(self)
+    def request_pickup_later = RequestReturnPickupJob.stage(self)
 
     # Answered by ReturnReceived (receive).
-    def collect = (Fulfillment::Api.request_return_pickup(reference: order.reference) if requested?)
+    def request_pickup = (Fulfillment::Api.request_return_pickup(reference: order.reference) if requested?)
 
     # The release makes Payments refund the capture. Answered by RefundIssued (complete_refund)
     # or RefundFailed (Order#flag_refused_refund).

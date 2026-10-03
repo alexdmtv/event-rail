@@ -17,7 +17,7 @@ module Orders
           next self.return if self.return
           raise NotReturnable, not_returnable_reason unless returnable?
 
-          create_return!(state: "requested").tap(&:collect_later)
+          create_return!(state: "requested").tap(&:request_pickup_later)
         end
       end
 

@@ -10,10 +10,12 @@ module Orders
           raise NotCancellable, "order #{id} has shipped; request a return instead" unless cancellable?
 
           update!(cancellation_requested_at: Time.current, cancel_reason: reason)
-          CancelJob.stage(self)
+          cancel_later
         end
         self
       end
+
+      def cancel_later = CancelJob.stage(self)
 
       # CancelJob's step; callers use request_cancellation. Releases the holds on every run, not
       # only the one that cancelled, so a retry after the cancellation committed still releases them.

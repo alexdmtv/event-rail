@@ -13,7 +13,7 @@ module Orders
     test "a return within 14 days awaits the parcel" do
       slow_carrier
 
-      perform_enqueued_jobs(only: CollectReturnJob) { TestSupport.request_return(@order.id) }
+      perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
 
       assert_equal "returning", @order.reload.status
       assert_equal "expected", Fulfillment::TestSupport.parcel_return(@order.reference).state
@@ -25,7 +25,7 @@ module Orders
       assert_nil Fulfillment::TestSupport.parcel_return(@order.reference)
 
       relay_staged_jobs
-      perform_enqueued_jobs(only: CollectReturnJob)
+      perform_enqueued_jobs(only: RequestReturnPickupJob)
 
       assert_equal "expected", Fulfillment::TestSupport.parcel_return(@order.reference).state
     end

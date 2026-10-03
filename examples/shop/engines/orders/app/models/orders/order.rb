@@ -27,7 +27,7 @@ module Orders
           end
         ).tap do |order|
           EventRail.stage(order.announcements.placed)
-          ConfirmJob.stage(order)
+          order.confirm_later
         end
       end
     end

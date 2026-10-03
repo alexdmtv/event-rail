@@ -1,6 +1,8 @@
 module Orders
   class Order
     module Confirmable
+      def confirm_later = ConfirmJob.stage(self)
+
       # Safe to repeat: every step is keyed by the order's reference, so a retry, or a crash at
       # any point, runs it again to the same end.
       def confirm
