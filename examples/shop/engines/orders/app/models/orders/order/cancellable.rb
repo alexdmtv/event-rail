@@ -1,6 +1,8 @@
 module Orders
   class Order
     module Cancellable
+      def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?
+
       # Safe to repeat: a second request, or one for a cancelled order, changes nothing.
       def request_cancellation(reason:)
         with_lock do

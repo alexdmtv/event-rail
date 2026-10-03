@@ -9,6 +9,8 @@ module Orders
         has_one :return, dependent: :destroy
       end
 
+      def returnable? = within_return_window? && !cancelled? && self.return.nil?
+
       # Safe to repeat: returns the existing return, even once the window has closed.
       def request_return
         with_lock do
@@ -19,9 +21,9 @@ module Orders
         end
       end
 
-      def within_return_window? = delivered_at.present? && delivered_at > RETURN_WINDOW.ago
-
       private
+        def within_return_window? = delivered_at.present? && delivered_at > RETURN_WINDOW.ago
+
         def not_returnable_reason
           if delivered_at.nil? then "order #{id} has not been delivered"
           else "order #{id} was delivered more than #{RETURN_WINDOW.inspect} ago"

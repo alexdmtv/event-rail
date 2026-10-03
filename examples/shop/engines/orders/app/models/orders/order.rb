@@ -35,10 +35,6 @@ module Orders
     # nil for a reference that is not an order's: Payments and Fulfillment serve other callers too.
     def self.for_reference(reference) = find_by(reference: reference)
 
-    # Rules that span the traits. A verb that depends on one checks it under the order's lock.
-    def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?
-    def returnable? = within_return_window? && !cancelled? && self.return.nil?
-
     def status
       current_return = self.return
       if attention_reason? || current_return&.refund_failed? then "needs_attention"
