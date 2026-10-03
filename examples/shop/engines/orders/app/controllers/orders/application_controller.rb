@@ -3,8 +3,8 @@ module Orders
   # accident.
   class ApplicationController < Platform::ApplicationController
     private
-      def render_order(order, status: :ok)
-        render status: status, json: {
+      def render_order(order, http_status: :ok)
+        render status: http_status, json: {
           id: order.id,
           status: order.status,
           total: { cents: order.total_cents, currency: order.currency },
