@@ -12,7 +12,7 @@ module Orders
       def place_order(cart_id) = as_request { Cart.find(cart_id).place_order }
       def request_cancellation(order_id, reason: "customer") = as_request { Order.find(order_id).request_cancellation(reason:) }
       def request_return(order_id) = as_request { Order.find(order_id).tap(&:request_return) }
-      def order(id) = Order.includes(:line_items, :returns).find_by(id: id)
+      def order(id) = Order.includes(:line_items, :return).find_by(id: id)
 
       private
         # A flow of its own, as each web request is (Platform::ApplicationController).

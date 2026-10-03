@@ -67,7 +67,7 @@ module Orders
 
       record = @order.reload
       assert_equal "needs_attention", record.status
-      assert_match(/refund refused/, record.returns.sole.failure_reason)
+      assert_match(/refund refused/, record.return.failure_reason)
     end
   end
 end

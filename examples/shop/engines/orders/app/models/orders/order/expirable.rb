@@ -8,8 +8,8 @@ module Orders
       PAYMENT_DEADLINE = 30.minutes
 
       included do
-        scope :unconfirmed_past_deadline, -> { where(state: "placed").where(created_at: ...CONFIRMATION_DEADLINE.ago) }
-        scope :unpaid_past_deadline, -> { where(state: "confirmed", paid_at: nil).where(confirmed_at: ...PAYMENT_DEADLINE.ago) }
+        scope :unconfirmed_past_deadline, -> { placed.where(created_at: ...CONFIRMATION_DEADLINE.ago) }
+        scope :unpaid_past_deadline, -> { confirmed.where(paid_at: nil, confirmed_at: ...PAYMENT_DEADLINE.ago) }
       end
 
       class_methods do

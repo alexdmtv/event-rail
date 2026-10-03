@@ -27,7 +27,7 @@ class ReturnFlowTest < FlowTestCase
     work_off_queue
 
     reloaded = Orders::TestSupport.order(order.id)
-    assert_equal [ "needs_attention", "refund_failed" ], [ reloaded.status, reloaded.returns.sole.state ]
+    assert_equal [ "needs_attention", "refund_failed" ], [ reloaded.status, reloaded.return.state ]
     assert_equal 38, points(order)
   end
 end

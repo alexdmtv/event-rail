@@ -4,16 +4,16 @@ module Orders
       extend ActiveSupport::Concern
 
       included do
-        has_many :returns, dependent: :destroy
+        has_one :return, dependent: :destroy
       end
 
       # Safe to repeat: returns the existing return, even once the window has closed.
       def request_return
         with_lock do
-          next returns.first if returns.any?
+          next self.return if self.return
           raise NotReturnable, not_returnable_reason unless returnable?
 
-          returns.create!(state: "requested").tap(&:collect_later)
+          create_return!(state: "requested").tap(&:collect_later)
         end
       end
 

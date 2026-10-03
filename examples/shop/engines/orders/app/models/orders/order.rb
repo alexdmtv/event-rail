@@ -5,7 +5,6 @@ module Orders
   class Order < ApplicationRecord
     include Confirmable, Payable, Shippable, Expirable, Cancellable, Returnable
 
-    STATES = %w[ placed confirmed cancelled ].freeze
     CURRENCY = "EUR"
     RETURN_WINDOW = 14.days
 
@@ -16,9 +15,8 @@ module Orders
     has_secure_token :reference
     attr_readonly :reference, :cart_id
 
-    validates :state, inclusion: { in: STATES }
-
-    STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
+    # Its bang methods (cancelled!) skip the order's transitions; never call them.
+    enum :state, %w[ placed confirmed cancelled ].index_by(&:itself), validate: true
 
     # The announcement and the confirmation are staged in the order's transaction, so they
     # commit or roll back with it.
@@ -42,10 +40,10 @@ module Orders
 
     # Rules that span the traits. A verb that depends on one checks it under the order's lock.
     def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?
-    def returnable? = delivered_at.present? && delivered_at > RETURN_WINDOW.ago && !cancelled? && returns.none?
+    def returnable? = delivered_at.present? && delivered_at > RETURN_WINDOW.ago && !cancelled? && self.return.nil?
 
     def status
-      current_return = returns.first
+      current_return = self.return
       if attention_reason? || current_return&.refund_failed? then "needs_attention"
       elsif cancelled? then "cancelled"
       elsif current_return then current_return.refunded? ? "refunded" : "returning"
@@ -55,9 +53,6 @@ module Orders
       else state
       end
     end
-
-    def total = Money.new(cents: total_cents, currency: currency)
-    def items = line_items.to_h { |line| [ line.sku, line.quantity ] }
 
     def event_attributes
       { order_id: id.to_s, customer_id: customer_id, customer_name: customer_name, customer_email: customer_email }
@@ -76,14 +71,17 @@ module Orders
 
     # With no return, the refused refund is a cancelled order's, for a capture that had landed.
     def flag_refused_refund(reason)
-      if (current = returns.first)
-        current.record_refund_failure(reason)
+      if self.return
+        self.return.record_refund_failure(reason)
       else
         update_if({ attention_reason: nil }, attention_reason: "refund refused: #{reason}")
       end
     end
 
     private
+      # Catalog and Fulfillment take an order's goods as quantities by SKU.
+      def quantities_by_sku = line_items.to_h { |line| [ line.sku, line.quantity ] }
+
       # Safe to repeat, and to call for an order whose stock or payment was never held.
       def release_holds
         Catalog::Api.release(reservation_id: reference)

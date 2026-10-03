@@ -1,13 +1,10 @@
 module Orders
   # A delivered order coming back, whole. Every step is safe to repeat.
   class Return < ApplicationRecord
-    STATES = %w[ requested received refunded refund_failed ].freeze
-
     belongs_to :order
 
-    validates :state, inclusion: { in: STATES }
-
-    STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
+    # Its bang methods (refunded!) skip the return's transitions; never call them.
+    enum :state, %w[ requested received refunded refund_failed ].index_by(&:itself), validate: true
 
     # nil for a reference with no return, such as a cancelled order's refund.
     def self.for_reference(reference) = joins(:order).find_by(orders_orders: { reference: reference })

@@ -8,7 +8,7 @@ module Orders
         Fulfillment::Api.request_shipment(
           reference: reference,
           recipient: Fulfillment::Api::Recipient.new(name: customer_name, address: shipping_address),
-          items: items
+          items: quantities_by_sku
         )
       end
 
