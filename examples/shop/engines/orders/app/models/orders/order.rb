@@ -20,25 +20,20 @@ module Orders
 
     STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
 
-    # An order placed from the cart, priced as the quote says, recorded with its line items in one
-    # save; its announcement and its confirmation are staged in the same transaction.
-    def self.place(cart:, quote:)
-      new(
-        cart:, state: "placed", customer_id: cart.customer_id, customer_name: cart.customer_name, customer_email: cart.customer_email,
-        shipping_address: cart.shipping_address, total_cents: quote.total_cents, currency: CURRENCY,
-        line_items: quote.lines.map do |line|
-          LineItem.new(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
-        end
-      ).tap(&:place)
-    end
-
-    # Records a new order (see Order.place) with its announcement and its confirmation, which
+    # The announcement and the confirmation are staged in the order's transaction, so they
     # commit or roll back with it.
-    def place
+    def self.place(cart:, quote:)
       transaction do
-        save!
-        announce_placement
-        ConfirmJob.stage(self)
+        create!(
+          cart:, state: "placed", **cart.slice(:customer_id, :customer_name, :customer_email, :shipping_address),
+          total_cents: quote.total_cents, currency: CURRENCY,
+          line_items: quote.lines.map do |line|
+            LineItem.new(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
+          end
+        ).tap do |order|
+          EventRail.stage(order.placed_event)
+          ConfirmJob.stage(order)
+        end
       end
     end
 
@@ -81,6 +76,15 @@ module Orders
 
     def event_total = { amount_cents: total_cents, currency: currency }
 
+    def placed_event
+      Events::OrderPlaced.new(
+        **event_attributes, total: event_total,
+        line_items: line_items.map do |line|
+          { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
+        end
+      )
+    end
+
     # With no return, the refused refund is a cancelled order's, for a capture that had landed.
     def flag_refused_refund(reason)
       if (current = returns.first)
@@ -91,15 +95,6 @@ module Orders
     end
 
     private
-      def announce_placement
-        EventRail.stage(Events::OrderPlaced.new(
-          **event_attributes, total: event_total,
-          line_items: line_items.map do |line|
-            { "sku" => line.sku, "name" => line.name, "quantity" => line.quantity, "unit_price_cents" => line.unit_price_cents }
-          end
-        ))
-      end
-
       # Safe to repeat, and to call for an order whose stock or payment was never held.
       def release_holds
         Catalog::Api.release(reservation_id: reference)
