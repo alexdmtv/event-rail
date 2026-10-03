@@ -2,10 +2,10 @@ require_relative "flow_test_case"
 
 class ReturnFlowTest < FlowTestCase
   test "a returned order is restocked and refunded, and its points are taken back" do
-    order, published = place_and_settle
+    order, placed = place_and_settle
     assert_equal 38, points(order)
 
-    published += record_publications do
+    published = record_publications do
       Orders::TestSupport.request_return(order.id)
       work_off_queue
     end
@@ -16,7 +16,7 @@ class ReturnFlowTest < FlowTestCase
     assert_equal 10, on_hand("MUG")
     assert_equal 0, points(order)
     assert_includes notified_kinds(order), "refunded"
-    assert_one_flow(order, published)
+    assert_not_equal flow_of(placed), assert_one_flow(published), "the return is a request of its own"
   end
 
   test "a refused refund sets the order aside and keeps its points" do

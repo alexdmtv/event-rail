@@ -16,15 +16,15 @@ class CancellationFlowTest < FlowTestCase
     assert_equal "voided", Payments::TestSupport.payment(order.reference).state
     assert_equal 10, available("MUG")
     assert_includes notified_kinds(order), "cancelled"
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "cancelling a paid order before dispatch refunds it" do
     order = place
-    published = record_publications { work_off_queue(due_only: true) }
+    work_off_queue(due_only: true)
     assert_equal "paid", Orders::TestSupport.order(order.id).status
 
-    published += record_publications do
+    published = record_publications do
       Orders::TestSupport.request_cancellation(order.id)
       work_off_queue(due_only: true) # the cancellation, before the carrier comes
       work_off_queue # and then every job, the carrier's too: nothing may leave
@@ -38,7 +38,7 @@ class CancellationFlowTest < FlowTestCase
     assert_equal 10, available("MUG")
     assert_equal 10, on_hand("MUG")
     assert_equal 0, points(order)
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "cancelling an order whose capture landed before the order heard of it refunds it" do
@@ -58,7 +58,7 @@ class CancellationFlowTest < FlowTestCase
     assert_nil Fulfillment::TestSupport.shipment(order.reference).dispatched_at
     assert_equal 10, on_hand("MUG")
     assert_equal %w[ cancelled placed ], notified_kinds(order)
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "an unpaid order whose capture had in fact landed is refunded" do
@@ -121,6 +121,6 @@ class CancellationFlowTest < FlowTestCase
     assert_equal "voided", Payments::TestSupport.payment(order.reference).state
     assert_equal 10, available("MUG")
     assert_equal %w[ cancelled ], notified_kinds(order)
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 end

@@ -13,8 +13,11 @@ module Platform
       PermissionDenied => :forbidden
     }.freeze
 
+    # Each request is a flow of its own: its ID is the correlation of every job and event it causes.
+    around_action { |_, action| EventRail.with_context(message_id: request.request_id) { action.call } }
+
     rescue_from(*ErrorCategory::ALL, *ErrorCategory::ALL.flat_map { |category| ErrorCategory.framework_errors(category) }) do |error|
-      Rails.error.report(error, context: { correlation_id: EventRail::Current.correlation_id }.compact)
+      Rails.error.report(error, context: { correlation_id: request.request_id })
       render_problem error, status: Rack::Utils.status_code(STATUSES.fetch(ErrorCategory.of(error)))
     end
 

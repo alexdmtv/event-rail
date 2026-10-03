@@ -31,6 +31,14 @@ module Orders
       assert_equal "confirmed", response.parsed_body["status"]
     end
 
+    test "a request is a flow of its own, correlated by the request's ID" do
+      cart = open_cart
+      published = record_publications { perform_enqueued_jobs { place(cart) } }
+
+      assert_includes published.map(&:event_type), "orders.order_delivered"
+      assert_equal [ response.request.request_id ], published.map(&:correlation_id).uniq
+    end
+
     test "placing a cart again answers with the same order" do
       cart = open_cart
 

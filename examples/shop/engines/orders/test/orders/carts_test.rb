@@ -113,14 +113,12 @@ module Orders
       assert_equal "delivered", order.reload.status
     end
 
-    test "the order's flow is correlated by its cart, and placing the cart again continues it" do
+    test "placing an order and everything it causes share one flow" do
       cart = open_cart
-      order = nil
-      published = record_publications { perform_enqueued_jobs { order = TestSupport.place_order(cart.id) } }
+      published = record_publications { perform_enqueued_jobs { TestSupport.place_order(cart.id) } }
 
-      assert_equal "cart-#{cart.id}", order.correlation_id
       assert_includes published.map(&:event_type), "orders.order_delivered"
-      assert published.all? { |publication| publication.correlation_id == order.correlation_id }
+      assert_equal 1, published.map(&:correlation_id).uniq.size
     end
   end
 end

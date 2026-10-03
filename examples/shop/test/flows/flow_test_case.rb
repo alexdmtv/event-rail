@@ -23,10 +23,14 @@ class FlowTestCase < ActiveSupport::TestCase
       publications
     end
 
-    def assert_one_flow(order, publications)
+    # A request and everything it caused share one correlation: the request's own.
+    def assert_one_flow(publications)
       assert publications.any?, "expected the flow to publish something"
-      assert_equal [ order.correlation_id ], publications.map(&:correlation_id).uniq, "every event of an order shares its correlation"
+      assert_equal 1, publications.map(&:correlation_id).uniq.size, "every event of one request shares its correlation"
+      flow_of(publications)
     end
+
+    def flow_of(publications) = publications.map(&:correlation_id).uniq.sole
 
     def notified_kinds(order) = Notifications::TestSupport.kinds(order.id)
     def points(order) = Loyalty::TestSupport.points(order.id)

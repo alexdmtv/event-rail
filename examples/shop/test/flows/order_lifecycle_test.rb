@@ -11,7 +11,7 @@ class OrderLifecycleTest < FlowTestCase
     assert_equal %w[ delivered placed shipped ], notified_kinds(order)
     assert_equal 38, points(order)
     assert_empty @job_failures
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "temporary payment failures are retried without any other module noticing" do
@@ -22,7 +22,7 @@ class OrderLifecycleTest < FlowTestCase
     assert_equal "delivered", order.status
     assert_equal 3, gateway.calls[:capture]
     assert_equal %w[ delivered placed shipped ], notified_kinds(order)
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "a refused capture cancels the order and nothing ships" do
@@ -38,16 +38,16 @@ class OrderLifecycleTest < FlowTestCase
     assert_equal 10, available("MUG")
     assert_equal %w[ cancelled placed ], notified_kinds(order)
     assert_equal 0, points(order)
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "a capture that never answers leaves the order to its payment deadline, and its payment to the capture's replay" do
     Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout ] * 10)
 
-    order, published = place_and_settle
+    order, placed = place_and_settle
     capture_failures = @job_failures
     assert_equal [ "Payments::CaptureJob" ], capture_failures.map(&:job_class), "the capture ends in the failed jobs"
-    published += travel(31.minutes) { record_publications { enqueue_scheduled(:enforce_order_deadlines); settle } }
+    swept = travel(31.minutes) { record_publications { enqueue_scheduled(:enforce_order_deadlines); settle } }
 
     order = Orders::TestSupport.order(order.id)
     assert_equal [ "cancelled", "not paid in time" ], [ order.state, order.cancel_reason ]
@@ -56,13 +56,14 @@ class OrderLifecycleTest < FlowTestCase
     assert payment.release_requested_at, "the release waits for the capture's answer"
     assert_empty @job_failures, "nothing else fails while it waits"
 
-    travel(32.minutes) { published += record_publications { replay(capture_failures); settle } } # the provider is back
+    replayed = travel(32.minutes) { record_publications { replay(capture_failures); settle } } # the provider is back
 
     assert_equal 11, gateway.calls[:capture]
     payment = Payments::TestSupport.payment(order.reference)
     assert_equal [ "refunded", nil ], [ payment.state, payment.pending_operation ]
     assert_equal %w[ cancelled placed ], notified_kinds(order)
-    assert_one_flow(order, published)
+    assert_not_equal assert_one_flow(placed), assert_one_flow(swept), "the sweep's run is a flow of its own"
+    assert_equal flow_of(placed), assert_one_flow(replayed), "a replayed job stays in the flow it was started in"
   end
 
   test "an order whose follow-up the queue could not take at the commit is delivered without the caller retrying" do
@@ -75,7 +76,7 @@ class OrderLifecycleTest < FlowTestCase
 
     assert_equal "delivered", Orders::TestSupport.order(order.id).status
     assert_equal 1, published.count { |publication| publication.event_type == "orders.order_placed" }
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "a cart placed twice runs exactly the jobs a cart placed once runs" do

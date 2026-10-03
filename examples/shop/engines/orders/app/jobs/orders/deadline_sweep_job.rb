@@ -1,7 +1,9 @@
 module Orders
-  # Not an Orders::ApplicationJob on purpose: the sweep belongs to no order's flow, so it carries
-  # no EventRail context, and each cancellation it requests joins its own order's flow.
+  # A scheduled job, not a step: no retries of its own (an Orders::ApplicationJob would retry).
+  # Each run is a flow of its own, which the cancellations it requests share.
   class DeadlineSweepJob < ActiveJob::Base
+    include EventRail::JobContext
+
     queue_as :orders
 
     def perform = Order.cancel_overdue

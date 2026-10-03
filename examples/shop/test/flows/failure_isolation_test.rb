@@ -10,7 +10,7 @@ class FailureIsolationTest < FlowTestCase
     assert_equal %w[ delivered placed shipped ], notified_kinds(order)
     assert_equal 0, points(order)
     assert_equal [ "Loyalty::AwardPointsJob" ], @job_failures.map(&:job_class).uniq
-    assert_one_flow(order, published)
+    assert_one_flow(published)
   end
 
   test "a subscriber told to fail three times retries alone and then succeeds" do

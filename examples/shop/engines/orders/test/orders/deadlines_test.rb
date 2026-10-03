@@ -67,13 +67,15 @@ module Orders
       end
     end
 
-    test "a deadline's cancellation joins the order's flow" do
-      order = place
+    test "a sweep's cancellations share the sweep's run as their flow" do
+      2.times { place }
       clear_enqueued_jobs
 
-      published = travel(31.minutes) { record_publications { perform_enqueued_jobs { DeadlineSweepJob.perform_now } } }
+      published = travel(31.minutes) { record_publications { perform_enqueued_jobs { DeadlineSweepJob.perform_later } } }
 
-      assert_equal [ order.correlation_id ], published.map(&:correlation_id).uniq
+      assert_equal 2, published.count { |publication| publication.event_type == "orders.order_cancelled" }
+      assert_equal 1, published.map(&:correlation_id).uniq.size
+      assert published.first.correlation_id
     end
   end
 end

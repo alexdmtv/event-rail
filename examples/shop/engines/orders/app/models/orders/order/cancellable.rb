@@ -3,14 +3,12 @@ module Orders
     module Cancellable
       # Safe to repeat: a second request, or one for a cancelled order, changes nothing.
       def request_cancellation(reason:)
-        Flow.continue(self, step: "cancel") do
-          with_lock do
-            next if cancellation_requested_at? || cancelled?
-            raise NotCancellable, "order #{id} has shipped; request a return instead" unless cancellable?
+        with_lock do
+          next if cancellation_requested_at? || cancelled?
+          raise NotCancellable, "order #{id} has shipped; request a return instead" unless cancellable?
 
-            update!(cancellation_requested_at: Time.current, cancel_reason: reason)
-            CancelJob.stage(self)
-          end
+          update!(cancellation_requested_at: Time.current, cancel_reason: reason)
+          CancelJob.stage(self)
         end
         self
       end

@@ -21,7 +21,7 @@ module Orders
     # Safe to repeat: the order holds the cart's ID under a unique index, so placing the cart
     # again returns that order. Raises EmptyCart or UnknownProduct.
     def place_order
-      order || EventRail.with_context(message_id: "cart-#{id}") { record_order }
+      order || record_order
     end
 
     private
@@ -33,7 +33,7 @@ module Orders
           order = Order.create!(
             cart: self,
             state: "placed", customer_id:, customer_name:, customer_email:, shipping_address:,
-            total_cents: quote.total_cents, currency: Order::CURRENCY, correlation_id: EventRail::Current.correlation_id
+            total_cents: quote.total_cents, currency: Order::CURRENCY
           )
           quote.lines.each do |line|
             order.line_items.create!(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)

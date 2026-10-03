@@ -116,7 +116,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.string "shipping_address", null: false
     t.integer "total_cents", null: false
     t.string "currency", null: false
-    t.string "correlation_id", null: false
     t.datetime "confirmed_at"
     t.datetime "paid_at"
     t.datetime "shipped_at"
@@ -130,7 +129,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["cart_id"], name: "index_orders_orders_on_cart_id", unique: true
-    t.index ["correlation_id"], name: "index_orders_orders_on_correlation_id"
     t.index ["customer_id"], name: "index_orders_orders_on_customer_id"
     t.index ["reference"], name: "index_orders_orders_on_reference", unique: true
     t.index ["state", "confirmed_at"], name: "index_orders_orders_on_state_and_confirmed_at"

@@ -26,7 +26,6 @@ class CreateOrdersTables < ActiveRecord::Migration[8.1]
       t.string :shipping_address, null: false
       t.integer :total_cents, null: false
       t.string :currency, null: false
-      t.string :correlation_id, null: false, index: true
       t.datetime :confirmed_at
       t.datetime :paid_at
       t.datetime :shipped_at

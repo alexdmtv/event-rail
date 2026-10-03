@@ -102,13 +102,14 @@ module Orders
       assert_equal 10, available("MUG")
     end
 
-    test "a cancellation joins the order's flow" do
-      order = place
+    test "a cancellation and everything it causes share one flow, not the placement's" do
+      placed = record_publications { @order = place }
       clear_enqueued_jobs
 
-      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(order.id) } }
+      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(@order.id) } }
 
-      assert_equal [ order.correlation_id ], published.map(&:correlation_id).uniq
+      assert_equal 1, published.map(&:correlation_id).uniq.size
+      assert_not_includes placed.map(&:correlation_id), published.first.correlation_id
     end
   end
 end

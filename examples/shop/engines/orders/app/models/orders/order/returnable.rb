@@ -9,13 +9,11 @@ module Orders
 
       # Safe to repeat: returns the existing return, even once the window has closed.
       def request_return
-        Flow.continue(self, step: "return") do
-          with_lock do
-            next returns.first if returns.any?
-            raise NotReturnable, not_returnable_reason unless returnable?
+        with_lock do
+          next returns.first if returns.any?
+          raise NotReturnable, not_returnable_reason unless returnable?
 
-            returns.create!(state: "requested").tap(&:collect_later)
-          end
+          returns.create!(state: "requested").tap(&:collect_later)
         end
       end
 
