@@ -3,6 +3,8 @@ module Orders
     module Returnable
       extend ActiveSupport::Concern
 
+      RETURN_WINDOW = 14.days
+
       included do
         has_one :return, dependent: :destroy
       end
@@ -16,6 +18,8 @@ module Orders
           create_return!(state: "requested").tap(&:collect_later)
         end
       end
+
+      def within_return_window? = delivered_at.present? && delivered_at > RETURN_WINDOW.ago
 
       private
         def not_returnable_reason

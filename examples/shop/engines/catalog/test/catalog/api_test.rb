@@ -22,7 +22,7 @@ module Catalog
     test "quotes return plain values with a total" do
       quote = Api.quote("MUG" => 2, "TEA" => 1)
 
-      assert_equal 2 * 1490 + 890, quote.total_cents
+      assert_equal [ 2 * 1490 + 890, "EUR" ], [ quote.total_cents, quote.currency ]
       assert_kind_of Data, quote.lines.first
       assert_not_respond_to quote.lines.first, :save
     end

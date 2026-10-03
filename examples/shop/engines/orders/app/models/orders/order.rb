@@ -5,9 +5,6 @@ module Orders
   class Order < ApplicationRecord
     include Confirmable, Payable, Shippable, Expirable, Cancellable, Returnable
 
-    CURRENCY = "EUR"
-    RETURN_WINDOW = 14.days
-
     belongs_to :cart
     has_many :line_items, dependent: :destroy
 
@@ -24,7 +21,7 @@ module Orders
       transaction do
         create!(
           cart:, state: "placed", **cart.slice(:customer_id, :customer_name, :customer_email, :shipping_address),
-          total_cents: quote.total_cents, currency: CURRENCY,
+          total_cents: quote.total_cents, currency: quote.currency,
           line_items: quote.lines.map do |line|
             LineItem.new(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
           end
@@ -40,7 +37,7 @@ module Orders
 
     # Rules that span the traits. A verb that depends on one checks it under the order's lock.
     def cancellable? = (placed? || confirmed?) && shipped_at.nil? && cancellation_requested_at.nil?
-    def returnable? = delivered_at.present? && delivered_at > RETURN_WINDOW.ago && !cancelled? && self.return.nil?
+    def returnable? = within_return_window? && !cancelled? && self.return.nil?
 
     def status
       current_return = self.return

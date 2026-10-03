@@ -1,5 +1,8 @@
 module Catalog
   class Product < ApplicationRecord
+    # The shop sells in one currency; a second one would give each product a price per currency.
+    CURRENCY = "EUR"
+
     has_many :reservations, dependent: :restrict_with_exception
 
     validates :sku, :name, presence: true
