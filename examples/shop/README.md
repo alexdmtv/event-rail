@@ -204,6 +204,8 @@ The example stays between steps 2 and 3 on purpose. The queue refers to an event
 
 Loyalty was added after the rest of the shop. It took an engine, one `require_relative` in `config/application.rb`, and a `package.yml` depending on `Orders`' published events — and no existing module changed. It hears `OrderDelivered` and `OrderRefunded`, and when it fails, orders are still delivered. That is the property EventRail exists for: the code that announces a fact learns nothing about who listens.
 
+Loyalty awards points on delivery and takes them back on refund. A shop that wants points only once a return is no longer possible would have Orders publish an `OrderCompleted` when the return window closes, from a sweep like the deadline sweep. The window is Orders' rule, so Loyalty must not count the days itself.
+
 ## Anatomy of a module
 
 ```
