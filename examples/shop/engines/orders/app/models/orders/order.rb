@@ -26,7 +26,9 @@ module Orders
       new(
         cart:, state: "placed", customer_id: cart.customer_id, customer_name: cart.customer_name, customer_email: cart.customer_email,
         shipping_address: cart.shipping_address, total_cents: quote.total_cents, currency: CURRENCY,
-        line_items: quote.lines.map { |line| LineItem.new(line.to_h) }
+        line_items: quote.lines.map do |line|
+          LineItem.new(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
+        end
       ).tap(&:place)
     end
 
