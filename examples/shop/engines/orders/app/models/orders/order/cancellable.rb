@@ -13,8 +13,8 @@ module Orders
         self
       end
 
-      # Releases the holds on every run, not only the one that cancelled, so a retry after the
-      # cancellation committed still releases them.
+      # CancelJob's step; callers use request_cancellation. Releases the holds on every run, not
+      # only the one that cancelled, so a retry after the cancellation committed still releases them.
       def cancel
         Fulfillment::Api.cancel_shipment(reference: reference)
         update_if({ state: %w[ placed confirmed ] }, state: "cancelled", cancelled_at: Time.current) do
