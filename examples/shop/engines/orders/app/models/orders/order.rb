@@ -20,6 +20,16 @@ module Orders
 
     STATES.each { |state| define_method(:"#{state}?") { self.state == state } }
 
+    # An order placed from the cart, priced as the quote says, recorded with its line items in one
+    # save; its announcement and its confirmation are staged in the same transaction.
+    def self.place(cart:, quote:)
+      new(
+        cart:, state: "placed", customer_id: cart.customer_id, customer_name: cart.customer_name, customer_email: cart.customer_email,
+        shipping_address: cart.shipping_address, total_cents: quote.total_cents, currency: CURRENCY,
+        line_items: quote.lines.map { |line| LineItem.new(line.to_h) }
+      ).tap(&:place)
+    end
+
     # nil for a reference that is not an order's: Payments and Fulfillment serve other callers too.
     def self.for_reference(reference) = find_by(reference: reference)
 

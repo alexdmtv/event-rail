@@ -28,20 +28,7 @@ module Orders
       def record_order
         raise EmptyCart, "a cart needs at least one item to be ordered" if items.empty?
 
-        quote = Catalog::Api.quote(items.to_h { |item| [ item.sku, item.quantity ] })
-        Order.transaction do
-          order = Order.create!(
-            cart: self,
-            state: "placed", customer_id:, customer_name:, customer_email:, shipping_address:,
-            total_cents: quote.total_cents, currency: Order::CURRENCY
-          )
-          quote.lines.each do |line|
-            order.line_items.create!(sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents)
-          end
-          order.announce_placement
-          order.confirm_later
-          order
-        end
+        Order.place(cart: self, quote: Catalog::Api.quote(items.to_h { |item| [ item.sku, item.quantity ] }))
       rescue ActiveRecord::RecordNotUnique
         reload.order or raise # another submission placed it first
       rescue Catalog::UnknownProduct => unknown
