@@ -39,7 +39,7 @@ module Orders
     end
 
     test "an email address that is not one is refused" do
-      error = assert_raises(Platform::InvalidInput) { TestSupport.open_cart(customer: CUSTOMER.with(email: "ada"), items: {}) }
+      error = assert_raises(Platform::InvalidInput) { TestSupport.open_cart(customer: CUSTOMER.with(email: "ada"), items: { "MUG" => 1 }) }
 
       assert_equal [ [ "customer_email", "invalid" ] ], violations(error)
     end
@@ -67,12 +67,11 @@ module Orders
       assert_enqueued_jobs 1, only: ConfirmJob
     end
 
-    test "an empty cart cannot be ordered" do
-      cart = open_cart({})
+    test "a cart with no items is refused when it is opened" do
+      error = assert_raises(Platform::InvalidInput) { open_cart({}) }
 
-      assert_raises(EmptyCart) { TestSupport.place_order(cart.id) }
-      assert_equal 0, Orders::Order.count
-      assert_no_enqueued_jobs
+      assert_equal [ [ "items", "blank" ] ], violations(error)
+      assert_equal 0, Cart.count
     end
 
     test "placing a cart again returns its order, confirmed once" do

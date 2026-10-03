@@ -38,7 +38,7 @@ curl -s -X POST localhost:3000/orders/1/cancellation  # or, on another order, be
 
 | Request | Answer |
 | --- | --- |
-| `POST /carts` | `201` with the cart; `422` with every problem in the request: a customer detail missing, a quantity that is not a whole number above zero, a product the shop does not sell or lists twice |
+| `POST /carts` | `201` with the cart; `422` with every problem in the request: no items, a customer detail missing, a quantity that is not a whole number above zero, a product the shop does not sell or lists twice |
 | `POST /carts/:id/order` | `201` with the order, placed. Posting again returns the same order |
 | `GET /orders/:id` | the order and its status |
 | `POST /orders/:id/cancellation` | `202`: the request is recorded and carried out a moment later; `409` once the order has shipped |
@@ -155,7 +155,7 @@ request: open the cart → place it: price it, record the placed order with Orde
 job:     hold the stock → authorize the card → confirmed → request the capture
 ```
 
-A cart refuses what it can tell at once — a quantity that is not a whole number above zero, a product the shop does not sell — and an empty cart cannot be placed. Placing records the order, priced as the products are now, and nothing outside Orders changes. Confirming happens in a job, under the order's own reference: it holds the stock and authorizes the card, then moves the order to confirmed and requests the capture. Out of stock, or a declined card, requests the order's cancellation with the reason. Every step is safe to repeat on the reference, so a retry, or a crash at any point, runs the job again to the same end. Read back, the order shows as being confirmed, then confirmed or cancelled with the reason, usually within a second. That is the trade-off: the customer hears "declined" a moment after placing, rather than in the response, as with the many real shops that confirm an order by email.
+A cart refuses what it can tell at once — a quantity that is not a whole number above zero, a product the shop does not sell, no items at all — so every cart opened can be placed. Placing records the order, priced as the products are now, and nothing outside Orders changes. Confirming happens in a job, under the order's own reference: it holds the stock and authorizes the card, then moves the order to confirmed and requests the capture. Out of stock, or a declined card, requests the order's cancellation with the reason. Every step is safe to repeat on the reference, so a retry, or a crash at any point, runs the job again to the same end. Read back, the order shows as being confirmed, then confirmed or cancelled with the reason, usually within a second. That is the trade-off: the customer hears "declined" a moment after placing, rather than in the response, as with the many real shops that confirm an order by email.
 
 **Payment before shipping.** The card is *authorized* when the order is confirmed: a hold on the customer's balance, no money moved. It is *captured* — the charge itself — right after, and only a paid order is shipped. A temporary provider failure is retried inside Payments; a refused capture cancels the order before anything leaves the warehouse. (Capturing close to fulfilment is common card practice; the rules vary by card network and region.)
 

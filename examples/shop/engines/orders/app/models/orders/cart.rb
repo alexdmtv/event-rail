@@ -4,7 +4,7 @@ module Orders
     accepts_nested_attributes_for :items
     has_one :order
 
-    validates :customer_id, :customer_name, :customer_email, :shipping_address, presence: true
+    validates :items, :customer_id, :customer_name, :customer_email, :shipping_address, presence: true
     validates :customer_email, format: { with: URI::MailTo::EMAIL_REGEXP }, allow_blank: true
 
     # Takes the customer's details and items: [{ sku:, quantity: }]. Raises Platform::InvalidInput
@@ -20,15 +20,13 @@ module Orders
     def catalog_products = @catalog_products ||= Catalog::Api.products(items.filter_map(&:sku)).index_by(&:sku)
 
     # Safe to repeat: the order holds the cart's ID under a unique index, so placing the cart
-    # again returns that order. Raises EmptyCart or UnknownProduct.
+    # again returns that order. Raises UnknownProduct.
     def place_order
       order || record_order
     end
 
     private
       def record_order
-        raise EmptyCart, "a cart needs at least one item to be ordered" if items.empty?
-
         Order.place(cart: self, quote: Catalog::Api.quote(items.to_h { |item| [ item.sku, item.quantity ] }))
       rescue ActiveRecord::RecordNotUnique
         reload.order or raise # another submission placed it first
