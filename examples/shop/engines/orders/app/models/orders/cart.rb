@@ -16,6 +16,7 @@ module Orders
       raise Platform::InvalidInput.from(invalid.record.errors)
     end
 
+    # Catalog is asked once for every item's validation; public because the items call it.
     def catalog_products = @catalog_products ||= Catalog::Api.products(items.filter_map(&:sku)).index_by(&:sku)
 
     # Safe to repeat: the order holds the cart's ID under a unique index, so placing the cart
