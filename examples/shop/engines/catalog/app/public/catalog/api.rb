@@ -21,15 +21,16 @@ module Catalog
         end)
       end
 
-      # All items or none; items: { "sku" => positive Integer }. A reference holds once: repeating
-      # it holds nothing more, whatever the items. Raises OutOfStock, InvalidQuantity or
-      # UnknownProduct.
+      # All items or none; items: { "sku" => positive Integer }, at least one. A reference holds
+      # once: repeating it holds nothing more, whatever the items. Raises OutOfStock,
+      # InvalidQuantity or UnknownProduct.
       def reserve(reference:, items:) = Catalog::Reservation.hold(reference, items).then { true }
 
       # Safe to repeat, and to call for a reference that holds nothing.
       def release(reference:) = Catalog::Reservation.find_by(reference:).then { |reservation| reservation&.release; true }
 
-      # Takes the held stock off on_hand. Safe to repeat.
+      # Takes the held stock off on_hand. Safe to repeat. Raises AlreadyReleased for a reservation
+      # given up.
       def ship(reference:) = Catalog::Reservation.find_by(reference:).then { |reservation| reservation&.ship; true }
 
       # Puts shipped stock back on hand. Safe to repeat. Raises NotYetShipped while the stock is

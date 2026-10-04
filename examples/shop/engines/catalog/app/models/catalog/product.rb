@@ -1,6 +1,6 @@
 module Catalog
-  # on_hand is what is physically in the warehouse: a hold leaves it alone, and only shipping
-  # and restocking move it.
+  # on_hand is what is physically in the warehouse: a hold leaves it alone, and only goods
+  # leaving or arriving change it.
   class Product < ApplicationRecord
     # The shop sells in one currency; a second one would give each product a price per currency.
     CURRENCY = "EUR"

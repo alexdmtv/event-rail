@@ -25,6 +25,18 @@ module Orders
       assert_equal %w[ orders.order_cancelled orders.order_placed ], published.map(&:event_type).sort
     end
 
+    test "a cancellation completed while confirming was under way gets the stock back, even when the card is then declined" do
+      Payments::Gateway.adapter = ScriptedGateway.new(authorize: [ :refuse ])
+      order = checkout
+      confirming = TestSupport.order(order.id) # read as placed, as the confirmation's job did
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
+
+      confirming.confirm
+
+      assert_equal "cancelled", order.reload.state
+      assert_equal 10, available("MUG")
+    end
+
     test "a declined card cancels the order and gives its stock back" do
       Payments::Gateway.adapter = ScriptedGateway.new(authorize: [ :refuse ])
 

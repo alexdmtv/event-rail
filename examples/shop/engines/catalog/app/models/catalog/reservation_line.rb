@@ -4,6 +4,8 @@ module Catalog
     belongs_to :reservation
     belongs_to :product
 
+    attr_readonly :reservation_id, :product_id, :quantity
+
     scope :held, -> { joins(:reservation).merge(Reservation.held) }
   end
 end

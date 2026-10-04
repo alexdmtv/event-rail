@@ -67,11 +67,19 @@ module Catalog
     test "a reference holds once, whatever the items of a later call" do
       Api.reserve(reference: "r-1", items: { "MUG" => 2 })
       Api.reserve(reference: "r-1", items: { "TEA" => 5 })
+      Api.reserve(reference: "r-1", items: { "TEA" => 0 })
 
       assert_equal [ 1, 10 ], [ available("MUG"), available("TEA") ]
     end
 
-    test "a hold locks its products in ID order, as shipping and restocking take them, so holds sharing products cannot deadlock" do
+    test "holding nothing is a mistake, not a reservation" do
+      assert_raises(ArgumentError) { Api.reserve(reference: "r-1", items: {}) }
+      Api.reserve(reference: "r-1", items: { "MUG" => 1 })
+
+      assert_equal 2, available("MUG")
+    end
+
+    test "a hold takes its products in ID order, the order shipping and restocking take them in" do
       assert_queries_match(/FROM "catalog_products" WHERE .* ORDER BY "catalog_products"."id"/) do
         Api.reserve(reference: "r-1", items: { "TEA" => 1, "MUG" => 1 })
       end
@@ -90,7 +98,7 @@ module Catalog
       Api.reserve(reference: "r-1", items: { "MUG" => 2 })
       Api.release(reference: "r-1")
 
-      assert_raises(RuntimeError) { Api.ship(reference: "r-1") }
+      assert_raises(AlreadyReleased) { Api.ship(reference: "r-1") }
       assert_equal 3, Catalog::Product.find_by!(sku: "MUG").on_hand
     end
 
