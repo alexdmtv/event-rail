@@ -15,7 +15,7 @@ module Orders
     def request_pickup = (Fulfillment::Api.request_return_pickup(reference: order.reference) if requested?)
 
     # The release makes Payments refund the capture. Answered by RefundIssued (complete_refund)
-    # or RefundFailed (Order#flag_refused_refund).
+    # or RefundFailed (record_refund_failure).
     def receive
       update_if({ state: "requested" }, state: "received", received_at: Time.current)
       return unless received?

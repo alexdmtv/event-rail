@@ -45,7 +45,7 @@ module Orders
       assert_equal [ "needs_attention", "refused by the script" ], [ order.reload.status, order.refund_failure_reason ]
       assert_not_includes published.map(&:event_type), "orders.order_refunded"
       assert_no_changes -> { order.reload.attributes } do
-        FlagRefusedRefundJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "again")).event)
+        RecordCancellationRefundFailureJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "again")).event)
       end
     end
 
@@ -54,7 +54,7 @@ module Orders
       perform_due_jobs
 
       assert_no_changes -> { order.reload.attributes } do
-        FlagRefusedRefundJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "stray")).event)
+        RecordCancellationRefundFailureJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "stray")).event)
       end
     end
 
@@ -88,6 +88,21 @@ module Orders
       record = order.reload
       assert record.cancellation_refused_at
       assert_equal "shipped", record.status
+    end
+
+    test "a refused cancellation replayed after the order was delivered and returned changes nothing" do
+      order = place
+      perform_due_jobs
+      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Fulfillment::DispatchJob" })
+      TestSupport.request_cancellation(order.id)
+      perform_enqueued_jobs(only: CancelJob)
+      travel(2.hours) { perform_due_jobs } # the dispatch is heard and the parcel delivered
+      TestSupport.request_return(order.id)
+
+      assert_no_changes -> { order.reload.attributes } do
+        CancelJob.perform_now(order.reload)
+      end
+      assert_equal "returning", order.reload.status
     end
 
     test "cancelling twice changes nothing and announces nothing further" do

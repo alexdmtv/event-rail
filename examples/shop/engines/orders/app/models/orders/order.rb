@@ -49,20 +49,12 @@ module Orders
 
     def announcements = Announcements.new(self)
 
-    # Payments refunds an order for one of two reasons: its received return, or its cancellation
-    # after the capture had landed.
-    def flag_refused_refund(reason)
-      if self.return then self.return.record_refund_failure(reason)
-      else record_refund_failure(reason)
-      end
-    end
-
     private
       # Catalog and Fulfillment take an order's goods as quantities by SKU.
       def quantities_by_sku = line_items.to_h { |line| [ line.sku, line.quantity ] }
 
       # Safe to repeat, and to call for an order whose stock or payment was never held. Of the
-      # release's answers, only RefundFailed concerns a cancelled order (flag_refused_refund).
+      # release's answers, only RefundFailed concerns a cancelled order (record_refund_failure).
       def release_holds
         Catalog::Api.release(reservation_id: reference)
         Payments::Api.request_release(reference: reference)

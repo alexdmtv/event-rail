@@ -122,7 +122,7 @@ Every interaction between two modules in this application (`test/docs/readme_gui
 | `subscribes_to Payments::Events::PaymentCaptured` | event (Orders) | the outcome of Orders' capture request: pay, then ship |
 | `subscribes_to Payments::Events::CaptureFailed` | event (Orders) | the outcome of Orders' capture request: cancel |
 | `subscribes_to Payments::Events::RefundIssued` | event (Orders) | the outcome of a return's release request: complete the return |
-| `subscribes_to Payments::Events::RefundFailed` | event (Orders) | the outcome of a release request: set the order aside |
+| `subscribes_to Payments::Events::RefundFailed` | event (Orders, twice) | the outcome of a release request, final: the return's subscriber and the cancellation's each look for their own record, and the one that finds it sets it aside for a person |
 | `subscribes_to Fulfillment::Events::ShipmentDispatched` | event (Orders) | Fulfillment cannot call upward; Orders hears the carrier's progress |
 | `subscribes_to Fulfillment::Events::ShipmentDelivered` | event (Orders) | as above |
 | `subscribes_to Fulfillment::Events::ReturnReceived` | event (Orders) | as above: restock and refund |
