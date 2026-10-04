@@ -1,7 +1,5 @@
+# Its own bin/rails loads this file before the shop; the class body extends Platform::ModuleEngine.
 require_relative "../../../platform/lib/platform/engine"
-require_relative "../../../catalog/lib/catalog/engine"
-require_relative "../../../payments/lib/payments/engine"
-require_relative "../../../fulfillment/lib/fulfillment/engine"
 
 module Orders
   class Engine < ::Rails::Engine

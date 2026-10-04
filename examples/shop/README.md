@@ -227,7 +227,7 @@ Loyalty awards points on delivery and takes them back on refund. A shop that wan
 
 ```
 engines/orders/
-  lib/orders/engine.rb             isolate_namespace Orders; requires the engines it builds on, so it boots alone for its generators
+  lib/orders/engine.rb             isolate_namespace Orders; requires only Platform, whose ModuleEngine it extends
   bin/rails                        the module's own Rails command: generators write into the module
   package.yml                      its dependencies, enforced by packwerk
   app/public/orders/*.rb           Orders' public errors, one file each
