@@ -30,6 +30,11 @@ module Orders
       rescue Fulfillment::AlreadyDispatched
         update_if({ cancellation_refused_at: nil }, cancellation_refused_at: Time.current)
       end
+
+      # The cancellation's refund, refused: the customer is owed money, so a person settles it.
+      def record_refund_failure(reason)
+        update_if({ state: "cancelled", refund_refused_at: nil }, refund_refused_at: Time.current, refund_failure_reason: reason)
+      end
     end
   end
 end

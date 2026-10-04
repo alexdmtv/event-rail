@@ -31,7 +31,7 @@ module Orders
     end
 
     def record_refund_failure(reason)
-      update_if({ state: "received" }, state: "refund_failed", failure_reason: "refund refused: #{reason}")
+      update_if({ state: "received" }, state: "refund_failed", failure_reason: reason)
     end
   end
 end

@@ -35,7 +35,8 @@ class CreateOrdersTables < ActiveRecord::Migration[8.1]
       t.string :cancel_reason
       t.datetime :cancellation_refused_at
       t.datetime :cancelled_at
-      t.string :attention_reason
+      t.datetime :refund_refused_at
+      t.string :refund_failure_reason
       t.timestamps
       t.index [ :state, :created_at ]
       t.index [ :state, :confirmed_at ]

@@ -27,11 +27,35 @@ module Orders
       order = place
       perform_due_jobs # captured and paid; the carrier has not collected the parcel
 
-      perform_enqueued_jobs { TestSupport.request_cancellation(order.id) }
+      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(order.id) } }
 
-      assert_equal "cancelled", order.reload.state
+      assert_equal [ "cancelled", "cancelled" ], [ order.reload.state, order.status ]
       assert_equal 10, available("MUG")
       assert_equal "refunded", Payments::TestSupport.payment(order.reference).state
+      assert_not_includes published.map(&:event_type), "orders.order_refunded", "a cancellation's refund is not a return's"
+    end
+
+    test "a cancellation's refused refund sets the order aside for a person, once" do
+      Payments::Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
+      order = place
+      perform_due_jobs # captured and paid
+
+      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(order.id) } }
+
+      assert_equal [ "needs_attention", "refused by the script" ], [ order.reload.status, order.refund_failure_reason ]
+      assert_not_includes published.map(&:event_type), "orders.order_refunded"
+      assert_no_changes -> { order.reload.attributes } do
+        FlagRefusedRefundJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "again")).event)
+      end
+    end
+
+    test "a refused refund for an order neither cancelled nor returning changes nothing" do
+      order = place
+      perform_due_jobs
+
+      assert_no_changes -> { order.reload.attributes } do
+        FlagRefusedRefundJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "stray")).event)
+      end
     end
 
     test "a capture that lands after the cancellation is refunded" do

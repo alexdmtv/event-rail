@@ -13,7 +13,7 @@ module Notifications
         when Orders::Events::OrderDelivered
           [ "delivered", "Your #{order} was delivered", "#{greeting} #{order} was delivered. Enjoy!" ]
         when Orders::Events::OrderCancelled
-          [ "cancelled", "Your #{order} was cancelled", "#{greeting} #{order} was cancelled (#{event.reason}). Nothing was charged, or it has been refunded." ]
+          [ "cancelled", "Your #{order} was cancelled", "#{greeting} #{order} was cancelled (#{event.reason}). Any payment taken will be refunded." ]
         when Orders::Events::OrderRefunded
           [ "refunded", "Your refund for #{order}", "#{greeting} we refunded #{money(event.total.amount_cents)} for #{order}." ]
         end

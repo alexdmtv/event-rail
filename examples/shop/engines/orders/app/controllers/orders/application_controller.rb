@@ -11,7 +11,7 @@ module Orders
           lines: order.line_items.map { |line| { sku: line.sku, name: line.name, quantity: line.quantity, unit_price_cents: line.unit_price_cents } },
           tracking_code: order.tracking_code,
           cancel_reason: order.cancel_reason,
-          attention_reason: order.attention_reason,
+          refund_failure_reason: order.refund_failure_reason,
           placed_at: order.created_at,
           confirmed_at: order.confirmed_at,
           paid_at: order.paid_at,

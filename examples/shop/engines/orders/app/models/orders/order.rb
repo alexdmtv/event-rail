@@ -37,7 +37,7 @@ module Orders
 
     def status
       current_return = self.return
-      if attention_reason? || current_return&.refund_failed? then "needs_attention"
+      if refund_refused_at? || current_return&.refund_failed? then "needs_attention"
       elsif cancelled? then "cancelled"
       elsif current_return then current_return.refunded? ? "refunded" : "returning"
       elsif delivered_at? then "delivered"
@@ -49,12 +49,11 @@ module Orders
 
     def announcements = Announcements.new(self)
 
-    # With no return, the refused refund is a cancelled order's, for a capture that had landed.
+    # Payments refunds an order for one of two reasons: its received return, or its cancellation
+    # after the capture had landed.
     def flag_refused_refund(reason)
-      if self.return
-        self.return.record_refund_failure(reason)
-      else
-        update_if({ attention_reason: nil }, attention_reason: "refund refused: #{reason}")
+      if self.return then self.return.record_refund_failure(reason)
+      else record_refund_failure(reason)
       end
     end
 

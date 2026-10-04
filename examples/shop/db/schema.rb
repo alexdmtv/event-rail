@@ -125,7 +125,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.string "cancel_reason"
     t.datetime "cancellation_refused_at"
     t.datetime "cancelled_at"
-    t.string "attention_reason"
+    t.datetime "refund_refused_at"
+    t.string "refund_failure_reason"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["cart_id"], name: "index_orders_orders_on_cart_id", unique: true
