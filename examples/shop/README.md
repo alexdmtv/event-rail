@@ -96,6 +96,8 @@ The host application boots the modules and mounts Orders' routes; it has no code
 
 Calls point one way: down. Catalog, Payments and Fulfillment know nothing above them — Payments moves money *for a reference* and Fulfillment ships *to a reference*; neither knows what an order is. Notifications and Loyalty depend only on Orders' published events, and nothing depends on them. Packwerk enforces all of it in CI (see [Boundaries](#boundaries-enforced-not-described)).
 
+Catalog holds two things a larger shop splits: what it sells (products and prices) and what it has (stock and reservations). A `Catalog::Reservation` is stock set aside under a caller's reference, with a line per product; a hold locks the products it takes from, and shipping takes the stock off the shelf in the same transaction that marks the reservation shipped, because "never promise more than is on the shelf" needs both. That is why the two stay together: a split would move `on_hand` and the reservations into an Inventory module as one, leaving names and prices behind.
+
 ## What goes where
 
 One question decides between a call, a request and an event: **if nobody reacted, would the publisher's own process be incomplete?**

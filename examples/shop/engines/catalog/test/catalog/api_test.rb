@@ -29,51 +29,75 @@ module Catalog
 
     test "a reservation refuses a quantity that is not a positive integer" do
       [ -2, 0, "1", 1.5 ].each do |quantity|
-        assert_raises(InvalidQuantity, quantity.inspect) { Api.reserve(reservation_id: "r-#{quantity}", items: { "TEA" => quantity }) }
+        assert_raises(InvalidQuantity, quantity.inspect) { Api.reserve(reference: "r-#{quantity}", items: { "TEA" => quantity }) }
       end
 
       assert_equal 10, available("TEA")
     end
 
     test "a reservation holds stock for every item or for none" do
-      assert_raises(OutOfStock) { Api.reserve(reservation_id: "r-1", items: { "TEA" => 1, "MUG" => 4 }) }
+      assert_raises(OutOfStock) { Api.reserve(reference: "r-1", items: { "TEA" => 1, "MUG" => 4 }) }
 
       assert_equal 10, available("TEA")
       assert_equal 3, available("MUG")
     end
 
     test "repeating a reservation holds nothing more" do
-      2.times { Api.reserve(reservation_id: "r-1", items: { "MUG" => 2 }) }
+      2.times { Api.reserve(reference: "r-1", items: { "MUG" => 2 }) }
 
       assert_equal 1, available("MUG")
     end
 
     test "releasing twice gives the stock back once" do
-      Api.reserve(reservation_id: "r-1", items: { "MUG" => 2 })
-      2.times { Api.release(reservation_id: "r-1") }
+      Api.reserve(reference: "r-1", items: { "MUG" => 2 })
+      2.times { Api.release(reference: "r-1") }
 
       assert_equal 3, available("MUG")
     end
 
     test "shipping and restocking move stock once each" do
-      Api.reserve(reservation_id: "r-1", items: { "MUG" => 2 })
-      2.times { Api.ship(reservation_id: "r-1") }
+      Api.reserve(reference: "r-1", items: { "MUG" => 2 })
+      2.times { Api.ship(reference: "r-1") }
       assert_equal 1, Catalog::Product.find_by!(sku: "MUG").on_hand
 
-      2.times { Api.restock(reservation_id: "r-1") }
+      2.times { Api.restock(reference: "r-1") }
       assert_equal 3, Catalog::Product.find_by!(sku: "MUG").on_hand
     end
 
-    test "two reservations sharing products hold them in the same order, so neither deadlocks the other" do
-      locked = []
-      Catalog::Product.class_eval { alias_method :__lock_before_test, :lock! }
-      Catalog::Product.define_method(:lock!) { |*args| locked << sku; __lock_before_test(*args) }
+    test "a reference holds once, whatever the items of a later call" do
+      Api.reserve(reference: "r-1", items: { "MUG" => 2 })
+      Api.reserve(reference: "r-1", items: { "TEA" => 5 })
 
-      Api.reserve(reservation_id: "r-1", items: { "TEA" => 1, "MUG" => 1 })
+      assert_equal [ 1, 10 ], [ available("MUG"), available("TEA") ]
+    end
 
-      assert_equal %w[ MUG TEA ], locked
-    ensure
-      Catalog::Product.class_eval { alias_method :lock!, :__lock_before_test; remove_method :__lock_before_test }
+    test "a hold locks its products in ID order, as shipping and restocking take them, so holds sharing products cannot deadlock" do
+      assert_queries_match(/FROM "catalog_products" WHERE .* ORDER BY "catalog_products"."id"/) do
+        Api.reserve(reference: "r-1", items: { "TEA" => 1, "MUG" => 1 })
+      end
+    end
+
+    test "a restock before its shipment raises to be retried, so the returned stock is not lost" do
+      Api.reserve(reference: "r-1", items: { "MUG" => 2 })
+
+      assert_raises(NotYetShipped) { Api.restock(reference: "r-1") }
+      Api.ship(reference: "r-1")
+      Api.restock(reference: "r-1")
+      assert_equal 3, Catalog::Product.find_by!(sku: "MUG").on_hand
+    end
+
+    test "a released reservation cannot ship" do
+      Api.reserve(reference: "r-1", items: { "MUG" => 2 })
+      Api.release(reference: "r-1")
+
+      assert_raises(RuntimeError) { Api.ship(reference: "r-1") }
+      assert_equal 3, Catalog::Product.find_by!(sku: "MUG").on_hand
+    end
+
+    test "release, ship and restock do nothing for a reference that holds nothing" do
+      assert Api.release(reference: "nobody")
+      assert Api.ship(reference: "nobody")
+      assert Api.restock(reference: "nobody")
     end
 
     test "an unknown product is refused" do

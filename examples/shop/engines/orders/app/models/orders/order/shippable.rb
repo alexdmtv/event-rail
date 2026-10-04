@@ -19,7 +19,7 @@ module Orders
         update_if({ shipped_at: nil }, shipped_at: Time.current, tracking_code: tracking_code) do
           EventRail.stage(announcements.shipped)
         end
-        Catalog::Api.ship(reservation_id: reference)
+        Catalog::Api.ship(reference: reference)
       end
 
       # Raises, rather than returns, before the dispatch is recorded: events arrive in any order,

@@ -20,7 +20,7 @@ module Orders
       update_if({ state: "requested" }, state: "received", received_at: Time.current)
       return unless received?
 
-      Catalog::Api.restock(reservation_id: order.reference)
+      Catalog::Api.restock(reference: order.reference)
       Payments::Api.request_release(reference: order.reference)
     end
 

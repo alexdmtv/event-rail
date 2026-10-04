@@ -56,7 +56,7 @@ module Orders
       # Safe to repeat, and to call for an order whose stock or payment was never held. Of the
       # release's answers, only RefundFailed concerns a cancelled order (record_refund_failure).
       def release_holds
-        Catalog::Api.release(reservation_id: reference)
+        Catalog::Api.release(reference: reference)
         Payments::Api.request_release(reference: reference)
       end
   end

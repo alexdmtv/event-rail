@@ -19,7 +19,7 @@ module Orders
 
       private
         def hold_and_authorize
-          Catalog::Api.reserve(reservation_id: reference, items: quantities_by_sku)
+          Catalog::Api.reserve(reference: reference, items: quantities_by_sku)
           Payments::Api.authorize(reference: reference, amount_cents: total_cents, currency: currency)
           update_if({ state: "placed" }, state: "confirmed", confirmed_at: Time.current)
         end

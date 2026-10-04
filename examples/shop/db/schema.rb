@@ -22,15 +22,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.check_constraint "on_hand >= 0", name: "catalog_products_on_hand_not_negative"
   end
 
-  create_table "catalog_reservations", force: :cascade do |t|
-    t.string "reservation_id", null: false
+  create_table "catalog_reservation_lines", force: :cascade do |t|
+    t.integer "reservation_id", null: false
     t.integer "product_id", null: false
     t.integer "quantity", null: false
-    t.string "state", default: "held", null: false
+    t.index ["product_id"], name: "index_catalog_reservation_lines_on_product_id"
+    t.index ["reservation_id", "product_id"], name: "index_catalog_reservation_lines_on_reservation_and_product", unique: true
+    t.check_constraint "quantity > 0", name: "catalog_reservation_lines_quantity_positive"
+  end
+
+  create_table "catalog_reservations", force: :cascade do |t|
+    t.string "reference", null: false
+    t.string "state", null: false
+    t.datetime "released_at"
+    t.datetime "shipped_at"
+    t.datetime "restocked_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["product_id"], name: "index_catalog_reservations_on_product_id"
-    t.index ["reservation_id", "product_id"], name: "index_catalog_reservations_on_reservation_id_and_product_id", unique: true
+    t.index ["reference"], name: "index_catalog_reservations_on_reference", unique: true
   end
 
   create_table "fulfillment_returns", force: :cascade do |t|
@@ -178,7 +187,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.index ["job_id"], name: "index_platform_staged_jobs_on_job_id"
   end
 
-  add_foreign_key "catalog_reservations", "catalog_products", column: "product_id"
+  add_foreign_key "catalog_reservation_lines", "catalog_products", column: "product_id"
+  add_foreign_key "catalog_reservation_lines", "catalog_reservations", column: "reservation_id"
   add_foreign_key "orders_cart_items", "orders_carts", column: "cart_id"
   add_foreign_key "orders_line_items", "orders_orders", column: "order_id"
   add_foreign_key "orders_orders", "orders_carts", column: "cart_id"

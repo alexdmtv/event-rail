@@ -1,49 +1,57 @@
 module Catalog
-  # One row per product, sharing the caller's reservation ID. on_hand is what is physically in the
-  # warehouse, so a hold leaves it alone. Each step moves only rows still in its starting state.
+  # Stock set aside under a caller's reference. Its lines never change; its state moves once:
+  # held, then released, or shipped and later restocked.
   class Reservation < ApplicationRecord
-    belongs_to :product
+    has_many :lines, class_name: "ReservationLine", dependent: :delete_all
 
-    # Its bang methods (shipped!) skip the reservation's steps; never call them.
+    # Its bang methods (shipped!) skip the reservation's transitions; never call them.
     enum :state, %w[ held released shipped restocked ].index_by(&:itself), validate: true
 
-    scope :for, ->(reservation_id) { where(reservation_id: reservation_id) }
+    # All items or none. A reference holds once: repeating it returns the first reservation,
+    # whatever the items. The reference is claimed before the stock, so an identical retry waits
+    # and gets the winner's reservation rather than finding the stock taken; products are locked
+    # in ID order, as shipping and restocking take them, so no two can deadlock.
+    def self.hold(reference, items)
+      items.each do |sku, quantity|
+        raise InvalidQuantity, "#{sku}: #{quantity.inspect} is not a positive quantity" unless quantity.is_a?(Integer) && quantity.positive?
+      end
 
-    # All items or none; repeating a reservation ID holds nothing more. Products are locked in
-    # SKU order so two reservations sharing products cannot deadlock.
-    def self.hold(reservation_id, items)
-      transaction do
-        next if self.for(reservation_id).exists?
-
-        items.sort.each do |sku, quantity|
-          raise InvalidQuantity, "#{sku}: #{quantity.inspect} is not a positive quantity" unless quantity.is_a?(Integer) && quantity.positive?
-
-          product = Product.find_by_sku!(sku).lock!
-          raise OutOfStock, sku if product.available < quantity
-
-          product.reservations.create!(reservation_id: reservation_id, quantity: quantity)
+      find_by(reference:) || transaction(requires_new: true) do
+        create!(reference:, state: "held").tap do |reservation|
+          products = Product.where(sku: items.keys).order(:id).lock.index_by(&:sku)
+          items.each do |sku, quantity|
+            product = products[sku] or raise UnknownProduct, "unknown product #{sku}"
+            product.ensure_available(quantity)
+            reservation.lines.create!(product:, quantity:)
+          end
         end
+      end
+    rescue ActiveRecord::RecordNotUnique
+      find_by!(reference:)
+    end
+
+    # Safe to repeat. Only held stock is released.
+    def release = update_if({ state: "held" }, state: "released", released_at: Time.current)
+
+    # Takes the held stock off the shelf. Safe to repeat; a released reservation cannot ship.
+    def ship
+      update_if({ state: "held" }, state: "shipped", shipped_at: Time.current) do
+        lines_by_product.each { |line| line.product.withdraw(line.quantity) }
+      end
+      raise "reservation #{reference} was released, so it cannot ship" if released?
+    end
+
+    # Puts shipped stock back on the shelf. Safe to repeat. Raises NotYetShipped while the stock
+    # is still held, to be retried: ignoring it would lose the returned stock.
+    def restock
+      raise NotYetShipped, "reservation #{reference} has not shipped yet" if held?
+
+      update_if({ state: "shipped" }, state: "restocked", restocked_at: Time.current) do
+        lines_by_product.each { |line| line.product.receive(line.quantity) }
       end
     end
 
-    def self.release = held.update_all(state: "released", updated_at: Time.current)
-
-    def self.ship
-      transaction do
-        held.lock.each do |reservation|
-          Product.update_counters(reservation.product_id, on_hand: -reservation.quantity)
-          reservation.update!(state: "shipped")
-        end
-      end
-    end
-
-    def self.restock
-      transaction do
-        shipped.lock.each do |reservation|
-          Product.update_counters(reservation.product_id, on_hand: reservation.quantity)
-          reservation.update!(state: "restocked")
-        end
-      end
-    end
+    private
+      def lines_by_product = lines.includes(:product).sort_by(&:product_id)
   end
 end
