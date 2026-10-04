@@ -1,4 +1,5 @@
-# Its own bin/rails loads this file before the shop; the class body extends Platform::ModuleEngine.
+# Only for this module's own bin/rails (its generators), which loads this file before the shop:
+# the class body needs Platform::ModuleEngine.
 require_relative "../../../platform/lib/platform/engine"
 
 module Fulfillment
