@@ -79,5 +79,9 @@ module Catalog
     test "an unknown product is refused" do
       assert_raises(UnknownProduct) { Api.quote("NOPE" => 1) }
     end
+
+    test "the database refuses stock below zero, whatever skips the model" do
+      assert_raises(ActiveRecord::StatementInvalid) { Catalog::Product.find_by_sku!("MUG").update_column(:on_hand, -1) }
+    end
   end
 end

@@ -6,6 +6,7 @@ class CreateCatalogProducts < ActiveRecord::Migration[8.1]
       t.integer :price_cents, null: false
       t.integer :on_hand, null: false, default: 0
       t.timestamps
+      t.check_constraint "on_hand >= 0", name: "catalog_products_on_hand_not_negative"
     end
 
     create_table :catalog_reservations do |t|

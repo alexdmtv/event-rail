@@ -19,6 +19,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["sku"], name: "index_catalog_products_on_sku", unique: true
+    t.check_constraint "on_hand >= 0", name: "catalog_products_on_hand_not_negative"
   end
 
   create_table "catalog_reservations", force: :cascade do |t|
