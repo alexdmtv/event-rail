@@ -2,7 +2,7 @@ module Fulfillment
   module Carrier
     # Its scheduled jobs, `delay` apart, stand in for a real carrier's webhook callbacks.
     class Fake
-      def initialize(delay: 4.seconds)
+      def initialize(delay:)
         @delay = delay
       end
 

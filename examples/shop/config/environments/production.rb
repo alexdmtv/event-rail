@@ -62,4 +62,9 @@ Rails.application.configure do
   #
   # Skip DNS rebinding protection for the default health check endpoint.
   # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+
+  # A demonstration: the shop takes no real payments and ships nothing.
+  config.payments.gateway = :fake
+  config.fulfillment.carrier = :fake
+  config.fulfillment.fake_carrier_delay = 4.seconds
 end

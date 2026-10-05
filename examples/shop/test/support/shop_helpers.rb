@@ -31,7 +31,7 @@ module ShopHelpers
     perform_enqueued_jobs(at: Time.current) while enqueued_jobs.any? { |job| job[:at].nil? || job[:at] <= Time.current.to_f }
   end
 
-  def slow_carrier = Fulfillment::Carrier.adapter = Fulfillment::Carrier::Fake.new(delay: 1.hour)
+  def slow_carrier = Fulfillment::TestSupport.carrier_answering_after(1.hour)
 
-  def instant_carrier = Fulfillment::Carrier.adapter = Fulfillment::Carrier::Fake.new(delay: 0)
+  def instant_carrier = Fulfillment::TestSupport.carrier_answering_after(0)
 end

@@ -8,5 +8,10 @@ module Fulfillment
 
     isolate_namespace Fulfillment
     share_migrations
+
+    # Each environment chooses the carrier (config.fulfillment.carrier). Building it here fails the boot,
+    # and every reload, when the choice is missing or unknown.
+    config.fulfillment = ActiveSupport::OrderedOptions.new
+    config.to_prepare { Fulfillment::Carrier.current }
   end
 end

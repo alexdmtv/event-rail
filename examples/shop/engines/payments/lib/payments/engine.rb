@@ -8,5 +8,10 @@ module Payments
 
     isolate_namespace Payments
     share_migrations
+
+    # Each environment chooses the gateway (config.payments.gateway). Building it here fails the boot,
+    # and every reload, when the choice is missing or unknown.
+    config.payments = ActiveSupport::OrderedOptions.new
+    config.to_prepare { Payments::Gateway.current }
   end
 end

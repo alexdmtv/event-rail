@@ -41,4 +41,9 @@ Rails.application.configure do
 
   # Raise error when a before_action's only/except options reference missing actions.
   config.action_controller.raise_on_missing_callback_actions = true
+
+  # Tests plug in scripted adapters where they need other answers.
+  config.payments.gateway = :fake
+  config.fulfillment.carrier = :fake
+  config.fulfillment.fake_carrier_delay = 4.seconds
 end

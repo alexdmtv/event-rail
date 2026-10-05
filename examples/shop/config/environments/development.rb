@@ -58,4 +58,10 @@ Rails.application.configure do
 
   # Raise error when a before_action's only/except options reference missing actions.
   config.action_controller.raise_on_missing_callback_actions = true
+
+  # The fakes stand in for the payment provider and the carrier; the carrier answers after a
+  # few seconds, so a flow can be watched.
+  config.payments.gateway = :fake
+  config.fulfillment.carrier = :fake
+  config.fulfillment.fake_carrier_delay = 4.seconds
 end
