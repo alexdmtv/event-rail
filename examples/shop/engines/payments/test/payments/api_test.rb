@@ -4,6 +4,7 @@ module Payments
   class ApiTest < ActiveSupport::TestCase
     def authorize(reference = "ref-1") = Api.authorize(reference: reference, amount_cents: 4990, currency: "EUR")
     def payment(reference) = Payment.find_by!(reference: reference)
+    def call(reference, kind) = payment(reference).provider_calls.find_by!(kind: kind)
 
     test "an approved authorization holds the amount and nothing is captured yet" do
       authorize
@@ -102,7 +103,8 @@ module Payments
       published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
 
       assert_equal [ "payments.capture_failed" ], published.map(&:event_type)
-      assert_equal "capture_failed", payment("ref-1").state
+      assert_equal "authorized", payment("ref-1").state, "the hold is still there, to be voided"
+      assert_equal [ "refused", "refused by the script" ], call("ref-1", "capture").values_at(:state, :failure_reason)
     end
 
     test "a provider that never answers leaves the capture pending, retrying, and then in the failed jobs" do
@@ -114,16 +116,17 @@ module Payments
       published = record_publications { failures = work_off_queue }
 
       assert_equal 10, gateway.calls[:capture]
-      assert_equal [ "Payments::CaptureJob" ], failures.map(&:job_class)
+      assert_equal [ "Payments::CallProviderJob" ], failures.map(&:job_class)
       assert_empty published, "no outcome is reported: nobody knows whether the capture was taken"
-      payment = payment("ref-1")
-      assert_equal [ "authorized", "capture" ], [ payment.state, payment.pending_operation ]
-      assert payment.operation_sent_at
+      assert_equal "authorized", payment("ref-1").state
+      assert_equal "sent", call("ref-1", "capture").state
+      sent_at = call("ref-1", "capture").sent_at
 
       replay(failures) # the provider is back
       work_off_queue
 
-      assert_equal [ "captured", nil ], [ payment("ref-1").state, payment("ref-1").pending_operation ]
+      assert_equal [ "captured", "succeeded" ], [ payment("ref-1").state, call("ref-1", "capture").state ]
+      assert_equal sent_at, call("ref-1", "capture").sent_at, "sending again keeps the first time it was sent"
     end
 
     test "release voids an uncaptured authorization" do
@@ -177,9 +180,8 @@ module Payments
 
       assert_equal 1, gateway.calls[:void]
       assert_equal [ "payments.authorization_voided" ], voided.map(&:event_type)
-      payment = payment("ref-1")
-      assert_equal "capture_failed", payment.state
-      assert payment.voided_at
+      assert_equal [ "voided", "refused" ], [ payment("ref-1").state, call("ref-1", "capture").state ]
+      assert_equal 1, gateway.calls[:capture], "a refused capture is not asked again"
       assert_empty again, "the refusal was reported when it was recorded"
     end
 
@@ -239,8 +241,30 @@ module Payments
       end
 
       assert_equal [ 0, 1 ], gateway.calls.values_at(:capture, :void)
-      assert_equal "voided", payment("ref-1").state
+      assert_equal [ "voided", "superseded" ], [ payment("ref-1").state, call("ref-1", "capture").state ]
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
+    end
+
+    test "a refused void is reported to the shop's error tracker, and to nobody else" do
+      authorize
+      Gateway.adapter = ScriptedGateway.new(void: [ :refuse ])
+
+      published = nil
+      assert_error_reported(Gateway::Refused) do
+        published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
+      end
+
+      assert_empty published
+      assert_equal [ "authorized", "refused" ], [ payment("ref-1").state, call("ref-1", "void").state ]
+    end
+
+    test "the database allows one outstanding call per payment" do
+      authorize
+      Api.request_capture(reference: "ref-1")
+
+      assert_raises(ActiveRecord::RecordNotUnique) do
+        payment("ref-1").provider_calls.create!(kind: "void", state: "pending", idempotency_key: "void-ref-1")
+      end
     end
 
     test "a refused capture is reported within the caller's flow" do

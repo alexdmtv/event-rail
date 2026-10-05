@@ -31,9 +31,7 @@ class OrderLifecycleTest < FlowTestCase
     order, published = place_and_settle
 
     assert_equal "cancelled", order.state
-    payment = Payments::TestSupport.payment(order.reference)
-    assert_equal "capture_failed", payment.state
-    assert payment.voided_at, "the refused capture's hold is voided"
+    assert_equal "voided", Payments::TestSupport.payment(order.reference).state, "the refused capture's hold is voided"
     assert_nil Fulfillment::TestSupport.shipment(order.reference)&.dispatched_at
     assert_equal 10, available("MUG")
     assert_equal %w[ cancelled placed ], notified_kinds(order)
@@ -46,13 +44,13 @@ class OrderLifecycleTest < FlowTestCase
 
     order, placed = place_and_settle
     capture_failures = @job_failures
-    assert_equal [ "Payments::CaptureJob" ], capture_failures.map(&:job_class), "the capture ends in the failed jobs"
+    assert_equal [ "Payments::CallProviderJob" ], capture_failures.map(&:job_class), "the capture ends in the failed jobs"
     swept = travel(31.minutes) { record_publications { enqueue_scheduled(:enforce_order_deadlines); settle } }
 
     order = Orders::TestSupport.order(order.id)
     assert_equal [ "cancelled", "not paid in time" ], [ order.state, order.cancel_reason ]
     payment = Payments::TestSupport.payment(order.reference)
-    assert_equal "capture", payment.pending_operation, "nobody knows whether the capture was taken"
+    assert_equal "capture", Payments::TestSupport.outstanding_call(order.reference)&.kind, "nobody knows whether the capture was taken"
     assert payment.release_requested_at, "the release waits for the capture's answer"
     assert_empty @job_failures, "nothing else fails while it waits"
 
@@ -60,7 +58,8 @@ class OrderLifecycleTest < FlowTestCase
 
     assert_equal 11, gateway.calls[:capture]
     payment = Payments::TestSupport.payment(order.reference)
-    assert_equal [ "refunded", nil ], [ payment.state, payment.pending_operation ]
+    assert_equal "refunded", payment.state
+    assert_nil Payments::TestSupport.outstanding_call(order.reference)
     assert_equal %w[ cancelled placed ], notified_kinds(order)
     assert_not_equal assert_one_flow(placed), assert_one_flow(swept), "the sweep's run is a flow of its own"
     assert_equal flow_of(placed), assert_one_flow(replayed), "a replayed job stays in the flow it was started in"

@@ -12,7 +12,7 @@ module Orders
       assert_equal "confirmed", order.state
       assert_equal 8, available("MUG")
       assert_equal "authorized", Payments::TestSupport.payment(order.reference).state
-      assert_enqueued_jobs 1, only: ->(job) { job.fetch(:job).name == "Payments::CaptureJob" }
+      assert_enqueued_jobs 1, only: ->(job) { job.fetch(:job).name == "Payments::CallProviderJob" }
     end
 
     test "an out-of-stock item cancels the order with the reason, and nothing stays held" do

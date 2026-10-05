@@ -29,9 +29,6 @@ class FailureIsolationTest < FlowTestCase
     "refund refused" => { ends: "needs_attention", provider: { refund: [ :refuse ] }, then: :return }
   }.freeze
 
-  # VoidJob runs only when checkout fails after authorizing; Orders' checkout test covers it.
-  IN_NO_JOURNEY = %w[ Payments::VoidJob ].freeze
-
   test "any job failing twice is retried, and every order still ends where it should" do
     Catalog::TestSupport.receive_stock(sku: "MUG", quantity: 1_000)
     Catalog::TestSupport.receive_stock(sku: "TEA", quantity: 1_000)
@@ -56,7 +53,7 @@ class FailureIsolationTest < FlowTestCase
           end
         end
 
-        assert remaining.call < 2 || IN_NO_JOURNEY.include?(job), "no journey ran #{job}"
+        assert remaining.call < 2, "no journey ran #{job}"
       end
     end
   end

@@ -163,10 +163,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.string "currency", null: false
     t.string "state", null: false
     t.string "authorization_code", null: false
-    t.string "failure_reason"
-    t.string "pending_operation"
-    t.datetime "operation_sent_at"
-    t.integer "operation_generation", default: 0, null: false
     t.datetime "release_requested_at"
     t.datetime "captured_at"
     t.datetime "voided_at"
@@ -174,6 +170,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["reference"], name: "index_payments_payments_on_reference", unique: true
+    t.check_constraint "state IN ('authorized', 'captured', 'voided', 'refunded')", name: "payments_payments_state_known"
+  end
+
+  create_table "payments_provider_calls", force: :cascade do |t|
+    t.integer "payment_id", null: false
+    t.string "kind", null: false
+    t.string "state", null: false
+    t.string "idempotency_key", null: false
+    t.datetime "sent_at"
+    t.datetime "answered_at"
+    t.string "failure_reason"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["idempotency_key"], name: "index_payments_provider_calls_on_idempotency_key", unique: true
+    t.index ["payment_id", "kind"], name: "index_payments_provider_calls_on_payment_and_kind", unique: true
+    t.index ["payment_id"], name: "index_payments_provider_calls_one_outstanding", unique: true, where: "state IN ('pending', 'sent')"
+    t.check_constraint "kind IN ('capture', 'void', 'refund')", name: "payments_provider_calls_kind_known"
+    t.check_constraint "state IN ('pending', 'sent', 'succeeded', 'refused', 'superseded')", name: "payments_provider_calls_state_known"
   end
 
   create_table "platform_staged_jobs", force: :cascade do |t|
@@ -193,4 +207,5 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_000009) do
   add_foreign_key "orders_line_items", "orders_orders", column: "order_id"
   add_foreign_key "orders_orders", "orders_carts", column: "cart_id"
   add_foreign_key "orders_returns", "orders_orders", column: "order_id"
+  add_foreign_key "payments_provider_calls", "payments_payments", column: "payment_id"
 end
