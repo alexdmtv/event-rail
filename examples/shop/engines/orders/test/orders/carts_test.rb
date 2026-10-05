@@ -75,7 +75,7 @@ module Orders
     end
 
     test "placing a cart again returns its order, confirmed once" do
-      Payments::Gateway.adapter = gateway = ScriptedGateway.new
+      gateway = Payments::TestSupport.scripted_gateway
       cart = open_cart
 
       first = TestSupport.place_order(cart.id)

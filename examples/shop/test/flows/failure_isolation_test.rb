@@ -39,7 +39,7 @@ class FailureIsolationTest < FlowTestCase
     shop_jobs.each do |job|
       failing_runs(job, 2) do |remaining|
         JOURNEYS.each do |name, journey|
-          Payments::Gateway.adapter = ScriptedGateway.new(**journey.fetch(:provider, {}))
+          Payments::TestSupport.scripted_gateway(**journey.fetch(:provider, {}))
           order = place
           Orders::TestSupport.request_cancellation(order.id) if journey[:first] == :cancel
           work_off_queue

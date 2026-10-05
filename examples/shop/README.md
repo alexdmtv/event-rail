@@ -71,8 +71,8 @@ Each module is a Rails engine under `engines/`, with one namespace named after i
 | --- | --- | --- | --- | --- |
 | `Platform` | base classes, the staged-jobs table | — | — | — |
 | `Catalog` | products, prices, stock, reservations | — | — | — |
-| `Payments` | authorizations, captures, voids, refunds; the gateway seam (`Payments::Gateway`) and a fake provider | — | `PaymentCaptured`, `CaptureFailed`, `AuthorizationVoided`, `RefundIssued`, `RefundFailed` | — |
-| `Fulfillment` | shipments and returns; the carrier seam (`Fulfillment::Carrier`) and a fake carrier | — | `ShipmentDispatched`, `ShipmentDelivered`, `ReturnReceived` | — |
+| `Payments` | authorizations, captures, voids, refunds; the private gateway seam (`Payments::Gateway`) and a fake provider | — | `PaymentCaptured`, `CaptureFailed`, `AuthorizationVoided`, `RefundIssued`, `RefundFailed` | — |
+| `Fulfillment` | shipments and returns; the private carrier seam (`Fulfillment::Carrier`) and a fake carrier | — | `ShipmentDispatched`, `ShipmentDelivered`, `ReturnReceived` | — |
 | `Orders` | carts, orders and their whole lifecycle, returns | Catalog, Payments, Fulfillment | `OrderPlaced` (v2, v1 kept), `OrderShipped`, `OrderDelivered`, `OrderCancelled`, `OrderRefunded` | Payments, Fulfillment |
 | `Notifications` | customer notifications (recorded, not emailed) | — | — | Orders |
 | `Loyalty` | a points ledger | — | — | Orders |
@@ -96,7 +96,7 @@ The host application boots the modules and mounts Orders' routes; it has no code
 
 Calls point one way: down. Catalog, Payments and Fulfillment know nothing above them — Payments moves money *for a reference* and Fulfillment ships *to a reference*; neither knows what an order is. Notifications and Loyalty depend only on Orders' published events, and nothing depends on them. Packwerk enforces all of it in CI (see [Boundaries](#boundaries-enforced-not-described)).
 
-**Outside systems sit behind a seam.** Payments talks to a payment provider only through `Payments::Gateway`, and Fulfillment to a carrier only through `Fulfillment::Carrier`. Each environment chooses the adapter in `config/environments/*.rb` (`config.payments.gateway = :fake`), as it chooses Active Job's queue adapter; the module builds it on first use, and the boot fails when the choice is missing, so a shop can't take fake payments by accident. The adapters live privately in `app/adapters/<module>/`, and tests plug in their own (`Payments::Gateway.adapter = ScriptedGateway.new(capture: [ :refuse ])`).
+**Outside systems sit behind a seam.** Payments talks to a payment provider only through `Payments::Gateway`, and Fulfillment to a carrier only through `Fulfillment::Carrier`. Each environment chooses the adapter in `config/environments/*.rb` (`config.payments.gateway = :fake`), as it chooses Active Job's queue adapter; the module builds it on first use, and the boot fails when the choice is missing, so a shop can't take fake payments by accident. The seams and their adapters are private to their modules, in `app/adapters/<module>/`; other modules' tests plug in a scripted adapter through the module's test support (`Payments::TestSupport.scripted_gateway(capture: [ :refuse ])`).
 
 Catalog holds two things a larger shop splits: what it sells (products and prices) and what it has (stock and reservations). A `Catalog::Reservation` is stock set aside under a caller's reference, with a line per product; a hold locks the products it takes from, and shipping takes the stock off the shelf in the same transaction that marks the reservation shipped, because "never promise more than is on the shelf" needs both. That is why the two stay together: a split would move `on_hand` and the reservations into an Inventory module as one, leaving names and prices behind.
 

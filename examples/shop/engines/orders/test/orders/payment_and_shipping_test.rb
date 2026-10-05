@@ -38,7 +38,7 @@ module Orders
     end
 
     test "temporary capture failures are retried and the order is paid with a single capture" do
-      Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout, :timeout ])
+      gateway = Payments::TestSupport.scripted_gateway(capture: [ :timeout, :timeout ])
       order = nil
 
       perform_enqueued_jobs { order = checkout }
@@ -48,7 +48,7 @@ module Orders
     end
 
     test "a refused capture cancels the order and nothing ships" do
-      Payments::Gateway.adapter = ScriptedGateway.new(capture: [ :refuse ])
+      Payments::TestSupport.scripted_gateway(capture: [ :refuse ])
       order = nil
 
       published = record_publications { perform_enqueued_jobs { order = checkout } }

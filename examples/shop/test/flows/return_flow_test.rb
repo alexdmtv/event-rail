@@ -21,7 +21,7 @@ class ReturnFlowTest < FlowTestCase
 
   test "a refused refund sets the order aside and keeps its points" do
     order, = place_and_settle
-    Payments::Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
+    Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
 
     Orders::TestSupport.request_return(order.id)
     work_off_queue

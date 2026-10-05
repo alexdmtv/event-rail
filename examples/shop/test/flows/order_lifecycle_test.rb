@@ -15,7 +15,7 @@ class OrderLifecycleTest < FlowTestCase
   end
 
   test "temporary payment failures are retried without any other module noticing" do
-    Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout, :timeout ])
+    gateway = Payments::TestSupport.scripted_gateway(capture: [ :timeout, :timeout ])
 
     order, published = place_and_settle
 
@@ -26,7 +26,7 @@ class OrderLifecycleTest < FlowTestCase
   end
 
   test "a refused capture cancels the order and nothing ships" do
-    Payments::Gateway.adapter = ScriptedGateway.new(capture: [ :refuse ])
+    Payments::TestSupport.scripted_gateway(capture: [ :refuse ])
 
     order, published = place_and_settle
 
@@ -42,7 +42,7 @@ class OrderLifecycleTest < FlowTestCase
   end
 
   test "a capture that never answers leaves the order to its payment deadline, and its payment to the capture's replay" do
-    Payments::Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout ] * 10)
+    gateway = Payments::TestSupport.scripted_gateway(capture: [ :timeout ] * 10)
 
     order, placed = place_and_settle
     capture_failures = @job_failures

@@ -26,7 +26,7 @@ module Orders
     end
 
     test "a cancellation completed while confirming was under way gets the stock back, even when the card is then declined" do
-      Payments::Gateway.adapter = ScriptedGateway.new(authorize: [ :refuse ])
+      Payments::TestSupport.scripted_gateway(authorize: [ :refuse ])
       order = checkout
       confirming = TestSupport.order(order.id) # read as placed, as the confirmation's job did
       perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
@@ -38,7 +38,7 @@ module Orders
     end
 
     test "a declined card cancels the order and gives its stock back" do
-      Payments::Gateway.adapter = ScriptedGateway.new(authorize: [ :refuse ])
+      Payments::TestSupport.scripted_gateway(authorize: [ :refuse ])
 
       order = place
 
@@ -49,7 +49,7 @@ module Orders
     end
 
     test "a payment provider that does not answer is retried until it does; no count of attempts gives up" do
-      Payments::Gateway.adapter = gateway = ScriptedGateway.new(authorize: [ :timeout ] * 3)
+      gateway = Payments::TestSupport.scripted_gateway(authorize: [ :timeout ] * 3)
       order = checkout
 
       work_off_queue
@@ -70,7 +70,7 @@ module Orders
     end
 
     test "confirming interrupted after the authorization is confirmed when it runs again, with one authorization" do
-      Payments::Gateway.adapter = gateway = ScriptedGateway.new
+      gateway = Payments::TestSupport.scripted_gateway
       order = checkout
       interrupting_after(Payments::Api, :authorize) { perform_enqueued_jobs(only: ConfirmJob) }
       assert_equal "placed", order.reload.state
@@ -106,7 +106,7 @@ module Orders
     end
 
     test "a confirmation handed to the queue twice authorizes the card once" do
-      Payments::Gateway.adapter = gateway = ScriptedGateway.new
+      gateway = Payments::TestSupport.scripted_gateway
       order = checkout
       # As if the first hand-over had crashed after enqueuing and before deleting its row.
       staged = enqueued_jobs.find { |job| job["job_class"] == ConfirmJob.name }.except(:job, :args, :queue, :priority, :at)

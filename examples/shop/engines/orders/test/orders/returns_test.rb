@@ -61,7 +61,7 @@ module Orders
     end
 
     test "a refused refund sets the order aside for attention" do
-      Payments::Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
+      Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
 
       perform_enqueued_jobs { TestSupport.request_return(@order.id) }
 

@@ -36,7 +36,7 @@ module Orders
     end
 
     test "a cancellation's refused refund sets the order aside for a person, once" do
-      Payments::Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
+      Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
       order = place
       perform_due_jobs # captured and paid
 

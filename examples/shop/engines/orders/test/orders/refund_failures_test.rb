@@ -8,7 +8,7 @@ module Orders
 
     setup do
       stock_shelves
-      Payments::Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
+      Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
     end
 
     test "a return's refused refund is recorded on the return, once, and the cancellation's subscriber ignores it" do

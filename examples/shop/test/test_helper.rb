@@ -6,7 +6,6 @@ require "rails/test_help"
 end
 require_relative "support/publication_recorder"
 require_relative "support/schedule"
-require_relative "support/scripted_gateway"
 require_relative "support/shop_helpers"
 require_relative "support/worker"
 
@@ -24,8 +23,8 @@ module ActiveSupport
     parallelize(workers: :number_of_processors)
 
     teardown do
-      Payments::Gateway.adapter = nil
-      Fulfillment::Carrier.adapter = nil
+      Payments::TestSupport.reset_gateway
+      Fulfillment::TestSupport.reset_carrier
     end
   end
 end
