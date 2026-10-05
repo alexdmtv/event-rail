@@ -1,7 +1,8 @@
 module Payments
   class Payment
-    # One request to the provider for a payment: a capture, a void or a refund. It is outstanding
-    # while pending or sent, and closes once, answered or superseded. Only its payment changes it.
+    # One logical call to the provider for a payment: a capture, a void or a refund, sent once or
+    # again under the same idempotency key. It is outstanding while pending or sent, and closes
+    # once, answered or superseded. Only its payment changes it.
     class ProviderCall < ApplicationRecord
       self.table_name = "payments_provider_calls"
 

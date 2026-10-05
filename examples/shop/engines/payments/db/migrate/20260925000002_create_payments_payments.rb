@@ -26,7 +26,7 @@ class CreatePaymentsPayments < ActiveRecord::Migration[8.1]
       t.timestamps
       # One call of each kind per payment, so a refused capture is never asked again.
       t.index [ :payment_id, :kind ], unique: true, name: "index_payments_provider_calls_on_payment_and_kind"
-      # At most one outstanding call per payment, so a capture and a void never both reach the provider.
+      # At most one outstanding call per payment, so a capture and a void are never outstanding together.
       t.index :payment_id, unique: true, where: "state IN ('pending', 'sent')", name: "index_payments_provider_calls_one_outstanding"
       t.check_constraint "kind IN ('capture', 'void', 'refund')", name: "payments_provider_calls_kind_known"
       t.check_constraint "state IN ('pending', 'sent', 'succeeded', 'refused', 'superseded')", name: "payments_provider_calls_state_known"

@@ -83,7 +83,7 @@ module Payments
 
       assert_empty published
       assert_equal 1, gateway.calls[:capture]
-      assert_equal "refunded", payment("ref-1").state, "the late answer does not overwrite the refund"
+      assert_equal "refunded", payment("ref-1").state, "the late job does not overwrite the refund"
     end
 
     test "temporary provider failures are retried until the capture succeeds" do
@@ -168,6 +168,30 @@ module Payments
       published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_failed" ], published.map(&:event_type)
+      assert_equal [ "captured", nil ], payment("ref-1").values_at(:state, :refunded_at), "the money is still taken, and owed back"
+      assert_equal [ "refused", "refused by the script" ], call("ref-1", "refund").values_at(:state, :failure_reason)
+    end
+
+    test "a refused capture is not asked again while its hold stands" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :refuse ])
+      perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
+
+      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+
+      assert_empty published
+      assert_equal [ 1, "authorized" ], [ gateway.calls[:capture], payment("ref-1").state ]
+    end
+
+    test "a release asked again while its void is outstanding changes nothing" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new
+      2.times { Api.request_release(reference: "ref-1") }
+
+      published = record_publications { work_off_queue }
+
+      assert_equal 1, gateway.calls[:void]
+      assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
     end
 
     test "a refused capture's hold is voided by the release, and repeating the capture reports nothing new" do

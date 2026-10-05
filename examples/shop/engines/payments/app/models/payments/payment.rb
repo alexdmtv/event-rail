@@ -1,7 +1,7 @@
 module Payments
   # A card payment under a caller's reference, and the calls made to the provider for it. Its
   # state is where the money last stood, as the provider confirmed. Only one call is outstanding at
-  # a time, so a capture and a void are never both asked for; a call whose answer is unknown stays
+  # a time, so a capture and a void are never outstanding together; a call whose answer is unknown stays
   # outstanding and is sent again under the same idempotency key, which the provider answers the
   # same way. A release, once asked for, stays asked for, and follows any capture already sent.
   class Payment < ApplicationRecord
