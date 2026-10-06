@@ -24,9 +24,8 @@ Rails.application.configure do
   # Skip http-to-https redirect for the default health check endpoint.
   # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
 
-  # Log to STDOUT with the current request id as a default log tag.
-  config.log_tags = [ :request_id ]
-  config.logger   = ActiveSupport::TaggedLogging.logger(STDOUT)
+  # Every line one JSON object; the request and job context comes from Rails.event, not log tags.
+  config.logger = ActiveSupport::Logger.new(STDOUT).tap { |logger| logger.formatter = Platform::EventLog::JsonFormatter.new }
 
   # Change to "debug" to log everything (including potentially personally-identifiable information!).
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
@@ -68,7 +67,7 @@ Rails.application.configure do
   config.fulfillment.carrier = :fake
   config.fulfillment.fake_carrier_delay = 4.seconds
 
-  # Every structured event, Rails' own included, as a JSON line on standard output. The text log
-  # stays too: raise RAILS_LOG_LEVEL to warn once the JSON lines are what the log platform reads.
+  # Every structured event, Rails' own included, logged as JSON, in place of Rails' text lines for
+  # requests and jobs.
   config.platform.event_log = :json
 end
