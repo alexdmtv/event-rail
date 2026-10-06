@@ -56,7 +56,14 @@ module Platform
     # The text log subscribers whose lines Rails 8.1 also emits as structured events; with events
     # written as JSON they would say everything twice. Rails' "Started GET" line and Solid Queue's,
     # which have no event, stay.
+    # Each is required first: it attaches itself when loaded, which a lazily loading environment
+    # would otherwise do only later, after this detached nothing.
     def self.detach_text_twins
+      require "action_controller/log_subscriber"
+      require "action_dispatch/log_subscriber"
+      require "action_view/log_subscriber"
+      require "active_job/log_subscriber"
+
       ActionController::LogSubscriber.detach_from :action_controller
       ActionDispatch::LogSubscriber.detach_from :action_dispatch
       ActionView::LogSubscriber.detach_from :action_view
