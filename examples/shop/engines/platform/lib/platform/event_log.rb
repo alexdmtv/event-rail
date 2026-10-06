@@ -16,12 +16,31 @@ module Platform
       def emit(event) = Rails.logger.public_send(EventLog.level(event), event.slice(:name, :payload, :tags, :context))
     end
 
-    # The event as a readable line.
+    # The event as a short sentence, like Rails' own lines, with the first characters of its flow's
+    # correlation ID to follow one flow through the log.
     class Text
       def emit(event)
-        details = event[:payload].merge(event[:context]).compact.map { |key, value| "#{key}=#{value}" }.join(" ")
-        Rails.logger.public_send(EventLog.level(event), "#{event[:name]} #{details}")
+        payload = event[:payload]
+        flow = (payload[:correlation_id] || event[:context][:correlation_id])&.first(8)
+        Rails.logger.public_send(EventLog.level(event), "  #{sentence(event[:name], payload)}#{" [flow #{flow}]" if flow}")
       end
+
+      private
+        def sentence(name, payload)
+          case name
+          when "event_rail.staged" then "EventRail staged #{described(payload)} for #{subscribers(payload[:subscriber_count])}#{took(payload)}"
+          when "event_rail.published" then "EventRail published #{described(payload)}#{took(payload)}"
+          when "event_rail.subscriber_enqueued" then "EventRail enqueued #{payload[:job_class]} for #{payload[:event_type]}#{took(payload)}"
+          when "event_rail.subscriber_performed" then "EventRail #{payload[:job_class]} #{payload[:exception_class] ? "failed on" : "handled"} #{payload[:event_type]}#{took(payload)}#{failure(payload)}"
+          when "platform.error_reported" then "#{payload[:expected] ? "Refused" : "Error"}: #{payload[:error_class]} (#{payload[:category] || "unclassified"}): #{payload[:message]}"
+          else "#{name} #{payload.compact.map { |key, value| "#{key}=#{value}" }.join(" ")}"
+          end
+        end
+
+        def described(payload) = "#{payload[:event_type]} v#{payload[:event_version]}"
+        def subscribers(count) = count == 1 ? "1 subscriber" : "#{count} subscribers"
+        def took(payload) = payload[:duration_ms] ? " (#{payload[:duration_ms]}ms)" : ""
+        def failure(payload) = payload[:exception_class] ? ": #{payload[:exception_class]}: #{payload[:exception_message]}" : ""
     end
 
     # Formats every line Rails.logger writes as one JSON object: an event's hash as it is, any other

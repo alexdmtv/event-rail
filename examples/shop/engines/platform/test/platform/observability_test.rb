@@ -53,7 +53,16 @@ module Platform
       end
 
       assert_equal [ "INFO", "WARN", "ERROR" ], lines.map { |line| line.split.first }
-      assert_includes lines.last, "request_id=r-1"
+    end
+
+    test "the text event log tells an event as a short sentence, with its flow" do
+      lines = with_log do
+        EventLog::Text.new.emit(name: "event_rail.staged", context: {}, payload: { event_type: "orders.order_placed", event_version: 2, subscriber_count: 1, duration_ms: 1.7, correlation_id: "e18aacc2-aac2" })
+        EventLog::Text.new.emit(name: "platform.error_reported", context: { correlation_id: "abcdef123" }, payload: { expected: true, error_class: "Platform::InvalidInput", category: "InvalidArgument", message: "items can't be blank" })
+      end
+
+      assert_equal "INFO   EventRail staged orders.order_placed v2 for 1 subscriber (1.7ms) [flow e18aacc2]", lines.first.chomp
+      assert_equal "INFO   Refused: Platform::InvalidInput (InvalidArgument): items can't be blank [flow abcdef12]", lines.last.chomp
     end
 
     private
