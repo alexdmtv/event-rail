@@ -1,9 +1,6 @@
 module Payments
-  # A card payment under a caller's reference, and the calls made to the provider for it. Its
-  # state is where the money last stood, as the provider confirmed. Only one call is outstanding at
-  # a time, so a capture and a void are never outstanding together; a call whose answer is unknown stays
-  # outstanding and is sent again under the same idempotency key, which the provider answers the
-  # same way. A release, once asked for, stays asked for, and follows any capture already sent.
+  # A card payment under a caller's reference. Its state is where the money last stood, as the
+  # provider confirmed; each call to the provider is a ProviderCall, at most one outstanding.
   class Payment < ApplicationRecord
     has_many :provider_calls, class_name: "ProviderCall", dependent: :delete_all
 
@@ -34,7 +31,7 @@ module Payments
     end
 
     # Refunds if the money was taken, voids if not. A capture not yet sent is called off; one
-    # already sent is waited for, since only its answer says which, and its settling releases.
+    # already sent is waited for, since only its answer says which, and settling it then releases.
     def request_release
       with_lock do
         update!(release_requested_at: Time.current) unless release_requested_at?
