@@ -14,7 +14,7 @@ module Platform
     rescue_from(*ErrorCategory::EXPECTED, *ErrorCategory::EXPECTED.flat_map { |category| ErrorCategory.framework_errors(category) }) { |error| raise error }
 
     before_perform do
-      Rails.error.set_context(correlation_id: EventRail::Current.correlation_id, causation_id: EventRail::Current.causation_id)
+      Observability.set_context(job_id:, correlation_id: EventRail::Current.correlation_id, causation_id: EventRail::Current.causation_id)
     end
 
     # Raises if the queue refuses the job, where perform_later returns false and the job is lost

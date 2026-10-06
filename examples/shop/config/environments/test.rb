@@ -46,4 +46,7 @@ Rails.application.configure do
   config.payments.gateway = :fake
   config.fulfillment.carrier = :fake
   config.fulfillment.fake_carrier_delay = 4.seconds
+
+  # Tests assert on events directly (assert_event_reported).
+  config.platform.event_log = :none
 end

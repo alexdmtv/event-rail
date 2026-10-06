@@ -15,9 +15,10 @@ module Platform
 
     # Each request is a flow of its own: its ID is the correlation of every job and event it causes.
     around_action { |_, action| EventRail.with_context(message_id: request.request_id) { action.call } }
+    before_action { Observability.set_context(request_id: request.request_id, correlation_id: EventRail::Current.correlation_id) }
 
     rescue_from(*ErrorCategory::ALL, *ErrorCategory::ALL.flat_map { |category| ErrorCategory.framework_errors(category) }) do |error|
-      Rails.error.report(error, context: { correlation_id: request.request_id })
+      Rails.error.report(error)
       render_problem error, status: Rack::Utils.status_code(STATUSES.fetch(ErrorCategory.of(error)))
     end
 

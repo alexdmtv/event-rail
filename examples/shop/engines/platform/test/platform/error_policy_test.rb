@@ -64,29 +64,5 @@ module Platform
 
       assert_enqueued_jobs 1, only: OrphanedJob
     end
-
-    test "an unclassified error is reported with the flow it happened in; an outcome is not" do
-      reported = capture_log do
-        EventRail.with_context(message_id: "probe-flow") do
-          ErrorSubscriber.new.report(RuntimeError.new("boom"), handled: false, severity: :error,
-            context: { correlation_id: EventRail::Current.correlation_id }, source: "application")
-        end
-        ErrorSubscriber.new.report(Refused.new("no"), handled: false, severity: :error, context: {}, source: "application")
-      end
-
-      assert_match(/\[Unclassified\] RuntimeError: boom .* correlation_id=probe-flow/, reported)
-      assert_no_match(/Refused/, reported)
-    end
-
-    private
-      def capture_log
-        output = StringIO.new
-        original = Rails.logger
-        Rails.logger = ActiveSupport::Logger.new(output)
-        yield
-        output.string
-      ensure
-        Rails.logger = original
-      end
   end
 end

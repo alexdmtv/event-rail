@@ -64,4 +64,7 @@ Rails.application.configure do
   config.payments.gateway = :fake
   config.fulfillment.carrier = :fake
   config.fulfillment.fake_carrier_delay = 4.seconds
+
+  # The shop's own structured events, as readable lines in the log.
+  config.platform.event_log = :text
 end

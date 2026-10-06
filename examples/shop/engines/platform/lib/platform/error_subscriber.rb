@@ -1,15 +1,15 @@
 module Platform
-  # Counts expected failures and logs the rest. A job's retryable failure reaches it only once
-  # its retries have run out.
+  # Turns every error reported to Rails.error, from Rails or the shop, into one structured event.
+  # Its expected field tells an outcome the shop answered from a failure someone should look at,
+  # so a log platform can count the first and alert on the second. An error tracker would
+  # subscribe to Rails.error beside this one, taking only the unexpected.
   class ErrorSubscriber
+    # context is Rails.error's, which holds Rails' own controller or job object; the event carries
+    # the shop's context (Platform::Observability).
     def report(error, handled:, severity:, context:, source: nil)
-      category = ErrorCategory.of(error)
-      if ErrorCategory.expected?(error)
-        ActiveSupport::Notifications.instrument("expected_failure.platform", error_class: error.class.name, category: category.name)
-      else
-        flow = context.slice(:correlation_id, :causation_id).compact.map { |key, value| "#{key}=#{value}" }.join(" ")
-        Rails.logger.error("[#{category&.name&.demodulize || "Unclassified"}] #{error.class}: #{error.message} (#{severity}, #{handled ? "handled" : "unhandled"}, #{source}) #{flow}".rstrip)
-      end
+      Rails.event.notify("platform.error_reported",
+        error_class: error.class.name, message: error.message, category: ErrorCategory.of(error)&.name&.demodulize,
+        expected: ErrorCategory.expected?(error), handled:, severity:, source:)
     end
   end
 end

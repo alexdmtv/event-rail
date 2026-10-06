@@ -67,4 +67,8 @@ Rails.application.configure do
   config.payments.gateway = :fake
   config.fulfillment.carrier = :fake
   config.fulfillment.fake_carrier_delay = 4.seconds
+
+  # Every structured event, Rails' own included, as a JSON line on standard output. The text log
+  # stays too: raise RAILS_LOG_LEVEL to warn once the JSON lines are what the log platform reads.
+  config.platform.event_log = :json
 end
