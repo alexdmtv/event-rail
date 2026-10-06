@@ -27,12 +27,15 @@ module Platform
       Rails.error.subscribe(Platform::ErrorSubscriber.new)
       case app.config.platform.event_log
       when :json
-        Rails.event.subscribe(Platform::EventLog::Json.new)
+        Rails.event.subscribe(Platform::EventLog::Json.new) { |event| !Platform::EventLog.quiet?(event) }
         app.config.after_initialize { Platform::EventLog.detach_text_twins }
       when :text then Rails.event.subscribe(Platform::EventLog::Text.new) { |event| event[:name].start_with?("platform.", "event_rail.") }
       when :none then nil
       else raise ArgumentError, "config.platform.event_log names no event log: #{app.config.platform.event_log.inspect}"
       end
+      # Rails turns debug events, such as every SQL query, on in development whatever the log
+      # level; one level governs them too.
+      app.config.after_initialize { Rails.event.debug_mode = Rails.logger.debug? } unless app.config.platform.event_log == :none
     end
   end
 end

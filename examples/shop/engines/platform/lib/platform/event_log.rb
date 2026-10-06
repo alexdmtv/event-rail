@@ -5,6 +5,14 @@ module Platform
   module EventLog
     LEVELS = { "error" => :error, "warning" => :warn, "info" => :info }.freeze
 
+    # Jobs that run every second, quiet unless they fail, as Rails is about its health check.
+    QUIET_JOBS = %w[ Platform::StagedJobRelayJob ].freeze
+
+    def self.quiet?(event)
+      payload = event[:payload]
+      event[:name].start_with?("active_job.") && payload.is_a?(Hash) && QUIET_JOBS.include?(payload[:job_class]) && !payload[:exception_class]
+    end
+
     # An expected error is an answer, not a problem; an unexpected one keeps its severity.
     def self.level(event)
       payload = event[:payload]

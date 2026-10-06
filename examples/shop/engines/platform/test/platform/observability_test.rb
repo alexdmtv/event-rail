@@ -45,6 +45,14 @@ module Platform
       Rails.event.clear_context
     end
 
+    test "a job that runs every second is quiet in the event log, unless it fails" do
+      relay = { name: "active_job.completed", payload: { job_class: "Platform::StagedJobRelayJob" } }
+
+      assert EventLog.quiet?(relay)
+      assert_not EventLog.quiet?(relay.deep_merge(payload: { exception_class: "RuntimeError" }))
+      assert_not EventLog.quiet?(relay.deep_merge(payload: { job_class: "Orders::ConfirmJob" }))
+    end
+
     test "the text event log logs an expected error as information, and an unexpected one at its severity" do
       lines = with_log do
         EventLog::Text.new.emit(name: "platform.error_reported", payload: { expected: true, severity: :warning }, context: {})
