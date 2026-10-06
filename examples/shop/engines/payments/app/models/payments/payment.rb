@@ -54,9 +54,9 @@ module Payments
       settle(call, call.send_to_provider) if call
     end
 
-    def announcements = Announcements.new(self)
-
     private
+      def announcements = Announcements.new(self)
+
       def release
         if captured? then call_provider("refund")
         elsif authorized? then call_provider("void")
