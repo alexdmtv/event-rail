@@ -65,6 +65,12 @@ Rails.application.configure do
   config.fulfillment.carrier = :fake
   config.fulfillment.fake_carrier_delay = 4.seconds
 
-  # The shop's own structured events, as readable lines in the log.
-  config.platform.event_log = :text
+  # The shop's own structured events, as readable lines in the log; LOG_FORMAT=json logs as
+  # production does, every line one JSON object on standard output.
+  if ENV["LOG_FORMAT"] == "json"
+    config.logger = ActiveSupport::Logger.new(STDOUT).tap { |logger| logger.formatter = Platform::EventLog::JsonFormatter.new }
+    config.platform.event_log = :json
+  else
+    config.platform.event_log = :text
+  end
 end
