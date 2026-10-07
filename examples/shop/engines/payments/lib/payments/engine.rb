@@ -1,6 +1,7 @@
 # Only for this module's own bin/rails (its generators), which loads this file before the shop:
 # the class body needs Platform::ModuleEngine.
 require_relative "../../../platform/lib/platform/engine"
+require_relative "metrics"
 
 module Payments
   class Engine < ::Rails::Engine

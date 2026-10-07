@@ -25,17 +25,14 @@ module Payments
       # raises, and the call stays sent.
       def send_to_provider
         case kind
-        when "capture" then gateway.capture(idempotency_key:, authorization_code: payment.authorization_code, amount_cents: payment.amount_cents)
-        when "void" then gateway.void(idempotency_key:, authorization_code: payment.authorization_code)
-        when "refund" then gateway.refund(idempotency_key:, authorization_code: payment.authorization_code, amount_cents: payment.amount_cents)
+        when "capture" then Gateway.call(:capture, idempotency_key:, authorization_code: payment.authorization_code, amount_cents: payment.amount_cents)
+        when "void" then Gateway.call(:void, idempotency_key:, authorization_code: payment.authorization_code)
+        when "refund" then Gateway.call(:refund, idempotency_key:, authorization_code: payment.authorization_code, amount_cents: payment.amount_cents)
         end
         nil
       rescue Gateway::Refused => refusal
         refusal.message
       end
-
-      private
-        def gateway = Gateway.current
     end
   end
 end

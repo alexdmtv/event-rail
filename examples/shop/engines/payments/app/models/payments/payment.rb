@@ -11,7 +11,7 @@ module Payments
     # provider, and the loser of the insert returns the winner's payment.
     def self.authorize(reference:, amount_cents:, currency:)
       find_by(reference: reference) || begin
-        code = Gateway.current.authorize(idempotency_key: "authorize-#{reference}", amount_cents: amount_cents, currency: currency)
+        code = Gateway.call(:authorize, idempotency_key: "authorize-#{reference}", amount_cents: amount_cents, currency: currency)
         create_or_find_by!(reference: reference) do |payment|
           payment.assign_attributes(amount_cents: amount_cents, currency: currency, state: "authorized", authorization_code: code)
         end

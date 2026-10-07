@@ -19,6 +19,18 @@ module Payments
       # Built on first use, so a reload, which replaces this module, builds it again.
       def current = @adapter ||= build(Rails.configuration.payments.gateway)
 
+      # Every call to the provider goes through here, whichever adapter answers it, so each is
+      # timed, counted and traced the same way (call_gateway.payments). A refusal is an answer,
+      # not a failure, so the payload names the outcome.
+      def call(operation, **arguments)
+        ActiveSupport::Notifications.instrument("call_gateway.payments", operation:) do |payload|
+          current.public_send(operation, **arguments).tap { payload[:outcome] = "succeeded" }
+        rescue Refused
+          payload[:outcome] = "refused"
+          raise
+        end
+      end
+
       private
         def build(name)
           case name

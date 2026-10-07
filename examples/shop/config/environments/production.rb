@@ -70,4 +70,6 @@ Rails.application.configure do
   # Every structured event, Rails' own included, logged as JSON, in place of Rails' text lines for
   # requests and jobs.
   config.platform.event_log = :json
+  # A deployment names its monitoring system's adapter here; the example has none.
+  config.platform.metrics = :none
 end

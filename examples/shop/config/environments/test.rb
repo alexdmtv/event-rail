@@ -49,4 +49,6 @@ Rails.application.configure do
 
   # Tests assert on events directly (assert_event_reported).
   config.platform.event_log = :none
+  # Recorded for tests to read (Platform::TestSupport#recorded).
+  config.platform.metrics = :test
 end

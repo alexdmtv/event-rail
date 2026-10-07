@@ -73,4 +73,5 @@ Rails.application.configure do
   else
     config.platform.event_log = :text
   end
+  config.platform.metrics = :none
 end

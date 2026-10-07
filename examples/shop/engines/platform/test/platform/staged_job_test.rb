@@ -194,6 +194,21 @@ module Platform
       end
     end
 
+    test "a staged event is counted once its transaction commits, and never when it rolls back" do
+      with_subscribers(StagedJobFixtures::NoticeJob) do
+        StagedJob.transaction do
+          EventRail.stage(StagedJobFixtures::Noticed.new(reference: "n-1"))
+          assert_empty recorded(Yabeda.event_rail.domain_events_total), "not before the commit"
+        end
+        StagedJob.transaction do
+          EventRail.stage(StagedJobFixtures::Noticed.new(reference: "n-2"))
+          raise ActiveRecord::Rollback
+        end
+      end
+
+      assert_equal({ { event_type: "platform_tests.noticed" } => 1 }, recorded(Yabeda.event_rail.domain_events_total))
+    end
+
     test "a staged event the queue could not take at the commit is delivered by the relay" do
       with_subscribers(StagedJobFixtures::NoticeJob, StagedJobFixtures::OtherNoticeJob) do
         staged = refusing_enqueue { StagedJob.transaction { EventRail.stage(StagedJobFixtures::Noticed.new(reference: "n-1")) } }
