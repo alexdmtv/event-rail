@@ -51,4 +51,6 @@ Rails.application.configure do
   config.platform.event_log = :none
   # Recorded for tests to read (Platform::TestSupport#recorded).
   config.platform.metrics = :test
+  # Kept in memory for tests to read (Platform::Traces.exporter).
+  config.platform.traces = :memory
 end

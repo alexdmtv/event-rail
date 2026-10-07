@@ -72,4 +72,6 @@ Rails.application.configure do
   config.platform.event_log = :json
   # A deployment names its monitoring system's adapter here; the example has none.
   config.platform.metrics = :none
+  # Exported over OTLP to the collector OTEL_EXPORTER_OTLP_ENDPOINT names (localhost:4318 if unset).
+  config.platform.traces = :otlp
 end

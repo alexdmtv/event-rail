@@ -13,7 +13,8 @@ module Platform
     private
       def details(event)
         exception_class, exception_message = event.payload[:exception]
-        event.payload.except(:exception, :exception_object)
+        # Without what other subscribers keep in the payload, such as OpenTelemetry's span.
+        event.payload.except(:exception, :exception_object).reject { |key, _| key.start_with?("__") }
           .merge(duration_ms: event.duration.round(2), exception_class:, exception_message:).compact
       end
   end

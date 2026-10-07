@@ -19,7 +19,8 @@ module Platform
       now = Time.current
       insert_all!(jobs.map do |job|
         { job_id: job.job_id, job_class: job.class.name, payload: job.serialize,
-          correlation_id: EventRail::Current.correlation_id, causation_id: EventRail::Current.message_id, created_at: now }
+          correlation_id: EventRail::Current.correlation_id, causation_id: EventRail::Current.message_id,
+          trace_context: Traces.carrier, created_at: now }
       end)
 
       # After every open transaction, not just this connection's: the enqueue is then immediate
@@ -43,12 +44,12 @@ module Platform
       Rails.event.notify("platform.staged_job_held", staged_job_id: job_id, job_class:, error_class: error.class.name, reason: error.message)
     end
 
-    # Enqueues the job in the flow it was staged in and deletes the row; false if the row was kept
+    # Enqueues the job in the flow and the trace it was staged in, and deletes the row; false if the row was kept
     # for the relay. A refused enqueue sets enqueue_error rather than raising, so the row stays; an
     # aborting enqueue callback is the job's own decision, so the row goes. Other errors raise.
     def hand_over
       job = ActiveJob::Base.deserialize(payload)
-      in_its_flow { job.enqueue }
+      in_its_flow { Traces.within(trace_context) { job.enqueue } }
 
       if job.successfully_enqueued?
         delete

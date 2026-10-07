@@ -37,4 +37,17 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
     assert_equal shipped[:context][:message_id], shipped[:payload][:causation_id]
     assert_not_equal shipped[:context][:job_id], shipped[:context][:message_id], "a subscriber's message is the event it handles, not its job"
   end
+
+  test "a request is traced from the server's side" do
+    post "/carts", params: { items: [] }, as: :json
+
+    assert Platform::Traces.exporter.finished_spans.any? { |span| span.kind == :server }
+  end
+
+  test "EventRail's work is traced, and its spans stay out of the event log" do
+    staged = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { checkout }
+
+    assert_includes Platform::Traces.exporter.finished_spans.map(&:name), "stage.event_rail"
+    assert_empty staged[:payload].keys.grep(/\A__/)
+  end
 end

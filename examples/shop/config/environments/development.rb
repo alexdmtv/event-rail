@@ -74,4 +74,7 @@ Rails.application.configure do
     config.platform.event_log = :text
   end
   config.platform.metrics = :none
+  # Not recorded, so log lines carry no trace ID; TRACES=otlp sends them to a local collector, as
+  # the README shows with Jaeger.
+  config.platform.traces = ENV["TRACES"] == "otlp" ? :otlp : :none
 end

@@ -2,6 +2,7 @@ require_relative "module_engine"
 require_relative "observability"
 require_relative "event_log"
 require_relative "metrics"
+require_relative "traces"
 
 module Platform
   class Engine < ::Rails::Engine
@@ -52,6 +53,13 @@ module Platform
       end
       Platform::Metrics.guard_adapters
       Rails.event.subscribe(Platform::Metrics::EventCounts.new) { |event| Platform::Metrics::EventCounts::NAMES.include?(event[:name]) }
+    end
+
+    # Each environment chooses where traces go (config.platform.traces, Platform::Traces). While
+    # the application initializes, not after: Action Pack's instrumentation inserts the middleware
+    # that opens each request's span only then.
+    initializer "platform.traces" do |app|
+      Platform::Traces.configure(app.config.platform.traces)
     end
   end
 end
