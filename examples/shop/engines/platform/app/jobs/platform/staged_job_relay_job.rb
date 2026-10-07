@@ -8,7 +8,7 @@ module Platform
       StagedJob.overdue.find_each do |staged|
         staged.hand_over
       rescue => error
-        Rails.logger.warn("Staged job #{staged.job_id} not handed over yet: #{error.class}: #{error.message}")
+        staged.hold(error)
       end
     end
   end

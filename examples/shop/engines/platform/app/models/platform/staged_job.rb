@@ -4,6 +4,8 @@ module Platform
   class StagedJob < ApplicationRecord
     # Rows younger than this are still being handed over by the code that staged them.
     GRACE = 5.seconds
+    # A row still held after this is not healing on its own, and is reported once.
+    STUCK_AFTER = 5.minutes
 
     scope :overdue, -> { where(created_at: ...GRACE.ago) } # find_each hands them over oldest first
 
@@ -28,11 +30,17 @@ module Platform
         where(job_id: job_ids).find_each do |staged|
           staged.hand_over
         rescue => error
-          Rails.logger.warn("Staged job #{staged.job_id} left for the relay: #{error.class}: #{error.message}")
+          staged.hold(error)
         end
       rescue => error
-        Rails.logger.warn("Staged jobs #{job_ids.join(", ")} left for the relay: #{error.class}: #{error.message}")
+        jobs.each { |job| held(job.job_id, job.class.name, error) }
       end
+    end
+
+    # A job left for the relay. Counted and logged every time, as the relay retries every
+    # second; reported as an error only once it stops healing (hold).
+    def self.held(job_id, job_class, error)
+      Rails.event.notify("platform.staged_job_held", staged_job_id: job_id, job_class:, error_class: error.class.name, reason: error.message)
     end
 
     # Enqueues the job in the flow it was staged in and deletes the row; false if the row was kept
@@ -45,13 +53,24 @@ module Platform
       if job.successfully_enqueued?
         delete
       elsif job.enqueue_error
-        Rails.logger.warn("Staged job #{job_id} not handed over yet: #{job.enqueue_error.class}: #{job.enqueue_error.message}")
+        hold(job.enqueue_error)
         return false
       else
-        Rails.logger.warn("Staged job #{job_id} declined by its own enqueue callback; not handing it over")
+        Rails.event.notify("platform.staged_job_declined", staged_job_id: job_id, job_class:)
         delete
       end
       true
+    end
+
+    # Leaves the row for the relay. A job class that no longer exists will never be handed over;
+    # anything else is reported only once the row has been held past STUCK_AFTER, by whichever
+    # attempt first claims the report.
+    def hold(error)
+      self.class.held(job_id, job_class, error)
+      return unless error.is_a?(NameError) || created_at.before?(STUCK_AFTER.ago)
+      return unless self.class.where(id:, reported_at: nil).update_all(reported_at: Time.current) == 1
+
+      Rails.error.report(error, handled: true, context: { details: { staged_job_id: job_id, job_class:, correlation_id:, staged_at: created_at } })
     end
 
     private

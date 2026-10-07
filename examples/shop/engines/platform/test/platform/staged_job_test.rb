@@ -85,6 +85,27 @@ module Platform
       assert_equal [ [ "staged", job.job_id, "checkout-k" ] ], ProbeJob.runs, "the relayed job keeps its ID and its flow"
     end
 
+    test "a job left for the relay is counted every time, and reported once it has stopped healing" do
+      held = assert_event_reported("platform.staged_job_held", payload: { job_class: ProbeJob.name, error_class: "ActiveJob::EnqueueError" }) do
+        assert_no_error_reported { refusing_enqueue { stage } }
+      end
+      assert_equal StagedJob.sole.job_id, held[:payload][:staged_job_id]
+
+      reports = travel(StagedJob::STUCK_AFTER + 1.second) do
+        capture_error_reports { refusing_enqueue { 2.times { StagedJobRelayJob.perform_now } } }
+      end
+
+      assert_equal [ "ActiveJob::EnqueueError" ], reports.map { |report| report.error.class.name }, "reported once, not on every retry"
+      assert_equal StagedJob.sole.job_id, reports.sole.context.dig(:details, :staged_job_id)
+    end
+
+    test "a staged job whose class no longer exists is reported at once: it will never be handed over" do
+      StagedJob.create!(job_id: "j-gone", job_class: "Platform::RemovedJob", payload: { "job_class" => "Platform::RemovedJob", "job_id" => "j-gone", "arguments" => [] }, created_at: 1.minute.ago)
+
+      assert_error_reported(NameError) { StagedJobRelayJob.perform_now }
+      assert_equal 1, StagedJob.count
+    end
+
     test "a job the queue declined without raising stays staged until the relay hands it over" do
       job = refusing_enqueue { stage }
       assert_equal 1, StagedJob.count
@@ -98,8 +119,10 @@ module Platform
     end
 
     test "a job whose own enqueue callback aborts is dropped, not retried" do
-      EventRail.with_context(message_id: "checkout-k") do
-        StagedJob.transaction { DeclinedJob.stage("declined") }
+      assert_event_reported("platform.staged_job_declined", payload: { job_class: DeclinedJob.name }) do
+        EventRail.with_context(message_id: "checkout-k") do
+          StagedJob.transaction { DeclinedJob.stage("declined") }
+        end
       end
 
       assert_equal 0, StagedJob.count
