@@ -3,25 +3,46 @@ module Platform
   # Both write through Rails.logger, so one logger and one level govern every line. Rails 8.1 emits
   # its own requests and jobs as events too, but registers nowhere to write them.
   module EventLog
-    LEVELS = { "error" => :error, "warning" => :warn, "info" => :info }.freeze
+    # An event's level is decided here, from what the event is, never by the code that emits it.
+    # Everything is information except a failure: an unexpected error at the severity it was
+    # reported with, and a job that failed or gave up.
+    LEVELS = { "active_job.retry_stopped" => :error, "active_job.discarded" => :error }.freeze
+    SEVERITIES = { "error" => :error, "warning" => :warn, "info" => :info }.freeze
+
+    # Rails' event for an error a rescue_from answered: Platform's controller reports every one it
+    # answers, as platform.error_reported, which says more.
+    SUPERSEDED = %w[ action_controller.rescue_from_handled ].freeze
 
     # Jobs that run every second, quiet unless they fail, as Rails is about its health check.
     QUIET_JOBS = %w[ Platform::StagedJobRelayJob ].freeze
+
+    def self.level(event)
+      payload = event[:payload]
+      case event[:name]
+      when "platform.error_reported" then payload[:expected] ? :info : SEVERITIES.fetch(payload[:severity].to_s, :error)
+      when "active_job.completed" then payload[:exception_class] ? :error : :info
+      else LEVELS.fetch(event[:name], :info)
+      end
+    end
+
+    # Decided when writing, not in a subscription filter: from Rails 8.2 a filter sees only the
+    # event's name.
+    def self.written?(event) = !SUPERSEDED.include?(event[:name]) && !quiet?(event)
 
     def self.quiet?(event)
       payload = event[:payload]
       event[:name].start_with?("active_job.") && payload.is_a?(Hash) && QUIET_JOBS.include?(payload[:job_class]) && !payload[:exception_class]
     end
 
-    # An expected error is an answer, not a problem; an unexpected one keeps its severity.
-    def self.level(event)
-      payload = event[:payload]
-      payload.is_a?(Hash) && payload[:expected] == false ? LEVELS.fetch(payload[:severity].to_s, :error) : :info
-    end
+    # The shop's own events: Platform's, EventRail's and each module's, which are named after it.
+    # Rails' events have text lines of their own in development.
+    def self.own?(name) = name.start_with?("event_rail.", *ModuleEngine.engines.map { |engine| "#{engine.engine_name}." })
 
     # The event as a hash, for JsonFormatter to write as one JSON object.
     class Json
-      def emit(event) = Rails.logger.public_send(EventLog.level(event), event.slice(:name, :payload, :tags, :context))
+      def emit(event)
+        Rails.logger.public_send(EventLog.level(event), event.slice(:name, :payload, :tags, :context)) if EventLog.written?(event)
+      end
     end
 
     # The event as a short sentence, like Rails' own lines, with the first characters of its flow's
@@ -55,10 +76,19 @@ module Platform
     # message as text with the request's or job's context.
     class JsonFormatter < ::Logger::Formatter
       def call(severity, time, _progname, message)
-        line = { time: time.utc.iso8601(6), level: severity }
+        line = { time: time.utc.iso8601(6), level: severity, **Observability.current_trace }
         line.merge!(message.is_a?(Hash) ? message : { message: message.is_a?(String) ? message : message.inspect, context: Rails.event.context.presence }.compact)
-        "#{ActiveSupport::JSON.encode(line)}\n"
+        "#{encode(line)}\n"
       end
+
+      private
+        # A string that isn't valid UTF-8, from a gem or a provider's answer, would otherwise lose
+        # the whole line.
+        def encode(line)
+          ActiveSupport::JSON.encode(line)
+        rescue JSON::GeneratorError
+          ActiveSupport::JSON.encode(line.deep_transform_values { |value| value.is_a?(String) ? value.scrub : value })
+        end
     end
 
     # The text log subscribers whose lines Rails 8.1 also emits as structured events; with events

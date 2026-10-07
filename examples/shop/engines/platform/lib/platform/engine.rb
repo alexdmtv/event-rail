@@ -27,9 +27,9 @@ module Platform
       Rails.error.subscribe(Platform::ErrorSubscriber.new)
       case app.config.platform.event_log
       when :json
-        Rails.event.subscribe(Platform::EventLog::Json.new) { |event| !Platform::EventLog.quiet?(event) }
+        Rails.event.subscribe(Platform::EventLog::Json.new)
         app.config.after_initialize { Platform::EventLog.detach_text_twins }
-      when :text then Rails.event.subscribe(Platform::EventLog::Text.new) { |event| event[:name].start_with?("platform.", "event_rail.") }
+      when :text then Rails.event.subscribe(Platform::EventLog::Text.new) { |event| Platform::EventLog.own?(event[:name]) }
       when :none then nil
       else raise ArgumentError, "config.platform.event_log names no event log: #{app.config.platform.event_log.inspect}"
       end
