@@ -12,7 +12,8 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_content
-    assert_equal({ request_id: response.request.request_id, correlation_id: response.request.request_id }, event[:context])
+    request_id = response.request.request_id
+    assert_equal({ request_id:, message_id: request_id, correlation_id: request_id }, event[:context])
   end
 
   test "a domain event staged by a request appears with its type and the request's correlation" do
@@ -27,5 +28,13 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
     assert_event_reported("event_rail.subscriber_performed", payload: { event_type: "orders.order_placed", job_class: "Notifications::NotifyCustomerJob" }) do
       perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Notifications::NotifyCustomerJob" })
     end
+  end
+
+  test "a subscriber's context names the domain event it handles, which anything it stages names as its cause" do
+    instant_carrier
+    shipped = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_shipped" }) { perform_enqueued_jobs { checkout } }
+
+    assert_equal shipped[:context][:message_id], shipped[:payload][:causation_id]
+    assert_not_equal shipped[:context][:job_id], shipped[:context][:message_id], "a subscriber's message is the event it handles, not its job"
   end
 end

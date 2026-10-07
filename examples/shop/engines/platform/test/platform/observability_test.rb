@@ -22,7 +22,7 @@ module Platform
     test "a job's events carry its job and flow" do
       event = assert_event_reported("platform.probe") { ContextProbeJob.perform_now }
 
-      assert_equal %i[ causation_id correlation_id job_id ], event[:context].keys.sort
+      assert_equal %i[ causation_id correlation_id job_id message_id ], event[:context].keys.sort
       assert event[:context][:correlation_id]
     end
 
