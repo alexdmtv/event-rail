@@ -217,9 +217,9 @@ Rails has one instrumentation bus and three outlets. `ActiveSupport::Notificatio
 
 | | development | test | production |
 |---|---|---|---|
-| Events (`config.platform.event_log`) | readable text lines; `LOG_FORMAT=json` as production | none: tests assert on them | one JSON object per line |
-| Metrics (`config.platform.metrics`) | none | recorded for tests to read | none until a deployment adds its adapter |
-| Traces (`config.platform.traces`) | none; `TRACES=otlp` to a local collector | kept in memory | OTLP, to `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Events (`config.platform.event_log`) | readable text lines; JSON with `OBSERVE=1` or `LOG_FORMAT=json` | none: tests assert on them | one JSON object per line |
+| Metrics (`config.platform.metrics`) | none; Prometheus with `OBSERVE=1` | recorded for tests to read | none until a deployment adds its adapter |
+| Traces (`config.platform.traces`) | none; OTLP with `OBSERVE=1` | kept in memory | OTLP, to `OTEL_EXPORTER_OTLP_ENDPOINT` |
 
 **Application code raises errors, stages domain events and, rarely, notes a fact; it never logs, counts or alerts.** What it does is turned into each of these by one subscriber per outlet:
 
@@ -236,12 +236,14 @@ The outbox shows how the pieces fit. The relay retries every second, so a down q
 
 A request's correlation is its ID. A request joining a flow that began elsewhere — a mobile app or another service sending `X-Correlation-ID` — would pass it to `EventRail.with_context(correlation_id: …)`, after checking it, since a header is untrusted input.
 
-To see traces locally, run a collector with a UI, such as [Jaeger](https://www.jaegertracing.io/docs/latest/getting-started/), and start the server with `TRACES=otlp`:
+**To see it all**, run Grafana's development stack — Grafana with Loki, Prometheus and Tempo behind one OpenTelemetry collector — and start the shop with `OBSERVE=1`:
 
 ```sh
-docker run --rm -p 16686:16686 -p 4318:4318 cr.jaegertracing.io/jaegertracing/jaeger:2.21.0
-TRACES=otlp bin/dev    # then open http://localhost:16686
+docker compose up -d       # Grafana on http://localhost:3001
+OBSERVE=1 bin/dev
 ```
+
+Every log line is then JSON, in the terminal and in `log/development.json`, which the collector reads; metrics are served on `/metrics`, which it scrapes every five seconds; traces go to it over OTLP. Solid Queue runs its workers as threads of the server, so that one endpoint counts jobs too. The **Shop** dashboard (`config/observability/shop-dashboard.json`) shows requests, jobs and queue latency, the outbox and its relay's heartbeat, domain events, errors and the payment provider, above the log and the latest traces; a log line opens its trace, and a job's trace links to the one that staged it. A trace starts only where work enters the shop, a request or a job, so Solid Queue's polling and the every-second relay start none. Nothing here is for production: the stack keeps its data in the container, and `/metrics` is served to anyone who can reach the server.
 
 **For production**, a deployment adds:
 

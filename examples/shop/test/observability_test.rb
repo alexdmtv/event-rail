@@ -45,7 +45,9 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
   end
 
   test "EventRail's work is traced, and its spans stay out of the event log" do
-    staged = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { checkout }
+    staged = OpenTelemetry.tracer_provider.tracer("test").in_span("request", kind: :server) do
+      assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { checkout }
+    end
 
     assert_includes Platform::Traces.exporter.finished_spans.map(&:name), "stage.event_rail"
     assert_empty staged[:payload].keys.grep(/\A__/)

@@ -40,12 +40,13 @@ module Platform
       app.config.after_initialize { Rails.event.debug_mode = Rails.logger.debug? } unless app.config.platform.event_log == :none
     end
 
-    # Each environment chooses where metrics go (config.platform.metrics): :none, or :test, which
-    # records them for tests to read. A deployment adds its monitoring system's Yabeda adapter
-    # (yabeda-prometheus, yabeda-datadog) as another choice here.
+    # Each environment chooses where metrics go (config.platform.metrics): :none; :prometheus,
+    # served on /metrics for Prometheus to scrape; or :test, which records them for tests to read.
+    # Another monitoring system's Yabeda adapter (yabeda-datadog) would be another choice here.
     initializer "platform.metrics" do |app|
       case app.config.platform.metrics
       when :none then nil
+      when :prometheus then require "yabeda/prometheus" # registers its adapter
       when :test
         require "yabeda/test_adapter"
         Yabeda.register_adapter(:test, Yabeda::TestAdapter.instance)

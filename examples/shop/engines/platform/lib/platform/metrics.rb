@@ -5,7 +5,8 @@ module Platform
   # Metrics are declared with Yabeda and exported by whichever adapter an environment registers
   # (config.platform.metrics). Each module declares its own, in its engine's lib, which reloading
   # never runs twice; Platform declares those of the whole application. Tags never hold
-  # identifiers: each value is a series to store.
+  # identifiers: each value is a series to store. A metric's unit ends its exported name
+  # (platform_oldest_staged_job_age_seconds), so its own name leaves it out.
   module Metrics
     Yabeda::ActiveJob.install! # jobs: counts, failures, runtime, and latency from enqueue to start
 
@@ -14,12 +15,12 @@ module Platform
       counter :errors_total, tags: %i[ category expected source ], comment: "Errors reported to Rails.error, by category and whether they were an answer"
       counter :staged_jobs_held_total, tags: %i[ job_class ], comment: "Staged jobs left for the relay because the queue could not take them"
       gauge :staged_jobs, comment: "Jobs staged and not yet handed to the queue"
-      gauge :oldest_staged_job_age_seconds, unit: :seconds, comment: "How long the oldest staged job has waited: the outbox is stuck when this grows"
+      gauge :oldest_staged_job_age, unit: :seconds, comment: "How long the oldest staged job has waited: the outbox is stuck when this grows"
 
       # Read when the monitoring system asks, so a value is never stale.
       collect do
         platform_staged_jobs.set({}, StagedJob.count)
-        platform_oldest_staged_job_age_seconds.set({}, StagedJob.minimum(:created_at)&.then { |oldest| (Time.current - oldest).round } || 0)
+        platform_oldest_staged_job_age.set({}, StagedJob.minimum(:created_at)&.then { |oldest| (Time.current - oldest).round } || 0)
       end
 
       group :event_rail

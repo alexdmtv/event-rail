@@ -1,0 +1,19 @@
+# Grafana with Loki, Prometheus and Tempo behind one OpenTelemetry collector, for development only.
+# Start it with `docker compose up`, then the shop with `OBSERVE=1 bin/dev`, and open
+# http://localhost:3001: the Shop dashboard, and Explore for logs and traces.
+services:
+  grafana:
+    image: grafana/otel-lgtm:0.36.0
+    ports:
+      - "3001:3000" # Grafana; the shop has 3000
+      - "4318:4318" # OTLP over HTTP: traces
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true" # no login, for a container only this machine reaches
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # the shop, scraped for metrics
+    volumes:
+      - ./config/observability/otelcol-config.yaml:/otel-lgtm/otelcol-config.yaml:ro
+      - ./config/observability/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/shop.yaml:ro
+      - ./config/observability/shop-dashboard.json:/otel-lgtm/shop-dashboard.json:ro
+      - ./log:/shop/log:ro # log/development.json, read for logs

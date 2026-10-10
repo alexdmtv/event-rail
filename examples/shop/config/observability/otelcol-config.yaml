@@ -1,0 +1,87 @@
+# The image's own collector configuration, plus the shop's logs and metrics: the log lines from
+# log/development.json and the metrics on its /metrics, both under the service name "shop", as its
+# traces are.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Every line is one JSON object (Platform::EventLog::JsonFormatter): its time and level become the
+  # record's, its trace and span IDs join it to its trace, and the rest becomes attributes.
+  file_log/shop:
+    include: [ /shop/log/development.json ]
+    start_at: end
+    resource:
+      service.name: shop
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999Z07:00"
+        severity:
+          parse_from: attributes.level
+      - type: trace_parser
+        if: attributes.trace_id != nil
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+
+  prometheus/shop:
+    config:
+      scrape_configs:
+        - job_name: shop
+          scrape_interval: 5s
+          metrics_path: /metrics
+          static_configs:
+            - targets: [ "host.docker.internal:3000" ]
+
+  prometheus/collector:
+    config:
+      scrape_configs:
+        - job_name: opentelemetry-collector
+          scrape_interval: 1s
+          static_configs:
+            - targets: [ "127.0.0.1:8888" ]
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /ready
+
+processors:
+  batch:
+
+exporters:
+  otlp_http/metrics:
+    endpoint: http://127.0.0.1:9090/api/v1/otlp
+    tls:
+      insecure: true
+  otlp_http/traces:
+    endpoint: http://127.0.0.1:4418
+    tls:
+      insecure: true
+  otlp_http/logs:
+    endpoint: http://127.0.0.1:3100/otlp
+    tls:
+      insecure: true
+
+service:
+  extensions: [ health_check ]
+  pipelines:
+    traces:
+      receivers: [ otlp ]
+      processors: [ batch ]
+      exporters: [ otlp_http/traces ]
+    metrics:
+      receivers: [ otlp, prometheus/shop, prometheus/collector ]
+      processors: [ batch ]
+      exporters: [ otlp_http/metrics ]
+    logs:
+      receivers: [ otlp, file_log/shop ]
+      processors: [ batch ]
+      exporters: [ otlp_http/logs ]

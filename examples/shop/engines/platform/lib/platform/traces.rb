@@ -34,7 +34,7 @@ module Platform
         config.service_name = Rails.application.class.module_parent_name.underscore
         config.logger = Rails.logger # the exporter's complaints go through the shop's log
         config.add_span_processor(processor)
-        config.use "OpenTelemetry::Instrumentation::Rack"
+        config.use "OpenTelemetry::Instrumentation::Rack", untraced_endpoints: %w[ /up /metrics ] # health checks and scrapes
         config.use "OpenTelemetry::Instrumentation::ActionPack"
         config.use "OpenTelemetry::Instrumentation::ActiveRecord"
         # A job links to the trace that enqueued it rather than joining it: a flow that runs for
@@ -44,8 +44,26 @@ module Platform
         config.use "OpenTelemetry::Instrumentation::Net::HTTP"
       end
 
+      OpenTelemetry.tracer_provider.sampler = OpenTelemetry::SDK::Trace::Samplers.parent_based(root: EntryPoints.new)
+
       tracer = OpenTelemetry.tracer_provider.tracer("shop")
       spans.each { |name| OpenTelemetry::Instrumentation::ActiveSupport.subscribe(tracer, name) }
+    end
+
+    # A trace starts where work enters the shop, a request or a job; a query or a transaction
+    # outside one starts none, or Solid Queue's polling would start one every second. Nor does a
+    # job that runs every second (Platform::EventLog::QUIET_JOBS). Inside a trace, every span is
+    # recorded.
+    class EntryPoints
+      KINDS = %i[ server consumer ].freeze
+
+      def should_sample?(trace_id:, parent_context:, links:, name:, kind:, attributes:)
+        entry = KINDS.include?(kind) && EventLog::QUIET_JOBS.none? { |job| name.start_with?("#{job} ") }
+        sampler = entry ? OpenTelemetry::SDK::Trace::Samplers::ALWAYS_ON : OpenTelemetry::SDK::Trace::Samplers::ALWAYS_OFF
+        sampler.should_sample?(trace_id:, parent_context:, links:, name:, kind:, attributes:)
+      end
+
+      def description = "EntryPoints"
     end
 
     # The trace context running now, to store with work that leaves later; nil outside a trace.

@@ -26,6 +26,8 @@ gem "bootsnap", require: false
 gem "yabeda"
 gem "yabeda-rails"
 gem "yabeda-activejob"
+# Registers its adapter when loaded, so only an environment that chooses it loads it
+gem "yabeda-prometheus", require: false
 
 # Traces, exported over OTLP [https://opentelemetry.io/docs/languages/ruby/]
 gem "opentelemetry-sdk"

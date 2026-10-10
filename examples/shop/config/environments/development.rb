@@ -65,16 +65,28 @@ Rails.application.configure do
   config.fulfillment.carrier = :fake
   config.fulfillment.fake_carrier_delay = 4.seconds
 
-  # The shop's own structured events, as readable lines in the log; LOG_FORMAT=json logs as
-  # production does, every line one JSON object on standard output.
-  if ENV["LOG_FORMAT"] == "json"
-    config.logger = ActiveSupport::Logger.new(STDOUT).tap { |logger| logger.formatter = Platform::EventLog::JsonFormatter.new }
+  # OBSERVE=1 sends everything to the Grafana stack in compose.yaml (docker compose up, then
+  # http://localhost:3001): every log line JSON, in the terminal and in log/development.json, which
+  # its collector reads; metrics on /metrics, which it scrapes; traces over OTLP.
+  observe = ENV["OBSERVE"] == "1"
+
+  # Otherwise the shop's own structured events, as readable lines in the log; LOG_FORMAT=json logs
+  # as production does, every line one JSON object on standard output.
+  if observe || ENV["LOG_FORMAT"] == "json"
+    output = observe ? Rails.root.join("log/development.json") : STDOUT
+    config.logger = ActiveSupport::Logger.new(output).tap { |logger| logger.formatter = Platform::EventLog::JsonFormatter.new }
     config.platform.event_log = :json
   else
     config.platform.event_log = :text
   end
-  config.platform.metrics = :none
-  # Not recorded, so log lines carry no trace ID; TRACES=otlp sends them to a local collector, as
-  # the README shows with Jaeger.
-  config.platform.traces = ENV["TRACES"] == "otlp" ? :otlp : :none
+  config.platform.metrics = observe ? :prometheus : :none
+  if observe
+    # Served ahead of the request log, which would otherwise log every scrape, to the collector
+    # in its container. A deployment would serve it on a port of its own, out of reach
+    # (Yabeda::Prometheus::Exporter.start_metrics_server!).
+    require "yabeda/prometheus"
+    config.middleware.insert_before Rails::Rack::Logger, Yabeda::Prometheus::Exporter # /metrics
+    config.hosts << "host.docker.internal"
+  end
+  config.platform.traces = observe ? :otlp : :none
 end

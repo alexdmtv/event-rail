@@ -35,7 +35,7 @@ module Platform
       travel(1.minute) { Yabeda.collect! }
 
       assert_equal 1, recorded(Yabeda.platform.staged_jobs)[{}]
-      assert_in_delta 60, recorded(Yabeda.platform.oldest_staged_job_age_seconds)[{}], 1
+      assert_in_delta 60, recorded(Yabeda.platform.oldest_staged_job_age)[{}], 1
     end
 
     test "a monitoring system that fails never fails the code it measures" do
