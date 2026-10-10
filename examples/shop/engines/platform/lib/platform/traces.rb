@@ -11,6 +11,12 @@ module Platform
 
     mattr_reader :exporter
 
+    # Notifications that become spans. A module names its own, the operations it times (as
+    # Payments does the provider's calls), without depending on OpenTelemetry; they are subscribed
+    # only once traces are configured, since a span subscribed before would record nothing.
+    def self.span(name) = spans << name
+    def self.spans = @spans ||= EVENT_RAIL.dup
+
     def self.configure(choice)
       processor =
         case choice
@@ -38,8 +44,8 @@ module Platform
         config.use "OpenTelemetry::Instrumentation::Net::HTTP"
       end
 
-      tracer = OpenTelemetry.tracer_provider.tracer("event_rail")
-      EVENT_RAIL.each { |name| OpenTelemetry::Instrumentation::ActiveSupport.subscribe(tracer, name) }
+      tracer = OpenTelemetry.tracer_provider.tracer("shop")
+      spans.each { |name| OpenTelemetry::Instrumentation::ActiveSupport.subscribe(tracer, name) }
     end
 
     # The trace context running now, to store with work that leaves later; nil outside a trace.

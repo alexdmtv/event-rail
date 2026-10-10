@@ -28,5 +28,14 @@ module Payments
       assert_equal [ { operation: :authorize, outcome: "failed" }, { operation: :authorize, outcome: "refused" }, { operation: :authorize, outcome: "succeeded" } ],
         recorded(Yabeda.payments.gateway_call_duration_seconds).keys.sort_by { |tags| tags[:outcome] }
     end
+
+    test "every call to the provider is a span, with its operation and outcome" do
+      Gateway.adapter = ScriptedGateway.new(capture: [ :refuse ])
+
+      assert_raises(Gateway::Refused) { Gateway.call(:capture, idempotency_key: "capture-1", authorization_code: "auth", amount_cents: 4990) }
+
+      span = Platform::Traces.exporter.finished_spans.find { |it| it.name == "call_gateway.payments" }
+      assert_equal({ "operation" => "capture", "outcome" => "refused" }, span.attributes.slice("operation", "outcome"))
+    end
   end
 end
