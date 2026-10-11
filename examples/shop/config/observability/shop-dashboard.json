@@ -711,7 +711,7 @@
     {
       "type": "logs",
       "title": "Log",
-      "description": "Every line, newest first. Open a line to jump to its trace.",
+      "description": "Every line, newest first, one line each: an event's name and what it is about, or a plain line's message. Open a line for all its fields and a link to its trace.",
       "id": 18,
       "datasource": {
         "type": "loki",
@@ -727,7 +727,8 @@
         "showTime": true,
         "wrapLogMessage": true,
         "sortOrder": "Descending",
-        "enableLogDetails": true
+        "enableLogDetails": true,
+        "prettifyLogMessage": false
       },
       "targets": [
         {
@@ -736,7 +737,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{service_name=\"shop\"}"
+          "expr": "{service_name=\"shop\"} | line_format `{{ if .name }}{{ .name }}{{ with .payload_event_type }} {{ . }}{{ end }}{{ with .payload_job_class }} {{ . }}{{ end }}{{ with .payload_controller }} {{ . }}#{{ $.payload_action }}{{ end }}{{ with .payload_status }} {{ . }}{{ end }}{{ with .payload_error_class }} {{ . }}: {{ $.payload_message }}{{ end }}{{ with .payload_exception_class }} failed: {{ . }}{{ end }}{{ with .payload_duration_ms }} ({{ . }} ms){{ end }}{{ with .payload_duration }} ({{ . }} ms){{ end }}{{ else }}{{ .message }}{{ end }}`"
         }
       ]
     },
