@@ -1,4 +1,20 @@
 require "test_helper"
+require "event_rail/test_helper"
+
+EventRail::TestHelper.declare do
+  module Platform
+    module ObservabilityFixtures
+      class Noticed < EventRail::Event
+        event_type "platform_tests.observed"
+        version 1
+        default_source "shop.platform_tests"
+
+        attribute :customer_email, :string
+        identity_by :customer_email
+      end
+    end
+  end
+end
 
 module Platform
   class ObservabilityTest < ActiveSupport::TestCase
@@ -44,16 +60,40 @@ module Platform
       Rails.event.raise_on_error = Rails.configuration.consider_all_requests_local
     end
 
-    test "no job's events carry its arguments, which may hold a customer's details" do
-      job = Class.new(ActiveJob::Base) { def self.name = "ArgumentProbeJob"; def perform(_customer) = nil }
+    test "a job's arguments are logged as references: a record by its GlobalID, a domain event by its type and ID, anything else filtered" do
+      job = Class.new(ActiveJob::Base) { def self.name = "ArgumentProbeJob"; def perform(*) = nil }
+      job.log_arguments = true # as the JSON log turns it on
+      record = StagedJob.create!(job_id: "j-1", job_class: "ProbeJob", payload: {}, created_at: Time.current)
+      event = ObservabilityFixtures::Noticed.new(customer_email: "ada@example.com")
 
-      enqueued = assert_event_reported("active_job.enqueued", payload: { job_class: "ArgumentProbeJob" }) { job.perform_later("ada@example.com") }
-      started = assert_event_reported("active_job.started", payload: { job_class: "ArgumentProbeJob" }) { job.perform_now("ada@example.com") }
+      started = assert_event_reported("active_job.started", payload: { job_class: "ArgumentProbeJob" }) { job.perform_now(record, event, "ada@example.com") }
+      line = JSON.parse(with_log(EventLog::JsonFormatter.new) { EventLog::Json.new.emit(started) }.sole)
 
-      [ enqueued, started ].each do |event|
-        assert_not event[:payload].key?(:arguments)
-        assert_not_includes event.to_s, "ada@example.com"
-      end
+      assert_equal [ record.to_global_id.to_s, "platform_tests.observed #{event.id}", "[FILTERED]" ], line.dig("payload", "arguments")
+      assert_not_includes line.to_s, "ada@example.com"
+    end
+
+    test "jobs log no arguments where no JSON log makes them references" do
+      assert_not ActiveJob::Base.log_arguments
+    end
+
+    test "a request's parameters are logged by key, with a value only for the keys named safe" do
+      started = { name: "action_controller.request_started", context: {}, tags: {},
+                  payload: { controller: "CartsController", params: { "customer_name" => "Ada", "cart_id" => "5", "items" => [ { "sku" => "MUG", "quantity" => 2 } ] } } }
+      line = JSON.parse(with_log(EventLog::JsonFormatter.new) { EventLog::Json.new.emit(started) }.sole)
+
+      assert_equal({ "customer_name" => "[FILTERED]", "cart_id" => "5", "items" => [ { "sku" => "MUG", "quantity" => 2 } ] }, line.dig("payload", "params"))
+    end
+
+    test "the JSON formatter never raises: binary strings, bad keys and objects become a line" do
+      formatter = EventLog::JsonFormatter.new
+      lines = [
+        formatter.call("INFO", Time.current, nil, "provider answered #{"\xFF".b}"),
+        formatter.call("INFO", Time.current, nil, { name: "platform.probe", payload: { "caf\xFF".dup.force_encoding("UTF-8") => 1 } }),
+        formatter.call("INFO", Time.current, nil, { name: "platform.probe", payload: Struct.new(:body).new("\xFF".b) })
+      ]
+
+      lines.each { |line| assert JSON.parse(line) }
     end
 
     test "a job's events carry its job and flow" do

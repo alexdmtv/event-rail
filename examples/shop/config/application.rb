@@ -45,10 +45,6 @@ module Shop
     # A name, not the class: the class is reloadable application code.
     config.event_rail.stager = "Platform::StagedJob"
 
-    # No job's arguments in the log: Rails' job events carry them as objects, which the JSON log
-    # writes out whole, a record with every attribute, a domain event with its data, and the
-    # payload filter only matches keys. A job's ID and its flow's context identify it.
-    config.active_job.log_arguments = false
 
     # Configuration for the application, engines, and railties goes here.
     #

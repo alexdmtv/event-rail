@@ -10,7 +10,9 @@ module Platform
     # Spans for EventRail's work, from its notifications: an event published or staged, handed to
     # a subscriber, handled.
     EVENT_RAIL = %w[ publish.event_rail stage.event_rail enqueue_subscriber.event_rail perform_subscriber.event_rail ].freeze
-    # A process exiting sends what it has buffered first, within Solid Queue's five seconds.
+    # A process exiting sends what it has buffered first, and waits no longer than this, well within
+    # Solid Queue's five seconds: the exporter's retries sleep without looking at a deadline, so
+    # a collector that's down would otherwise hold the exit for up to twenty seconds.
     SHUTDOWN_TIMEOUT = 3
 
     mattr_reader :exporter
@@ -34,7 +36,7 @@ module Platform
         config.service_name = "shop" unless ENV["OTEL_SERVICE_NAME"]
         config.logger = Rails.logger # the exporter's complaints go through the shop's log
         config.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(exporter)) if choice == :memory
-        config.use "OpenTelemetry::Instrumentation::Rack", untraced_endpoints: %w[ /up ] # health checks
+        config.use "OpenTelemetry::Instrumentation::Rack", untraced_endpoints: %w[ /up /up/outbox ] # health checks
         config.use "OpenTelemetry::Instrumentation::ActionPack"
         config.use "OpenTelemetry::Instrumentation::ActiveRecord"
         # A job links to the trace that enqueued it rather than joining it: a flow that runs for
@@ -52,7 +54,7 @@ module Platform
       # Tests sample everything, whatever a developer's shell sets.
       sampler = choice == :memory ? OpenTelemetry::SDK::Trace::Samplers::ALWAYS_ON : provider.sampler
       provider.sampler = OpenTelemetry::SDK::Trace::Samplers.parent_based(root: EntryPoints.new(sampler))
-      at_exit { provider.shutdown(timeout: SHUTDOWN_TIMEOUT) } # forked processes inherit it
+      at_exit { shutdown(provider) } # forked processes inherit it
 
       tracer = provider.tracer("shop")
       spans.each { |name| OpenTelemetry::Instrumentation::ActiveSupport.subscribe(tracer, name) }
@@ -75,6 +77,11 @@ module Platform
       end
 
       def description = "EntryPoints{#{@sampler.description}}"
+    end
+
+    # Best effort: spans still buffered after the wait are lost.
+    def self.shutdown(provider)
+      Thread.new { provider.shutdown(timeout: SHUTDOWN_TIMEOUT) }.join(SHUTDOWN_TIMEOUT + 0.5)
     end
 
     # The trace context running now, to store with work that leaves later; nil outside a trace.

@@ -5,10 +5,11 @@ services:
   grafana:
     image: grafana/otel-lgtm:0.36.0
     ports:
-      - "3001:3000" # Grafana; the shop has 3000
-      - "4318:4318" # OTLP over HTTP: traces
+      # On this machine only: Grafana lets anyone in as admin, and the collector takes anyone's data.
+      - "127.0.0.1:3001:3000" # Grafana; the shop has 3000
+      - "127.0.0.1:4318:4318" # OTLP over HTTP: traces
     environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true" # no login, for a container only this machine reaches
+      GF_AUTH_ANONYMOUS_ENABLED: "true" # no login: the ports above are bound to this machine
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
     volumes:
       - ./config/observability/otelcol-config.yaml:/otel-lgtm/otelcol-config.yaml:ro

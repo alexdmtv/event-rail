@@ -20,6 +20,9 @@ module Platform
     # with Rails.logger formatting every line as JSON (Platform::EventLog::JsonFormatter); :text;
     # or :none.
     config.platform = ActiveSupport::OrderedOptions.new
+    # Request parameters whose values the log may show (Platform::EventLog::Redaction); every other
+    # value is filtered. The application names them (config/initializers/filter_parameter_logging.rb).
+    config.platform.logged_params = []
 
     initializer "platform.observability" do |app|
       require_relative "error_subscriber"
@@ -34,6 +37,10 @@ module Platform
       when :none then nil
       else raise ArgumentError, "config.platform.event_log names no event log: #{app.config.platform.event_log.inspect}"
       end
+      # Job arguments reach the log only where the JSON log turns them into references; Rails' text
+      # job log would write a domain event out whole.
+      logs_arguments = app.config.platform.event_log == :json
+      ActiveSupport.on_load(:active_job) { self.log_arguments = logs_arguments }
       # Rails turns debug events, such as every SQL query, on in development whatever the log
       # level; one level governs them too.
       app.config.after_initialize { Rails.event.debug_mode = Rails.logger.debug? } unless app.config.platform.event_log == :none

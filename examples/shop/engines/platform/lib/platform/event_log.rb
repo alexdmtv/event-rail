@@ -38,10 +38,50 @@ module Platform
     # Rails' events have text lines of their own in development.
     def self.own?(name) = name.start_with?("event_rail.", *ModuleEngine.engines.map { |engine| "#{engine.engine_name}." })
 
-    # The event as a hash, for JsonFormatter to write as one JSON object.
+    # The event as a hash, for JsonFormatter to write as one JSON object, its request parameters and
+    # job arguments redacted.
     class Json
       def emit(event)
-        Rails.logger.public_send(EventLog.level(event), event.slice(:name, :payload, :tags, :context)) if EventLog.written?(event)
+        return unless EventLog.written?(event)
+
+        Rails.logger.public_send(EventLog.level(event), event.slice(:name, :tags, :context).merge(payload: Redaction.payload(event[:payload])))
+      end
+    end
+
+    # What of a request's parameters and a job's arguments reaches the log: only what is known to be
+    # safe, so a field added later stays out until someone names it. A deny list
+    # (filter_parameters) fails open instead: every new field leaks until it is listed.
+    module Redaction
+      FILTERED = "[FILTERED]".freeze
+
+      def self.payload(payload)
+        return payload unless payload.is_a?(Hash) && (payload.key?(:params) || payload.key?(:arguments))
+
+        payload.merge(payload.slice(:params, :arguments).to_h { |key, value| [ key, key == :params ? params(value) : arguments(value) ] })
+      end
+
+      # Every key, so the request's shape shows; a value only under a key named in
+      # config.platform.logged_params.
+      def self.params(value, key = nil)
+        case value
+        when Hash then value.to_h { |name, nested| [ name, params(nested, name) ] }
+        when Array then value.map { |item| params(item, key) }
+        else Rails.configuration.platform.logged_params.include?(key.to_s) ? value : FILTERED
+        end
+      end
+
+      # A record by its GlobalID, as Rails' own text log writes it; a domain event by its type and
+      # ID; anything else filtered.
+      def self.arguments(value)
+        Array(value).map do |argument|
+          case argument
+          when EventRail::Event then "#{argument.event_type} #{argument.id}"
+          when GlobalID::Identification then argument.to_global_id.to_s
+          else FILTERED
+          end
+        rescue StandardError # a record without an ID has no GlobalID
+          FILTERED
+        end
       end
     end
 
@@ -82,12 +122,26 @@ module Platform
       end
 
       private
-        # A string that isn't valid UTF-8, from a gem or a provider's answer, would otherwise lose
-        # the whole line.
+        # Never raises: Logger doesn't rescue its formatter, so the code that logged would fail. A
+        # string that isn't valid UTF-8 (a provider's answer, read as binary) is repaired, in keys,
+        # values and objects alike; a line that still can't be written says so instead.
         def encode(line)
           ActiveSupport::JSON.encode(line)
-        rescue JSON::GeneratorError
-          ActiveSupport::JSON.encode(line.deep_transform_values { |value| value.is_a?(String) ? value.scrub : value })
+        rescue StandardError
+          begin
+            ActiveSupport::JSON.encode(scrub(line.as_json))
+          rescue StandardError => error
+            ActiveSupport::JSON.encode(time: line[:time], level: line[:level], message: "unloggable line (#{error.class})")
+          end
+        end
+
+        def scrub(value)
+          case value
+          when Hash then value.to_h { |key, nested| [ scrub(key), scrub(nested) ] }
+          when Array then value.map { |item| scrub(item) }
+          when String then value.dup.force_encoding(Encoding::UTF_8).scrub
+          else value
+          end
         end
     end
 
