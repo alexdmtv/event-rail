@@ -46,5 +46,12 @@ module Platform
 
       assert_empty spans
     end
+
+    test "a trace that may start is left to the sampler the environment chose" do
+      sampler = Traces::EntryPoints.new(OpenTelemetry::SDK::Trace::Samplers::ALWAYS_OFF)
+      result = sampler.should_sample?(trace_id: OpenTelemetry::Trace.generate_trace_id, parent_context: nil, links: [], name: "GET /orders", kind: :server, attributes: {})
+
+      assert_not result.sampled?
+    end
   end
 end

@@ -88,5 +88,7 @@ Rails.application.configure do
     config.middleware.insert_before Rails::Rack::Logger, Yabeda::Prometheus::Exporter # /metrics
     config.hosts << "host.docker.internal"
   end
-  config.platform.traces = observe ? :otlp : :none
+  # As in production, sent when a collector is named; OBSERVE=1 uses the exporter's default,
+  # localhost:4318, the stack's.
+  config.platform.traces = observe || ENV["OTEL_EXPORTER_OTLP_ENDPOINT"] || ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] ? :otlp : :none
 end
