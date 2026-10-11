@@ -1,7 +1,7 @@
 {
   "uid": "shop",
   "title": "Shop",
-  "description": "Requests, jobs, the outbox and the business, with the logs and traces behind them.",
+  "description": "Requests and jobs from their traces; the outbox, domain events and errors from the log; with the log and traces behind them.",
   "tags": [
     "shop"
   ],
@@ -16,7 +16,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "Requests",
+      "title": "Requests, from their traces",
       "id": 1,
       "collapsed": false,
       "gridPos": {
@@ -30,7 +30,7 @@
     {
       "type": "timeseries",
       "title": "Requests per second",
-      "description": "By controller and action (yabeda-rails).",
+      "description": "Server spans, by route.",
       "id": 2,
       "datasource": {
         "type": "prometheus",
@@ -71,15 +71,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (controller, action) (rate(rails_requests_total[$__rate_interval]))",
-          "legendFormat": "{{controller}}#{{action}}"
+          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
+          "legendFormat": "{{span_name}}"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Server errors",
-      "description": "Share of requests answered with a 5xx. A 4xx is an answer, counted under Errors below.",
+      "description": "Requests whose span ended in error: a 5xx. A refusal (4xx) is an answer, counted under Errors below.",
       "id": 3,
       "datasource": {
         "type": "prometheus",
@@ -93,7 +93,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "reqps",
           "custom": {
             "drawStyle": "line",
             "fillOpacity": 10,
@@ -120,15 +120,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(rails_requests_total{status=~\"5..\"}[$__rate_interval])) / sum(rate(rails_requests_total[$__rate_interval]))",
-          "legendFormat": "5xx"
+          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
+          "legendFormat": "{{span_name}}"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Request duration, p95",
-      "description": "By controller and action.",
+      "description": "By route.",
       "id": 4,
       "datasource": {
         "type": "prometheus",
@@ -169,14 +169,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, controller, action) (rate(rails_request_duration_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "{{controller}}#{{action}}"
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_spanmetrics_latency_bucket{service=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
+          "legendFormat": "{{span_name}}"
         }
       ]
     },
     {
       "type": "row",
-      "title": "Jobs",
+      "title": "Jobs, from their traces",
       "id": 5,
       "collapsed": false,
       "gridPos": {
@@ -190,7 +190,7 @@
     {
       "type": "timeseries",
       "title": "Jobs per second",
-      "description": "By job class, the relay excluded (yabeda-activejob).",
+      "description": "Consumer spans, by job. The every-second relay starts no trace, so it isn't here.",
       "id": 6,
       "datasource": {
         "type": "prometheus",
@@ -231,15 +231,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (activejob) (rate(activejob_executed_total{activejob!=\"Platform::StagedJobRelayJob\"}[$__rate_interval]))",
-          "legendFormat": "{{activejob}}"
+          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\"}[$__rate_interval]))",
+          "legendFormat": "{{span_name}}"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Job failures",
-      "description": "Runs that raised, by job and error; a retried job fails again until it succeeds or gives up.",
+      "description": "Runs that raised. A retried job fails again until it succeeds or gives up.",
       "id": 7,
       "datasource": {
         "type": "prometheus",
@@ -280,15 +280,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (activejob, failure_reason) (increase(activejob_failed_total[$__rate_interval]))",
-          "legendFormat": "{{activejob}}: {{failure_reason}}"
+          "expr": "sum by (span_name) (increase(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
+          "legendFormat": "{{span_name}}"
         }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Queue latency, p95",
-      "description": "From enqueue to start, by queue. A job scheduled for later counts its wait too.",
+      "title": "Job duration, p95",
+      "description": "By job.",
       "id": 8,
       "datasource": {
         "type": "prometheus",
@@ -329,14 +329,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, queue) (rate(activejob_latency_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "{{queue}}"
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_spanmetrics_latency_bucket{service=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\"}[$__rate_interval])))",
+          "legendFormat": "{{span_name}}"
         }
       ]
     },
     {
       "type": "row",
-      "title": "Outbox",
+      "title": "Outbox, from the log",
       "id": 9,
       "collapsed": false,
       "gridPos": {
@@ -349,80 +349,23 @@
     },
     {
       "type": "stat",
-      "title": "Staged jobs",
-      "description": "Staged and not yet handed to the queue.",
+      "title": "Oldest staged job",
+      "description": "How long the oldest job the relay is waiting to hand over has waited, over the last minute (platform.outbox_backlog). Alert when it keeps growing.",
       "id": 10,
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "loki",
+        "uid": "loki"
       },
       "gridPos": {
         "h": 8,
-        "w": 4,
+        "w": 6,
         "x": 0,
         "y": 19
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 10
-              },
-              {
-                "color": "red",
-                "value": 100
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "platform_staged_jobs"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Oldest staged job",
-      "description": "How long it has waited. Alert when it keeps growing: the relay can't hand jobs over.",
-      "id": 11,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 4,
-        "x": 4,
-        "y": 19
-      },
-      "fieldConfig": {
-        "defaults": {
           "unit": "s",
+          "noValue": "none waiting",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -456,26 +399,27 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "loki",
+            "uid": "loki"
           },
-          "expr": "platform_oldest_staged_job_age_seconds"
+          "expr": "max(max_over_time({service_name=\"shop\"} | name=\"platform.outbox_backlog\" | unwrap payload_oldest_age_seconds [1m]))",
+          "queryType": "instant"
         }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Relay runs per minute",
-      "description": "The relay's heartbeat: alert when it drops to zero.",
-      "id": 12,
+      "title": "Jobs waiting for the relay",
+      "description": "How many staged jobs the relay found overdue.",
+      "id": 11,
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "loki",
+        "uid": "loki"
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
+        "w": 9,
+        "x": 6,
         "y": 19
       },
       "fieldConfig": {
@@ -504,27 +448,27 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "loki",
+            "uid": "loki"
           },
-          "expr": "sum(rate(activejob_executed_total{activejob=\"Platform::StagedJobRelayJob\"}[1m])) * 60",
-          "legendFormat": "runs"
+          "expr": "max(max_over_time({service_name=\"shop\"} | name=\"platform.outbox_backlog\" | unwrap payload_count [$__interval]))",
+          "legendFormat": "waiting"
         }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Jobs held for the relay",
-      "description": "Each time the queue couldn't take a staged job, by job class.",
-      "id": 13,
+      "title": "Jobs held",
+      "description": "Each time the queue couldn't take a staged job, by job (platform.staged_job_held).",
+      "id": 12,
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "loki",
+        "uid": "loki"
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 9,
+        "x": 15,
         "y": 19
       },
       "fieldConfig": {
@@ -553,18 +497,18 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "loki",
+            "uid": "loki"
           },
-          "expr": "sum by (job_class) (increase(platform_staged_jobs_held_total[$__rate_interval]))",
-          "legendFormat": "{{job_class}}"
+          "expr": "sum by (payload_job_class) (count_over_time({service_name=\"shop\"} | name=\"platform.staged_job_held\" [$__interval]))",
+          "legendFormat": "{{payload_job_class}}"
         }
       ]
     },
     {
       "type": "row",
-      "title": "Domain",
-      "id": 14,
+      "title": "The business",
+      "id": 13,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -577,11 +521,11 @@
     {
       "type": "timeseries",
       "title": "Domain events",
-      "description": "Committed, by type: the business as it happens.",
-      "id": 15,
+      "description": "Staged, by type, from the log (event_rail.staged): the business as it happens. A re-run step stages again.",
+      "id": 14,
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "loki",
+        "uid": "loki"
       },
       "gridPos": {
         "h": 8,
@@ -615,22 +559,22 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "loki",
+            "uid": "loki"
           },
-          "expr": "sum by (event_type) (increase(event_rail_domain_events_total[$__rate_interval]))",
-          "legendFormat": "{{event_type}}"
+          "expr": "sum by (payload_event_type) (count_over_time({service_name=\"shop\"} | name=\"event_rail.staged\" [$__interval]))",
+          "legendFormat": "{{payload_event_type}}"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Errors",
-      "description": "Reported to Rails.error, by category; expected ones are answers, the rest failures.",
-      "id": 16,
+      "description": "Reported to Rails.error, by category, from the log (platform.error_reported); expected ones are answers, the rest failures.",
+      "id": 15,
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "loki",
+        "uid": "loki"
       },
       "gridPos": {
         "h": 8,
@@ -664,19 +608,19 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "loki",
+            "uid": "loki"
           },
-          "expr": "sum by (category, expected) (increase(platform_errors_total[$__rate_interval]))",
-          "legendFormat": "{{category}} (expected: {{expected}})"
+          "expr": "sum by (payload_category, payload_expected) (count_over_time({service_name=\"shop\"} | name=\"platform.error_reported\" [$__interval]))",
+          "legendFormat": "{{payload_category}} (expected: {{payload_expected}})"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Payment provider",
-      "description": "Calls by operation and outcome, and their p95 duration.",
-      "id": 17,
+      "description": "Calls to the provider from their spans (call_gateway.payments): how many, how many raised (a refusal or a failure), and p95 duration.",
+      "id": 16,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -701,8 +645,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": "p95.*"
+              "id": "byName",
+              "options": "p95"
             },
             "properties": [
               {
@@ -737,8 +681,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (operation, outcome) (increase(payments_gateway_call_duration_seconds_count[$__rate_interval]))",
-          "legendFormat": "{{operation}} {{outcome}}"
+          "expr": "sum by (status_code) (increase(traces_spanmetrics_calls_total{service=~\"shop.*\", span_name=\"call_gateway.payments\"}[$__rate_interval]))",
+          "legendFormat": "{{status_code}}"
         },
         {
           "refId": "B",
@@ -746,15 +690,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(payments_gateway_call_duration_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "p95 {{operation}}"
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_latency_bucket{service=~\"shop.*\", span_name=\"call_gateway.payments\"}[$__rate_interval])))",
+          "legendFormat": "p95"
         }
       ]
     },
     {
       "type": "row",
       "title": "Logs and traces",
-      "id": 18,
+      "id": 17,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -768,7 +712,7 @@
       "type": "logs",
       "title": "Log",
       "description": "Every line, newest first. Open a line to jump to its trace.",
-      "id": 19,
+      "id": 18,
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -800,7 +744,7 @@
       "type": "table",
       "title": "Traces",
       "description": "Requests and jobs, newest first; a job links to the trace that staged it.",
-      "id": 20,
+      "id": 19,
       "datasource": {
         "type": "tempo",
         "uid": "tempo"
@@ -819,7 +763,7 @@
             "uid": "tempo"
           },
           "queryType": "traceql",
-          "query": "{ resource.service.name = \"shop\" && (kind = server || kind = consumer) }",
+          "query": "{ resource.service.name =~ \"shop.*\" && (kind = server || kind = consumer) }",
           "limit": 20
         }
       ]
