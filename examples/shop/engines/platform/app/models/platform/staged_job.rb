@@ -7,7 +7,10 @@ module Platform
     # A row still held after this is not healing on its own, and is reported once.
     STUCK_AFTER = 5.minutes
 
-    scope :overdue, -> { where(created_at: ...GRACE.ago) } # find_each hands them over oldest first
+    # A row whose job class no longer exists is parked: the relay stops retrying it, which would
+    # never succeed, and it waits for someone to deploy the class back or remove it.
+    scope :waiting, -> { where(parked_at: nil) }
+    scope :overdue, -> { waiting.where(created_at: ...GRACE.ago) } # find_each hands them over oldest first
 
     # One statement, so the list is staged whole or not at all even if the caller rescues and
     # commits; insert_all! because insert_all would skip a conflicting row silently. Raises
@@ -34,14 +37,14 @@ module Platform
           staged.hold(error)
         end
       rescue => error
-        jobs.each { |job| held(job.job_id, job.class.name, error) }
+        jobs.each { |job| held(job.job_id, job.class.name, error, EventRail::Current.correlation_id) }
       end
     end
 
     # A job left for the relay. Counted and logged every time, as the relay retries every
     # second; reported as an error only once it stops healing (hold).
-    def self.held(job_id, job_class, error)
-      Rails.event.notify("platform.staged_job_held", staged_job_id: job_id, job_class:, error_class: error.class.name, reason: error.message)
+    def self.held(job_id, job_class, error, correlation_id)
+      Rails.event.notify("platform.staged_job_held", staged_job_id: job_id, job_class:, correlation_id:, error_class: error.class.name, reason: error.message)
     end
 
     # Enqueues the job in the flow and the trace it was staged in, and deletes the row; false if the row was kept
@@ -63,15 +66,20 @@ module Platform
       true
     end
 
-    # Leaves the row for the relay. A job class that no longer exists will never be handed over;
-    # anything else is reported only once the row has been held past STUCK_AFTER, by whichever
-    # attempt first claims the report.
+    # Leaves the row for the relay. A job class that no longer exists will never be handed over:
+    # the row is parked and reported at once. Anything else is reported once the row has been held
+    # past STUCK_AFTER, by whichever attempt first claims the report; at most once, as a crash
+    # between the claim and the report loses it, which the outbox's health check still shows.
     def hold(error)
-      self.class.held(job_id, job_class, error)
-      return unless error.is_a?(NameError) || created_at.before?(STUCK_AFTER.ago)
-      return unless self.class.where(id:, reported_at: nil).update_all(reported_at: Time.current) == 1
+      self.class.held(job_id, job_class, error, correlation_id)
+      unknown_class = error.is_a?(ActiveJob::UnknownJobClassError)
+      return unless unknown_class || created_at.before?(STUCK_AFTER.ago)
 
-      Rails.error.report(error, handled: true, context: { details: { staged_job_id: job_id, job_class:, correlation_id:, staged_at: created_at } })
+      claim = { reported_at: Time.current }
+      claim[:parked_at] = Time.current if unknown_class
+      return unless self.class.where(id:, reported_at: nil).update_all(claim) == 1
+
+      Rails.error.report(error, handled: true, severity: :error, context: { details: { staged_job_id: job_id, job_class:, correlation_id:, staged_at: created_at } })
     end
 
     private

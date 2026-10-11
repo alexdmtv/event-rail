@@ -56,12 +56,17 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
   test "the outbox's health is answered without the queue, and fails once a job has waited too long" do
     get "/up/outbox"
     assert_response :ok
-    assert_equal({ "staged_jobs" => 0, "oldest_age_seconds" => 0 }, response.parsed_body)
+    assert_equal({ "staged_jobs" => 0, "oldest_age_seconds" => 0, "parked" => 0 }, response.parsed_body)
 
     Platform::StagedJob.create!(job_id: "j-1", job_class: "Orders::ConfirmJob", payload: {}, created_at: (Platform::StagedJob::STUCK_AFTER + 1.minute).ago)
     get "/up/outbox"
     assert_response :service_unavailable
     assert_equal 1, response.parsed_body["staged_jobs"]
+
+    Platform::StagedJob.sole.update!(parked_at: Time.current)
+    get "/up/outbox"
+    assert_response :ok, "a parked job was reported, and doesn't hold the check failing"
+    assert_equal({ "staged_jobs" => 0, "oldest_age_seconds" => 0, "parked" => 1 }, response.parsed_body)
   end
 
   test "a request continues no trace an untrusted caller sends, and links to it instead" do

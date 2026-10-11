@@ -17,7 +17,7 @@ module Platform
     QUIET_JOBS = %w[ Platform::StagedJobRelayJob ].freeze
 
     def self.level(event)
-      payload = event[:payload]
+      payload = event[:payload].is_a?(Hash) ? event[:payload] : {}
       case event[:name]
       when "platform.error_reported" then payload[:expected] ? :info : SEVERITIES.fetch(payload[:severity].to_s, :error)
       when "active_job.completed" then payload[:exception_class] ? :error : :info
@@ -30,8 +30,8 @@ module Platform
     def self.written?(event) = !SUPERSEDED.include?(event[:name]) && !quiet?(event)
 
     def self.quiet?(event)
-      payload = event[:payload]
-      event[:name].start_with?("active_job.") && payload.is_a?(Hash) && QUIET_JOBS.include?(payload[:job_class]) && !payload[:exception_class]
+      payload = event[:payload].is_a?(Hash) ? event[:payload] : {}
+      event[:name].start_with?("active_job.") && QUIET_JOBS.include?(payload[:job_class]) && !payload[:exception_class]
     end
 
     # The shop's own events: Platform's, EventRail's and each module's, which are named after it.
@@ -89,7 +89,7 @@ module Platform
     # correlation ID to follow one flow through the log.
     class Text
       def emit(event)
-        payload = event[:payload]
+        payload = event[:payload].is_a?(Hash) ? event[:payload] : {}
         flow = (payload[:correlation_id] || event[:context][:correlation_id])&.first(8)
         Rails.logger.public_send(EventLog.level(event), "  #{sentence(event[:name], payload)}#{" [flow #{flow}]" if flow}")
       end

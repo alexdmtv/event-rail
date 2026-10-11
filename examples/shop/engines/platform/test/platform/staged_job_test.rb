@@ -86,7 +86,7 @@ module Platform
     end
 
     test "a job left for the relay is counted every time, and reported once it has stopped healing" do
-      held = assert_event_reported("platform.staged_job_held", payload: { job_class: ProbeJob.name, error_class: "ActiveJob::EnqueueError" }) do
+      held = assert_event_reported("platform.staged_job_held", payload: { job_class: ProbeJob.name, error_class: "ActiveJob::EnqueueError", correlation_id: "checkout-k" }) do
         assert_no_error_reported { refusing_enqueue { stage } }
       end
       assert_equal StagedJob.sole.job_id, held[:payload][:staged_job_id]
@@ -97,13 +97,19 @@ module Platform
 
       assert_equal [ "ActiveJob::EnqueueError" ], reports.map { |report| report.error.class.name }, "reported once, not on every retry"
       assert_equal StagedJob.sole.job_id, reports.sole.context.dig(:details, :staged_job_id)
+      assert_equal :error, reports.sole.severity
     end
 
-    test "a staged job whose class no longer exists is reported at once: it will never be handed over" do
+    test "a staged job whose class no longer exists is parked and reported at once, then left alone: it will never be handed over" do
       StagedJob.create!(job_id: "j-gone", job_class: "Platform::RemovedJob", payload: { "job_class" => "Platform::RemovedJob", "job_id" => "j-gone", "arguments" => [] }, created_at: 1.minute.ago)
 
-      assert_error_reported(NameError) { StagedJobRelayJob.perform_now }
-      assert_equal 1, StagedJob.count
+      report = assert_error_reported(ActiveJob::UnknownJobClassError) { StagedJobRelayJob.perform_now }
+      assert_equal :error, report.severity
+      assert StagedJob.sole.parked_at
+
+      assert_no_event_reported("platform.staged_job_held") do
+        assert_no_error_reported { StagedJobRelayJob.perform_now }
+      end
     end
 
     test "while jobs wait for the relay, it says how many and how long the oldest has waited" do

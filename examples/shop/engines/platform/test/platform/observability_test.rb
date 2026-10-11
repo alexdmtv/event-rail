@@ -26,6 +26,13 @@ module Platform
       def perform = Rails.event.notify("platform.probe")
     end
 
+    class OuterJob < ApplicationJob
+      def perform
+        ContextProbeJob.perform_now
+        Rails.event.notify("platform.outer_probe")
+      end
+    end
+
     test "every reported error becomes one structured event, saying whether it was expected" do
       assert_event_reported("platform.error_reported", payload: { error_class: Refused.name, category: "FailedPrecondition", expected: true }) do
         Rails.error.report(Refused.new("no"))
@@ -94,6 +101,19 @@ module Platform
       ]
 
       lines.each { |line| assert JSON.parse(line) }
+    end
+
+    test "a job performed inside another leaves the outer job's context as it was" do
+      outer = OuterJob.new
+      event = assert_event_reported("platform.outer_probe") { outer.perform_now }
+
+      assert_equal outer.job_id, event[:context][:job_id]
+    end
+
+    test "the text event log takes an event without a payload" do
+      lines = with_log { EventLog::Text.new.emit(name: "platform.probe", payload: nil, context: {}) }
+
+      assert_equal "INFO   platform.probe ", lines.sole.chomp
     end
 
     test "a job's events carry its job and flow" do

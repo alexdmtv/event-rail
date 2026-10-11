@@ -13,8 +13,9 @@ module Platform
     # falling through to the StandardError retry.
     rescue_from(*ErrorCategory::EXPECTED, *ErrorCategory::EXPECTED.flat_map { |category| ErrorCategory.framework_errors(category) }) { |error| raise error }
 
-    before_perform do
-      Observability.set_context(job_id:, message_id: EventRail::Current.message_id, correlation_id: EventRail::Current.correlation_id, causation_id: EventRail::Current.causation_id)
+    around_perform do |job, perform|
+      Observability.with_context(job_id: job.job_id, message_id: EventRail::Current.message_id, correlation_id: EventRail::Current.correlation_id,
+        causation_id: EventRail::Current.causation_id, &perform)
     end
 
     # Raises if the queue refuses the job, where perform_later returns false and the job is lost
