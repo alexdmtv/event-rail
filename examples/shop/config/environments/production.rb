@@ -72,5 +72,5 @@ Rails.application.configure do
   config.platform.event_log = :json
   # Sent to the collector OTEL_EXPORTER_OTLP_ENDPOINT names, when one is named; a runner or console
   # without it records none rather than retrying a collector that isn't there.
-  config.platform.traces = ENV["OTEL_EXPORTER_OTLP_ENDPOINT"] || ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] ? :otlp : :none
+  config.platform.traces = ENV["OTEL_EXPORTER_OTLP_ENDPOINT"].present? || ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"].present? ? :otlp : :none
 end

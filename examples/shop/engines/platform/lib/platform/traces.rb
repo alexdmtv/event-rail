@@ -15,7 +15,11 @@ module Platform
     # a collector that's down would otherwise hold the exit for up to twenty seconds.
     SHUTDOWN_TIMEOUT = 3
 
-    mattr_reader :exporter
+    # The trace context the outbox stores and restores: W3C's own, whatever OTEL_PROPAGATORS says,
+    # and no baggage, which a caller may have filled.
+    PROPAGATOR = OpenTelemetry::Trace::Propagation::TraceContext.text_map_propagator
+
+    mattr_reader :exporter, :tracer
 
     # Notifications that become spans. A module names its own, the operations it times (as
     # Payments does the provider's calls), without depending on OpenTelemetry; they are subscribed
@@ -33,7 +37,7 @@ module Platform
 
       OpenTelemetry::SDK.configure do |config|
         # A default only: what the environment names wins (shop/web, shop/jobs per role).
-        config.service_name = "shop" unless ENV["OTEL_SERVICE_NAME"]
+        config.service_name = "shop" unless ENV["OTEL_SERVICE_NAME"].present? || ENV["OTEL_RESOURCE_ATTRIBUTES"].to_s.include?("service.name=")
         config.logger = Rails.logger # the exporter's complaints go through the shop's log
         config.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(exporter)) if choice == :memory
         config.use "OpenTelemetry::Instrumentation::Rack", untraced_endpoints: %w[ /up /up/outbox ] # health checks
@@ -56,9 +60,13 @@ module Platform
       provider.sampler = OpenTelemetry::SDK::Trace::Samplers.parent_based(root: EntryPoints.new(sampler))
       at_exit { shutdown(provider) } # forked processes inherit it
 
-      tracer = provider.tracer("shop")
+      @@tracer = provider.tracer("shop")
       spans.each { |name| OpenTelemetry::Instrumentation::ActiveSupport.subscribe(tracer, name) }
     end
+
+    # Whether a span is being recorded: a span the sampler dropped still has an ID, which would lead
+    # to a trace that doesn't exist.
+    def self.sampled?(span) = span.context.valid? && span.context.trace_flags.sampled?
 
     # A trace starts where work enters the shop, a request or a job; a query or a transaction
     # outside one starts none, or Solid Queue's polling would start one every second. Nor does a
@@ -84,14 +92,59 @@ module Platform
       Thread.new { provider.shutdown(timeout: SHUTDOWN_TIMEOUT) }.join(SHUTDOWN_TIMEOUT + 0.5)
     end
 
-    # The trace context running now, to store with work that leaves later; nil outside a trace.
-    def self.carrier = {}.tap { |carrier| OpenTelemetry.propagation.inject(carrier) }.presence
+    # The trace context running now, to store with work that leaves later; nil outside a recorded
+    # trace.
+    def self.carrier
+      {}.tap { |carrier| PROPAGATOR.inject(carrier) } if sampled?(OpenTelemetry::Trace.current_span)
+    end
 
-    # Runs the block in the trace a carrier was taken in.
-    def self.within(carrier, &block)
-      return yield if carrier.blank?
+    # Runs the block for work stored in a trace that has ended: in a trace of its own that links to
+    # the stored one, one trace per hop, as a job links to whatever enqueued it; joining it would
+    # grow a trace for hours after it was searched and sampled. Still inside a recorded trace (the
+    # hand-over right after the commit), the block just runs there.
+    def self.linked_to(carrier, name, &block)
+      return yield if tracer.nil? || carrier.blank? || sampled?(OpenTelemetry::Trace.current_span)
 
-      OpenTelemetry::Context.with_current(OpenTelemetry.propagation.extract(carrier), &block)
+      stored = OpenTelemetry::Trace.current_span(PROPAGATOR.extract(carrier)).context
+      return yield unless stored.valid?
+
+      span = tracer.start_root_span(name, kind: :consumer, links: [ OpenTelemetry::Trace::Link.new(stored) ])
+      OpenTelemetry::Trace.with_span(span) { yield }
+    ensure
+      span&.finish
+    end
+
+    # Trace context from a caller the application doesn't trust, such as a browser, would decide
+    # whether its requests are recorded, which trace they join and what baggage they carry. It is
+    # taken off before OpenTelemetry reads it (Edge, outermost), and the request's own trace links
+    # to it instead (EdgeLink, innermost). A trusted caller (config.platform.trusted_trace_source),
+    # another of the application's services, is continued.
+    class Edge
+      HEADERS = %w[ HTTP_TRACEPARENT HTTP_TRACESTATE HTTP_BAGGAGE ].freeze
+      UNTRUSTED = "platform.untrusted_traceparent".freeze
+
+      def initialize(app) = @app = app
+
+      def call(env)
+        unless Rails.configuration.platform.trusted_trace_source.call(env)
+          traceparent = env["HTTP_TRACEPARENT"]
+          HEADERS.each { |header| env.delete(header) }
+          env[UNTRUSTED] = traceparent if traceparent
+        end
+        @app.call(env)
+      end
+    end
+
+    class EdgeLink
+      def initialize(app) = @app = app
+
+      def call(env)
+        if (untrusted = OpenTelemetry::Trace::Propagation::TraceContext::TraceParent.from_string(env[Edge::UNTRUSTED].to_s) rescue nil)
+          context = OpenTelemetry::Trace::SpanContext.new(trace_id: untrusted.trace_id, span_id: untrusted.span_id, trace_flags: untrusted.flags, remote: true)
+          OpenTelemetry::Trace.current_span.add_link(OpenTelemetry::Trace::Link.new(context))
+        end
+        @app.call(env)
+      end
     end
   end
 end

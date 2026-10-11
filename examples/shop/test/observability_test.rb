@@ -63,4 +63,24 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
     assert_response :service_unavailable
     assert_equal 1, response.parsed_body["staged_jobs"]
   end
+
+  test "a request continues no trace an untrusted caller sends, and links to it instead" do
+    sent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+    post "/carts", params: { items: [] }, as: :json, headers: { "traceparent" => sent, "baggage" => "customer=ada" }
+
+    server = Platform::Traces.exporter.finished_spans.find { |span| span.kind == :server }
+    assert_not_equal "0af7651916cd43dd8448eb211c80319c", server.hex_trace_id
+    assert_equal "0af7651916cd43dd8448eb211c80319c", server.links.sole.span_context.hex_trace_id
+  end
+
+  test "a request from a trusted service continues its trace" do
+    Rails.configuration.platform.trusted_trace_source = ->(_env) { true }
+    post "/carts", params: { items: [] }, as: :json, headers: { "traceparent" => "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" }
+
+    server = Platform::Traces.exporter.finished_spans.find { |span| span.kind == :server }
+    assert_equal "0af7651916cd43dd8448eb211c80319c", server.hex_trace_id
+    assert_equal "b7ad6b7169203331", server.hex_parent_span_id
+  ensure
+    Rails.configuration.platform.trusted_trace_source = ->(_env) { false }
+  end
 end

@@ -49,7 +49,7 @@ module Platform
     # aborting enqueue callback is the job's own decision, so the row goes. Other errors raise.
     def hand_over
       job = ActiveJob::Base.deserialize(payload)
-      in_its_flow { Traces.within(trace_context) { job.enqueue } }
+      in_its_flow { Traces.linked_to(trace_context, "#{job_class} hand over") { job.enqueue } }
 
       if job.successfully_enqueued?
         delete

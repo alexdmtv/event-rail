@@ -23,6 +23,9 @@ module Platform
     # Request parameters whose values the log may show (Platform::EventLog::Redaction); every other
     # value is filtered. The application names them (config/initializers/filter_parameter_logging.rb).
     config.platform.logged_params = []
+    # Which requests come from a caller whose trace context the application continues, another of
+    # its own services; every other's is linked to, never joined (Platform::Traces::Edge).
+    config.platform.trusted_trace_source = ->(_env) { false }
 
     initializer "platform.observability" do |app|
       require_relative "error_subscriber"
@@ -51,6 +54,10 @@ module Platform
     # that opens each request's span only then.
     initializer "platform.traces" do |app|
       Platform::Traces.configure(app.config.platform.traces)
+      unless app.config.platform.traces == :none
+        app.middleware.insert_before 0, Platform::Traces::Edge # ahead of OpenTelemetry's own
+        app.middleware.use Platform::Traces::EdgeLink # inside the request's span
+      end
     end
   end
 end

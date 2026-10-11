@@ -81,5 +81,5 @@ Rails.application.configure do
   end
   # As in production, sent when a collector is named; OBSERVE=1 uses the exporter's default,
   # localhost:4318, the stack's.
-  config.platform.traces = observe || ENV["OTEL_EXPORTER_OTLP_ENDPOINT"] || ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] ? :otlp : :none
+  config.platform.traces = observe || ENV["OTEL_EXPORTER_OTLP_ENDPOINT"].present? || ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"].present? ? :otlp : :none
 end
