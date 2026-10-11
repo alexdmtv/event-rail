@@ -12,9 +12,12 @@ receivers:
 
   # Every line is one JSON object (Platform::EventLog::JsonFormatter): its time and level become the
   # record's, its trace and span IDs join it to its trace, and the rest becomes attributes.
+  # Where it stopped reading is kept (file_storage), so a restart neither loses nor repeats lines;
+  # the first start skips what the file already holds.
   file_log/shop:
     include: [ /shop/log/development.json ]
     start_at: end
+    storage: file_storage
     resource:
       service.name: shop
     operators:
@@ -47,6 +50,9 @@ extensions:
   health_check:
     endpoint: 0.0.0.0:13133
     path: /ready
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
+    create_directory: true
 
 processors:
   batch:
@@ -71,7 +77,7 @@ exporters:
       insecure: true
 
 service:
-  extensions: [ health_check ]
+  extensions: [ health_check, file_storage ]
   pipelines:
     traces:
       receivers: [ otlp ]

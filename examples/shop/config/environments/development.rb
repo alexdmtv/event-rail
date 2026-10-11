@@ -1,9 +1,10 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
-  # The relay runs a job every second, so jobs log apart and the terminal stays at info.
+  # The relay runs a job every second, so jobs log apart and the terminal stays at info. Each file
+  # is rotated by size, as Rails rotates its own log, keeping one old file.
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
-  config.active_job.logger = ActiveSupport::TaggedLogging.logger(Rails.root.join("log/jobs.log"))
+  config.active_job.logger = ActiveSupport::TaggedLogging.logger(Rails.root.join("log/jobs.log"), 1, config.log_file_size)
 
   config.active_job.queue_adapter = :solid_queue
   config.solid_queue.connects_to = { database: { writing: :queue } }
@@ -73,8 +74,10 @@ Rails.application.configure do
   # Otherwise the shop's own structured events, as readable lines in the log; LOG_FORMAT=json logs
   # as production does, every line one JSON object on standard output.
   if observe || ENV["LOG_FORMAT"] == "json"
-    output = observe ? Rails.root.join("log/development.json") : STDOUT
-    config.logger = ActiveSupport::Logger.new(output).tap { |logger| logger.formatter = Platform::EventLog::JsonFormatter.new }
+    # The file is rotated by size too, and starts with no header, which wouldn't be JSON. The
+    # collector reads each new file from its start.
+    logger = observe ? ActiveSupport::Logger.new(Rails.root.join("log/development.json"), 1, config.log_file_size, skip_header: true) : ActiveSupport::Logger.new(STDOUT)
+    config.logger = logger.tap { |logger| logger.formatter = Platform::EventLog::JsonFormatter.new }
     config.platform.event_log = :json
   else
     config.platform.event_log = :text
