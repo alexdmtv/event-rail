@@ -41,15 +41,17 @@ module Platform
       end
     end
 
-    # A job left for the relay. Counted and logged every time, as the relay retries every
-    # second; reported as an error only once it stops healing (hold).
+    # A job left for the relay. Logged every time, as the relay retries every second; reported as
+    # an error only once it stops healing (hold).
     def self.held(job_id, job_class, error, correlation_id)
       Rails.event.notify("platform.staged_job_held", staged_job_id: job_id, job_class:, correlation_id:, error_class: error.class.name, reason: error.message)
     end
 
-    # Enqueues the job in the flow and the trace it was staged in, and deletes the row; false if the row was kept
-    # for the relay. A refused enqueue sets enqueue_error rather than raising, so the row stays; an
-    # aborting enqueue callback is the job's own decision, so the row goes. Other errors raise.
+    # Enqueues the job in the flow it was staged in, and deletes the row; false if the row was kept
+    # for the relay. At the commit the job is enqueued in the trace it was staged in; by the relay,
+    # in a trace of its own that links to that one (Traces.linked_to). A refused enqueue sets
+    # enqueue_error rather than raising, so the row stays; an aborting enqueue callback is the
+    # job's own decision, so the row goes. Other errors raise.
     def hand_over
       job = ActiveJob::Base.deserialize(payload)
       in_its_flow { Traces.linked_to(trace_context, "#{job_class} hand over") { job.enqueue } }

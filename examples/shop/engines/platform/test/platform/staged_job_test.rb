@@ -100,6 +100,16 @@ module Platform
       assert_equal :error, reports.sole.severity
     end
 
+    test "a stuck row is reported by the one attempt that claims it, however many hold it at once" do
+      refusing_enqueue { stage }
+      staged = StagedJob.sole
+      StagedJob.where(id: staged.id).update_all(reported_at: Time.current) # another process claimed it first
+
+      travel(StagedJob::STUCK_AFTER + 1.second) do
+        assert_no_error_reported { staged.hold(ActiveJob::EnqueueError.new("queue down")) }
+      end
+    end
+
     test "a staged job whose class no longer exists is parked and reported at once, then left alone: it will never be handed over" do
       StagedJob.create!(job_id: "j-gone", job_class: "Platform::RemovedJob", payload: { "job_class" => "Platform::RemovedJob", "job_id" => "j-gone", "arguments" => [] }, created_at: 1.minute.ago)
 

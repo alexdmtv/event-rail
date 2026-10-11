@@ -76,7 +76,7 @@ module Platform
       KINDS = %i[ server consumer ].freeze
 
       # sampler decides for the traces that may start: the one OTEL_TRACES_SAMPLER chose, which
-      # samples a ratio in production.
+      # records every one unless an environment sets a ratio.
       def initialize(sampler) = @sampler = sampler
 
       def should_sample?(trace_id:, parent_context:, links:, name:, kind:, attributes:)
