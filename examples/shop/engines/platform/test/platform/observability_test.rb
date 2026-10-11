@@ -44,6 +44,18 @@ module Platform
       Rails.event.raise_on_error = Rails.configuration.consider_all_requests_local
     end
 
+    test "no job's events carry its arguments, which may hold a customer's details" do
+      job = Class.new(ActiveJob::Base) { def self.name = "ArgumentProbeJob"; def perform(_customer) = nil }
+
+      enqueued = assert_event_reported("active_job.enqueued", payload: { job_class: "ArgumentProbeJob" }) { job.perform_later("ada@example.com") }
+      started = assert_event_reported("active_job.started", payload: { job_class: "ArgumentProbeJob" }) { job.perform_now("ada@example.com") }
+
+      [ enqueued, started ].each do |event|
+        assert_not event[:payload].key?(:arguments)
+        assert_not_includes event.to_s, "ada@example.com"
+      end
+    end
+
     test "a job's events carry its job and flow" do
       event = assert_event_reported("platform.probe") { ContextProbeJob.perform_now }
 
