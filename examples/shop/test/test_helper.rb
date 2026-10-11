@@ -22,10 +22,7 @@ module ActiveSupport
 
     parallelize(workers: :number_of_processors)
 
-    setup do
-      Yabeda::TestAdapter.instance.reset!
-      Platform::Traces.exporter.reset
-    end
+    setup { Platform::Traces.exporter.reset }
 
     teardown do
       Payments::TestSupport.reset_gateway

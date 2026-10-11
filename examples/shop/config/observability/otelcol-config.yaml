@@ -1,6 +1,5 @@
-# The image's own collector configuration, plus the shop's logs and metrics: the log lines from
-# log/development.json and the metrics on its /metrics, both under the service name "shop", as its
-# traces are.
+# The image's own collector configuration, plus the shop's log lines from log/development.json,
+# under the service name "shop", as its traces are. Everything is marked as development's.
 receivers:
   otlp:
     protocols:
@@ -31,22 +30,6 @@ receivers:
         span_id:
           parse_from: attributes.span_id
 
-  prometheus/shop:
-    config:
-      scrape_configs:
-        - job_name: shop
-          scrape_interval: 5s
-          metrics_path: /metrics
-          static_configs:
-            - targets: [ "host.docker.internal:3000" ]
-
-  prometheus/collector:
-    config:
-      scrape_configs:
-        - job_name: opentelemetry-collector
-          scrape_interval: 1s
-          static_configs:
-            - targets: [ "127.0.0.1:8888" ]
 
 extensions:
   health_check:
@@ -55,12 +38,13 @@ extensions:
 
 processors:
   batch:
+  resource/environment:
+    attributes:
+      - key: deployment.environment.name
+        value: development
+        action: insert # what the shop sends wins
 
 exporters:
-  otlp_http/metrics:
-    endpoint: http://127.0.0.1:9090/api/v1/otlp
-    tls:
-      insecure: true
   otlp_http/traces:
     endpoint: http://127.0.0.1:4418
     tls:
@@ -75,13 +59,9 @@ service:
   pipelines:
     traces:
       receivers: [ otlp ]
-      processors: [ batch ]
+      processors: [ resource/environment, batch ]
       exporters: [ otlp_http/traces ]
-    metrics:
-      receivers: [ otlp, prometheus/shop, prometheus/collector ]
-      processors: [ batch ]
-      exporters: [ otlp_http/metrics ]
     logs:
       receivers: [ otlp, file_log/shop ]
-      processors: [ batch ]
+      processors: [ resource/environment, batch ]
       exporters: [ otlp_http/logs ]

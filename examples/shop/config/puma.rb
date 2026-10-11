@@ -38,6 +38,3 @@ plugin :tmp_restart
 # In other environments, only set the PID file if requested.
 pidfile ENV["PIDFILE"] if ENV["PIDFILE"]
 plugin :solid_queue if ENV["SOLID_QUEUE_IN_PUMA"]
-# Solid Queue's workers as threads of this process rather than processes of their own, so the one
-# /metrics endpoint OBSERVE=1 serves counts jobs too.
-solid_queue_mode :async if ENV["SOLID_QUEUE_IN_PUMA"] && ENV["OBSERVE"] == "1"

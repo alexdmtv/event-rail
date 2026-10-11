@@ -22,13 +22,6 @@ gem "solid_queue"
 # Reduces boot times through caching; required in config/boot.rb
 gem "bootsnap", require: false
 
-# Metrics: each module declares its own; the adapter a deployment adds exports them [https://github.com/yabeda-rb/yabeda]
-gem "yabeda"
-gem "yabeda-rails"
-gem "yabeda-activejob"
-# Registers its adapter when loaded, so only an environment that chooses it loads it
-gem "yabeda-prometheus", require: false
-
 # Traces, exported over OTLP [https://opentelemetry.io/docs/languages/ruby/]
 gem "opentelemetry-sdk"
 gem "opentelemetry-exporter-otlp"

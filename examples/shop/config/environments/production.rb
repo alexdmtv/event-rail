@@ -70,8 +70,6 @@ Rails.application.configure do
   # Every structured event, Rails' own included, logged as JSON, in place of Rails' text lines for
   # requests and jobs.
   config.platform.event_log = :json
-  # A deployment names its monitoring system's adapter here; the example has none.
-  config.platform.metrics = :none
   # Sent to the collector OTEL_EXPORTER_OTLP_ENDPOINT names, when one is named; a runner or console
   # without it records none rather than retrying a collector that isn't there.
   config.platform.traces = ENV["OTEL_EXPORTER_OTLP_ENDPOINT"] || ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] ? :otlp : :none

@@ -106,6 +106,18 @@ module Platform
       assert_equal 1, StagedJob.count
     end
 
+    test "while jobs wait for the relay, it says how many and how long the oldest has waited" do
+      refusing_enqueue { stage }
+
+      backlog = travel(1.minute) do
+        assert_event_reported("platform.outbox_backlog", payload: { count: 1 }) { refusing_enqueue { StagedJobRelayJob.perform_now } }
+      end
+      assert_in_delta 60, backlog[:payload][:oldest_age_seconds], 1
+
+      relay_staged_jobs
+      assert_no_event_reported("platform.outbox_backlog") { relay_staged_jobs }
+    end
+
     test "a job the queue declined without raising stays staged until the relay hands it over" do
       job = refusing_enqueue { stage }
       assert_equal 1, StagedJob.count
@@ -192,21 +204,6 @@ module Platform
         assert_equal 0, StagedJob.count
         assert_no_enqueued_jobs
       end
-    end
-
-    test "a staged event is counted once its transaction commits, and never when it rolls back" do
-      with_subscribers(StagedJobFixtures::NoticeJob) do
-        StagedJob.transaction do
-          EventRail.stage(StagedJobFixtures::Noticed.new(reference: "n-1"))
-          assert_empty recorded(Yabeda.event_rail.domain_events_total), "not before the commit"
-        end
-        StagedJob.transaction do
-          EventRail.stage(StagedJobFixtures::Noticed.new(reference: "n-2"))
-          raise ActiveRecord::Rollback
-        end
-      end
-
-      assert_equal({ { event_type: "platform_tests.noticed" } => 1 }, recorded(Yabeda.event_rail.domain_events_total))
     end
 
     test "a staged event the queue could not take at the commit is delivered by the relay" do

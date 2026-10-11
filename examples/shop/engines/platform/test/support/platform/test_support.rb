@@ -52,17 +52,6 @@ module Platform
       FailingRuns.remaining.delete(job_class)
     end
 
-    # What a metric recorded during the test, by tags: a counter's count, a gauge's or a
-    # histogram's last value.
-    def recorded(metric)
-      adapter = Yabeda::TestAdapter.instance
-      case metric
-      when Yabeda::Counter then adapter.counters[metric]
-      when Yabeda::Gauge then adapter.gauges[metric]
-      when Yabeda::Histogram then adapter.histograms[metric]
-      end
-    end
-
     def relay_staged_jobs = travel(StagedJob::GRACE + 1.second) { StagedJobRelayJob.perform_now }
 
     def failing(receiver, method_name, message = "#{method_name} failed", &block)

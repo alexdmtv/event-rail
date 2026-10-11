@@ -1,7 +1,6 @@
 require_relative "module_engine"
 require_relative "observability"
 require_relative "event_log"
-require_relative "metrics"
 require_relative "traces"
 
 module Platform
@@ -38,22 +37,6 @@ module Platform
       # Rails turns debug events, such as every SQL query, on in development whatever the log
       # level; one level governs them too.
       app.config.after_initialize { Rails.event.debug_mode = Rails.logger.debug? } unless app.config.platform.event_log == :none
-    end
-
-    # Each environment chooses where metrics go (config.platform.metrics): :none; :prometheus,
-    # served on /metrics for Prometheus to scrape; or :test, which records them for tests to read.
-    # Another monitoring system's Yabeda adapter (yabeda-datadog) would be another choice here.
-    initializer "platform.metrics" do |app|
-      case app.config.platform.metrics
-      when :none then nil
-      when :prometheus then require "yabeda/prometheus" # registers its adapter
-      when :test
-        require "yabeda/test_adapter"
-        Yabeda.register_adapter(:test, Yabeda::TestAdapter.instance)
-      else raise ArgumentError, "config.platform.metrics names no metrics adapter: #{app.config.platform.metrics.inspect}"
-      end
-      Platform::Metrics.guard_adapters
-      Rails.event.subscribe(Platform::Metrics::EventCounts.new) { |event| Platform::Metrics::EventCounts::NAMES.include?(event[:name]) }
     end
 
     # Each environment chooses where traces go (config.platform.traces, Platform::Traces). While

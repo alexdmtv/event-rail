@@ -1,7 +1,6 @@
 # Only for this module's own bin/rails (its generators), which loads this file before the shop:
 # the class body needs Platform::ModuleEngine.
 require_relative "../../../platform/lib/platform/engine"
-require_relative "metrics"
 
 module Payments
   class Engine < ::Rails::Engine
@@ -15,8 +14,7 @@ module Payments
     config.payments = ActiveSupport::OrderedOptions.new
     config.to_prepare { Payments::Gateway.current }
 
-    # Every call to the provider is a span, with its operation and outcome (Payments::Gateway.call),
-    # as well as a metric (Payments::Metrics).
+    # Every call to the provider is a span, with its operation and outcome (Payments::Gateway.call).
     Platform::Traces.span "call_gateway.payments"
   end
 end

@@ -65,9 +65,9 @@ Rails.application.configure do
   config.fulfillment.carrier = :fake
   config.fulfillment.fake_carrier_delay = 4.seconds
 
-  # OBSERVE=1 sends everything to the Grafana stack in compose.yaml (docker compose up, then
+  # OBSERVE=1 sends logs and traces to the Grafana stack in compose.yaml (docker compose up, then
   # http://localhost:3001): every log line JSON, in the terminal and in log/development.json, which
-  # its collector reads; metrics on /metrics, which it scrapes; traces over OTLP.
+  # its collector reads, and traces over OTLP.
   observe = ENV["OBSERVE"] == "1"
 
   # Otherwise the shop's own structured events, as readable lines in the log; LOG_FORMAT=json logs
@@ -78,15 +78,6 @@ Rails.application.configure do
     config.platform.event_log = :json
   else
     config.platform.event_log = :text
-  end
-  config.platform.metrics = observe ? :prometheus : :none
-  if observe
-    # Served ahead of the request log, which would otherwise log every scrape, to the collector
-    # in its container. A deployment would serve it on a port of its own, out of reach
-    # (Yabeda::Prometheus::Exporter.start_metrics_server!).
-    require "yabeda/prometheus"
-    config.middleware.insert_before Rails::Rack::Logger, Yabeda::Prometheus::Exporter # /metrics
-    config.hosts << "host.docker.internal"
   end
   # As in production, sent when a collector is named; OBSERVE=1 uses the exporter's default,
   # localhost:4318, the stack's.
