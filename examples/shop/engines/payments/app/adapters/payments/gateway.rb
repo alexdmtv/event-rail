@@ -20,15 +20,22 @@ module Payments
       def current = @adapter ||= build(Rails.configuration.payments.gateway)
 
       # Every call to the provider goes through here, whichever adapter answers it, so each is
-      # timed, counted and traced the same way (call_gateway.payments). A refusal is an answer,
-      # not a failure, so the payload names the outcome.
+      # timed and traced the same way (call_gateway.payments), with its outcome. A refusal is an
+      # answer, not a failure: raised only once the notification has ended, it doesn't mark the
+      # span as failed, as an error escaping the notification does.
       def call(operation, **arguments)
-        ActiveSupport::Notifications.instrument("call_gateway.payments", operation:) do |payload|
+        refusal = nil
+        answer = ActiveSupport::Notifications.instrument("call_gateway.payments", operation:) do |payload|
           current.public_send(operation, **arguments).tap { payload[:outcome] = "succeeded" }
-        rescue Refused
+        rescue Refused => refused
           payload[:outcome] = "refused"
+          refusal = refused
+          nil
+        rescue TemporaryFailure
+          payload[:outcome] = "failed"
           raise
         end
+        refusal ? raise(refusal) : answer
       end
 
       private

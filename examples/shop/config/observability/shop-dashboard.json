@@ -1,7 +1,7 @@
 {
   "uid": "shop",
   "title": "Shop",
-  "description": "Requests and jobs from their traces; the outbox, domain events and errors from the log; with the log and traces behind them.",
+  "description": "Requests and jobs from their spans, counted by the collector before anything is sampled; the outbox, domain events and errors from the log; with the log and traces behind them.",
   "tags": [
     "shop"
   ],
@@ -16,7 +16,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "Requests, from their traces",
+      "title": "Requests, from their spans",
       "id": 1,
       "collapsed": false,
       "gridPos": {
@@ -71,7 +71,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
+          "expr": "sum by (span_name) (rate(traces_span_metrics_calls_total{service_name=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
           "legendFormat": "{{span_name}}"
         }
       ]
@@ -120,7 +120,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
+          "expr": "sum by (span_name) (rate(traces_span_metrics_calls_total{service_name=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
           "legendFormat": "{{span_name}}"
         }
       ]
@@ -169,14 +169,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_spanmetrics_latency_bucket{service=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_span_metrics_duration_seconds_bucket{service_name=~\"shop.*\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
           "legendFormat": "{{span_name}}"
         }
       ]
     },
     {
       "type": "row",
-      "title": "Jobs, from their traces",
+      "title": "Jobs, from their spans",
       "id": 5,
       "collapsed": false,
       "gridPos": {
@@ -190,7 +190,7 @@
     {
       "type": "timeseries",
       "title": "Jobs per second",
-      "description": "Consumer spans, by job. The every-second relay starts no trace, so it isn't here.",
+      "description": "Consumer spans, by job; a relayed job's hand-over isn't counted. The every-second relay starts no trace, so it isn't here.",
       "id": 6,
       "datasource": {
         "type": "prometheus",
@@ -231,7 +231,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\"}[$__rate_interval]))",
+          "expr": "sum by (span_name) (rate(traces_span_metrics_calls_total{service_name=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\", span_name!~\".* hand over\"}[$__rate_interval]))",
           "legendFormat": "{{span_name}}"
         }
       ]
@@ -280,7 +280,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (span_name) (increase(traces_spanmetrics_calls_total{service=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
+          "expr": "sum by (span_name) (increase(traces_span_metrics_calls_total{service_name=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\", span_name!~\".* hand over\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
           "legendFormat": "{{span_name}}"
         }
       ]
@@ -329,7 +329,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_spanmetrics_latency_bucket{service=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_span_metrics_duration_seconds_bucket{service_name=~\"shop.*\", span_kind=\"SPAN_KIND_CONSUMER\", span_name!~\".* hand over\"}[$__rate_interval])))",
           "legendFormat": "{{span_name}}"
         }
       ]
@@ -619,7 +619,7 @@
     {
       "type": "timeseries",
       "title": "Payment provider",
-      "description": "Calls to the provider from their spans (call_gateway.payments): how many, how many raised (a refusal or a failure), and p95 duration.",
+      "description": "Calls to the provider by operation and outcome (call_gateway.payments): a refusal is an answer, a failure is a timeout or an error; and p95 duration by operation.",
       "id": 16,
       "datasource": {
         "type": "prometheus",
@@ -645,8 +645,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "p95"
+              "id": "byRegexp",
+              "options": "p95.*"
             },
             "properties": [
               {
@@ -681,8 +681,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status_code) (increase(traces_spanmetrics_calls_total{service=~\"shop.*\", span_name=\"call_gateway.payments\"}[$__rate_interval]))",
-          "legendFormat": "{{status_code}}"
+          "expr": "sum by (operation, outcome) (increase(traces_span_metrics_calls_total{span_name=\"call_gateway.payments\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}} {{outcome}}"
         },
         {
           "refId": "B",
@@ -690,8 +690,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_latency_bucket{service=~\"shop.*\", span_name=\"call_gateway.payments\"}[$__rate_interval])))",
-          "legendFormat": "p95"
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(traces_span_metrics_duration_seconds_bucket{span_name=\"call_gateway.payments\"}[$__rate_interval])))",
+          "legendFormat": "p95 {{operation}}"
         }
       ]
     },
@@ -764,7 +764,7 @@
             "uid": "tempo"
           },
           "queryType": "traceql",
-          "query": "{ resource.service.name =~ \"shop.*\" && (kind = server || kind = consumer) }",
+          "query": "{ resource.service.name =~ \"shop.*\" && (kind = server || kind = consumer) && name !~ \".* hand over\" }",
           "limit": 20
         }
       ]

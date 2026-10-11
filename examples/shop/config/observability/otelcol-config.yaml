@@ -1,5 +1,7 @@
-# The image's own collector configuration, plus the shop's log lines from log/development.json,
-# under the service name "shop", as its traces are. Everything is marked as development's.
+# The collector for development: the shop's traces over OTLP, its log lines from
+# log/development.json under the service name "shop", and request and job metrics computed from
+# every span before anything could be sampled, as production would. Everything is marked as
+# development's.
 receivers:
   otlp:
     protocols:
@@ -31,6 +33,16 @@ receivers:
           parse_from: attributes.span_id
 
 
+connectors:
+  # Rates, failures and durations by span, and by the payment provider's operation and outcome.
+  spanmetrics:
+    histogram:
+      unit: s
+    dimensions:
+      - name: operation
+      - name: outcome
+    metrics_flush_interval: 15s
+
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
@@ -45,6 +57,10 @@ processors:
         action: insert # what the shop sends wins
 
 exporters:
+  otlp_http/metrics:
+    endpoint: http://127.0.0.1:9090/api/v1/otlp
+    tls:
+      insecure: true
   otlp_http/traces:
     endpoint: http://127.0.0.1:4418
     tls:
@@ -60,7 +76,11 @@ service:
     traces:
       receivers: [ otlp ]
       processors: [ resource/environment, batch ]
-      exporters: [ otlp_http/traces ]
+      exporters: [ otlp_http/traces, spanmetrics ]
+    metrics:
+      receivers: [ spanmetrics ]
+      processors: [ batch ]
+      exporters: [ otlp_http/metrics ]
     logs:
       receivers: [ otlp, file_log/shop ]
       processors: [ resource/environment, batch ]
