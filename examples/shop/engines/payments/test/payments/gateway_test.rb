@@ -22,7 +22,7 @@ module Payments
 
       OpenTelemetry.tracer_provider.tracer("test").in_span("job", kind: :consumer) do
         assert_raises(Gateway::Refused) { Gateway.call(:capture, idempotency_key: "capture-1", authorization_code: "auth", amount_cents: 4990) }
-        assert_raises(Gateway::TemporaryFailure) { Gateway.call(:capture, idempotency_key: "capture-1", authorization_code: "auth", amount_cents: 4990) }
+        assert_raises(Gateway::TemporaryFailure) { Gateway.call(:capture, idempotency_key: "capture-2", authorization_code: "auth", amount_cents: 4990) }
       end
 
       refused, failed = Platform::Traces.exporter.finished_spans.select { |it| it.name == "call_gateway.payments" }

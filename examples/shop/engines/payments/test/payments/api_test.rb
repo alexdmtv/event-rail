@@ -96,6 +96,17 @@ module Payments
       assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
     end
 
+    test "a capture the provider took but whose answer was lost is sent again under its key and taken once" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :lost ])
+
+      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+
+      assert_equal [ 2, 1 ], [ gateway.calls[:capture], gateway.applied[:capture] ], "asked twice, captured once"
+      assert_equal [ "captured", "succeeded" ], [ payment("ref-1").state, call("ref-1", "capture").state ]
+      assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
+    end
+
     test "a refused capture is reported as a failed capture" do
       authorize
       Gateway.adapter = ScriptedGateway.new(capture: [ :refuse ])
