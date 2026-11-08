@@ -26,8 +26,9 @@ module Orders
       # The customer fills a cart and places it; the order's confirmation is queued, not run.
       def checkout(items: ITEMS, customer: CUSTOMER) = place_order(open_cart(customer:, items:))
 
-      # As checkout, and the confirmation runs: the order ends confirmed, with its stock held and its
-      # card authorized and the capture queued, or cancelled if either failed.
+      # As checkout, and the confirmation runs, its retries too, without waiting for them: the order
+      # ends confirmed, with its stock held, its card authorized and the capture queued, or cancelled
+      # if either failed for good.
       def place_and_confirm(**checkout)
         placed = checkout(**checkout)
         Platform::TestSupport::Worker.perform_queued(ConfirmJob, CancelJob)

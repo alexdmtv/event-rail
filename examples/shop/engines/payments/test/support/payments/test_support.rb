@@ -10,11 +10,11 @@ module Payments
     # Back to the gateway the environment chose.
     def self.reset_gateway = Gateway.adapter = nil
 
-    # The provider refuses the next request of that kind: :authorize (the card is declined),
+    # The provider refuses one more request of that kind: :authorize (the card is declined),
     # :capture, :void or :refund. Anything not set this way succeeds.
     def self.provider_refuses(operation) = provider.script(operation, :refuse)
 
-    # The provider doesn't answer the next requests of that kind; Payments retries them.
+    # The provider doesn't answer that many more requests of that kind; Payments retries them.
     def self.provider_times_out(operation, times: 1) = provider.script(operation, *[ :timeout ] * times)
 
     # Where the money for the reference stands: nil (no payment), :held, :captured, :voided or :refunded.

@@ -32,13 +32,11 @@ class TestBoundariesTest < ActiveSupport::TestCase
     assert_empty offences
   end
 
-  # A flow test may name one to make it fail on purpose, with Platform's fault helpers.
-  test "a module's jobs are named only in its own tests and in flow tests" do
+  test "a module's jobs are named only in its own tests, and in a flow test that makes one fail on purpose" do
     offences = MODULES.flat_map do |name|
-      others = test_files(Rails.root.join("test")).reject { |file| file.start_with?(Rails.root.join("test/flows").to_s) } +
-        MODULES.excluding(name).flat_map { |other| test_files(Rails.root.join("engines", other, "test")) }
+      others = test_files(Rails.root.join("test")) + MODULES.excluding(name).flat_map { |other| test_files(Rails.root.join("engines", other, "test")) }
       others.flat_map do |file|
-        File.read(file).scan(/["']#{name.camelize}::\w+Job["']/).uniq.map { |job| "#{relative(file)} names #{job}" }
+        outside_faults(file).scan(/["']#{name.camelize}::\w+Job["']/).uniq.map { |job| "#{relative(file)} names #{job}" }
       end
     end
 
@@ -60,6 +58,15 @@ class TestBoundariesTest < ActiveSupport::TestCase
       Dir[Rails.root.join("engines", name, "test/support/**/*.rb")]
         .flat_map { |file| File.read(file).scan(/^  (?:class|module) (\w+)/).flatten }
         .uniq - [ "TestSupport" ]
+    end
+
+    # The file without its flow tests that inject a fault with Platform's failing_runs: those name
+    # the job they make fail, and check what that did.
+    def outside_faults(file)
+      source = File.read(file)
+      return source unless file.start_with?(Rails.root.join("test/flows").to_s)
+
+      source.split(/^(?=  test ")/).reject { |block| block.include?("failing_runs(") }.join
     end
 
     def relative(file) = Pathname(file).relative_path_from(Rails.root).to_s
