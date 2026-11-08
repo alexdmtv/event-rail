@@ -12,19 +12,19 @@ module Orders
     Snapshot = Data.define(:id, :reference, :state, :status, :cancel_reason, :refund_failure_reason, :cancellation_refused, :return_status)
 
     class << self
-      # items: { "sku" => quantity }
+      # items: { "sku" => quantity }. Answers the cart's ID.
       def open_cart(customer:, items:)
         Cart.open(customer_id: customer.id, customer_name: customer.name, customer_email: customer.email, shipping_address: customer.address,
-          items: items.map { |sku, quantity| { sku: sku, quantity: quantity } })
+          items: items.map { |sku, quantity| { sku: sku, quantity: quantity } }).id
       end
 
-      def place_order(cart_id) = as_request { Cart.find(cart_id).place_order }
-      def request_cancellation(order_id, reason: "customer") = as_request { Order.find(order_id).request_cancellation(reason:) }
-      def request_return(order_id) = as_request { Order.find(order_id).tap(&:request_return) }
-      def order(id) = Order.includes(:line_items, :return).find_by(id: id)
+      def place_order(cart_id) = snapshot(as_request { Cart.find(cart_id).place_order }.id)
+      def request_cancellation(order_id, reason: "customer") = as_request { Order.find(order_id).request_cancellation(reason:) }.then { snapshot(order_id) }
+      def request_return(order_id) = as_request { Order.find(order_id).request_return }.then { snapshot(order_id) }
+      def order(id) = (snapshot(id) if Order.exists?(id))
 
       # The customer fills a cart and places it; the order's confirmation is queued, not run.
-      def checkout(items: ITEMS, customer: CUSTOMER) = snapshot(place_order(open_cart(customer:, items:).id).id)
+      def checkout(items: ITEMS, customer: CUSTOMER) = place_order(open_cart(customer:, items:))
 
       # As checkout, and the confirmation runs: the order ends confirmed, with its stock held and its
       # card authorized and the capture queued, or cancelled if either failed.

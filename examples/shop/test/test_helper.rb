@@ -4,7 +4,6 @@ require "rails/test_help"
 %w[ platform catalog payments fulfillment orders notifications loyalty ].each do |name|
   require_relative "../engines/#{name}/test/support/#{name}/test_support"
 end
-require_relative "support/shop_helpers"
 
 # So response.parsed_body parses problem details, the shape of every error answer, as JSON.
 ActionDispatch::IntegrationTest.register_encoder :problem, response_parser: ->(body) { JSON.parse(body) }

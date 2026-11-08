@@ -1,8 +1,6 @@
 require "test_helper"
 
 class FlowTestCase < ActiveSupport::TestCase
-  include ShopHelpers
-
   setup { instant_carrier }
 
   private
@@ -14,6 +12,13 @@ class FlowTestCase < ActiveSupport::TestCase
       end
       [ Orders::TestSupport.order(order.id), publications ]
     end
+
+    def checkout(**) = Orders::TestSupport.checkout(**)
+    def place(**) = Orders::TestSupport.place_and_confirm(**)
+    def available(sku) = Catalog::TestSupport.available(sku)
+    def on_hand(sku) = Catalog::TestSupport.on_hand(sku)
+    def instant_carrier = Fulfillment::TestSupport.instant_carrier
+    def slow_carrier = Fulfillment::TestSupport.slow_carrier
 
     def settle
       publications = record_publications { @job_failures = work_off_queue }

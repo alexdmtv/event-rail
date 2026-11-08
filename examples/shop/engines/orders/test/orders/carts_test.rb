@@ -4,7 +4,7 @@ module Orders
   class CartsTest < ActiveSupport::TestCase
     include Steps
 
-    def open_cart(items = { "MUG" => 2, "TEA" => 1 }) = TestSupport.open_cart(customer: CUSTOMER, items: items)
+    def open_cart(items = TestSupport::ITEMS) = Cart.find(TestSupport.open_cart(customer: CUSTOMER, items: items))
 
     def violations(error) = error.violations.map { |violation| [ violation.field, violation.code ] }.sort
 

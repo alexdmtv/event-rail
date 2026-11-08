@@ -7,12 +7,6 @@ module Payments
   module TestSupport
     MONEY = { "authorized" => :held, "captured" => :captured, "voided" => :voided, "refunded" => :refunded }.freeze
 
-    def self.payment(reference) = Payment.find_by(reference: reference)
-    def self.outstanding_call(reference) = payment(reference)&.provider_calls&.outstanding&.first
-
-    # Plugs in a gateway answering each call as scripted, and returns it to count the calls.
-    def self.scripted_gateway(**script) = ScriptedGateway.new(**script).tap { |gateway| Gateway.adapter = gateway }
-
     # Back to the gateway the environment chose.
     def self.reset_gateway = Gateway.adapter = nil
 
@@ -33,6 +27,8 @@ module Payments
     def self.release_requested?(reference) = payment(reference)&.release_requested_at.present?
 
     def self.provider = Gateway.current.is_a?(ScriptedGateway) ? Gateway.current : ScriptedGateway.new.tap { |gateway| Gateway.adapter = gateway }
-    private_class_method :provider
+    def self.payment(reference) = Payment.find_by(reference: reference)
+    def self.outstanding_call(reference) = payment(reference)&.provider_calls&.outstanding&.first
+    private_class_method :provider, :payment, :outstanding_call
   end
 end

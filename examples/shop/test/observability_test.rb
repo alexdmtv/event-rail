@@ -2,8 +2,6 @@ require "test_helper"
 
 # How a request and the domain events it causes appear in the structured event log.
 class ObservabilityTest < ActionDispatch::IntegrationTest
-  include ShopHelpers
-
   test "an error answered to a request is reported with the request's flow" do
     event = assert_event_reported("platform.error_reported", payload: { category: "InvalidArgument", expected: true }) do
       post "/carts", params: { items: [] }, as: :json
@@ -15,22 +13,22 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
   end
 
   test "a domain event staged by a request appears with its type and the request's correlation" do
-    event = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { checkout }
+    event = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { Orders::TestSupport.checkout }
 
     assert_equal 1, event[:payload][:subscriber_count]
     assert event[:payload][:correlation_id]
   end
 
   test "a subscriber handling a domain event appears with its job" do
-    checkout
+    Orders::TestSupport.checkout
     assert_event_reported("event_rail.subscriber_performed", payload: { event_type: "orders.order_placed", job_class: "Notifications::NotifyCustomerJob" }) do
       perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Notifications::NotifyCustomerJob" })
     end
   end
 
   test "a subscriber's context names the domain event it handles, which anything it stages names as its cause" do
-    instant_carrier
-    shipped = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_shipped" }) { perform_enqueued_jobs { checkout } }
+    Fulfillment::TestSupport.instant_carrier
+    shipped = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_shipped" }) { perform_enqueued_jobs { Orders::TestSupport.checkout } }
 
     assert_equal shipped[:context][:message_id], shipped[:payload][:causation_id]
     assert_not_equal shipped[:context][:job_id], shipped[:context][:message_id], "a subscriber's message is the event it handles, not its job"
@@ -44,7 +42,7 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
 
   test "EventRail's work is traced, and its spans stay out of the event log" do
     staged = OpenTelemetry.tracer_provider.tracer("test").in_span("request", kind: :server) do
-      assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { checkout }
+      assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { Orders::TestSupport.checkout }
     end
 
     assert_includes Platform::Traces.exporter.finished_spans.map(&:name), "stage.event_rail"

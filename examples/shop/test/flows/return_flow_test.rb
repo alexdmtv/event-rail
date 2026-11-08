@@ -11,8 +11,8 @@ class ReturnFlowTest < FlowTestCase
     end
 
     assert_equal "refunded", Orders::TestSupport.order(order.id).status
-    assert_equal "refunded", Payments::TestSupport.payment(order.reference).state
-    assert_equal "received", Fulfillment::TestSupport.parcel_return(order.reference).state
+    assert_equal :refunded, Payments::TestSupport.money_status(order.reference)
+    assert_equal :received, Fulfillment::TestSupport.return_status(order.reference)
     assert_equal 10, on_hand("MUG")
     assert_equal 0, points(order)
     assert_includes notified_kinds(order), "refunded"
@@ -21,13 +21,13 @@ class ReturnFlowTest < FlowTestCase
 
   test "a refused refund sets the order aside and keeps its points" do
     order, = place_and_settle
-    Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
+    Payments::TestSupport.provider_refuses(:refund)
 
     Orders::TestSupport.request_return(order.id)
     work_off_queue
 
     reloaded = Orders::TestSupport.order(order.id)
-    assert_equal [ "needs_attention", "refund_failed" ], [ reloaded.status, reloaded.return.state ]
+    assert_equal [ "needs_attention", "refund_failed" ], [ reloaded.status, reloaded.return_status ]
     assert_equal 38, points(order)
   end
 end

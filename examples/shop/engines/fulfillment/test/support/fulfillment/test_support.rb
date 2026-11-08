@@ -3,9 +3,6 @@ module Fulfillment
   # in Fulfillment's terms, and readers that answer with values, never records, so Fulfillment can
   # change inside without breaking anyone else's tests.
   module TestSupport
-    def self.shipment(reference) = Shipment.find_by(reference: reference)
-    def self.parcel_return(reference) = ParcelReturn.find_by(reference: reference)
-
     # Plugs in the fake carrier, answering after the delay.
     def self.carrier_answering_after(delay) = Carrier.adapter = Carrier::Fake.new(delay:)
 
@@ -28,5 +25,9 @@ module Fulfillment
 
     # Where a returned parcel stands: nil (no return), :expected or :received.
     def self.return_status(reference) = parcel_return(reference)&.state&.to_sym
+
+    def self.shipment(reference) = Shipment.find_by(reference: reference)
+    def self.parcel_return(reference) = ParcelReturn.find_by(reference: reference)
+    private_class_method :shipment, :parcel_return
   end
 end
