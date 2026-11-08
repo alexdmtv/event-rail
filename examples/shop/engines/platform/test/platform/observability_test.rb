@@ -153,7 +153,7 @@ module Platform
 
       assert_not EventLog.written?(relay)
       assert EventLog.written?(relay.deep_merge(payload: { exception_class: "RuntimeError" }))
-      assert EventLog.written?(relay.deep_merge(payload: { job_class: "Orders::ConfirmJob" }))
+      assert EventLog.written?(relay.deep_merge(payload: { job_class: "ShipOrderJob" }))
     end
 
     test "Rails' event for an error a controller answered isn't written: the shop's error event says more" do
