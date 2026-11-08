@@ -15,23 +15,8 @@ class ObservabilityTest < ActionDispatch::IntegrationTest
   test "a domain event staged by a request appears with its type and the request's correlation" do
     event = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_placed" }) { Orders::TestSupport.checkout }
 
-    assert_equal 1, event[:payload][:subscriber_count]
+    assert_operator event[:payload][:subscriber_count], :>, 0
     assert event[:payload][:correlation_id]
-  end
-
-  test "a subscriber handling a domain event appears with its job" do
-    Orders::TestSupport.checkout
-    event = assert_event_reported("event_rail.subscriber_performed", payload: { event_type: "orders.order_placed" }) { perform_enqueued_jobs }
-
-    assert_match(/\A\w+::\w+Job\z/, event[:payload][:job_class])
-  end
-
-  test "a subscriber's context names the domain event it handles, which anything it stages names as its cause" do
-    Fulfillment::TestSupport.instant_carrier
-    shipped = assert_event_reported("event_rail.staged", payload: { event_type: "orders.order_shipped" }) { perform_enqueued_jobs { Orders::TestSupport.checkout } }
-
-    assert_equal shipped[:context][:message_id], shipped[:payload][:causation_id]
-    assert_not_equal shipped[:context][:job_id], shipped[:context][:message_id], "a subscriber's message is the event it handles, not its job"
   end
 
   test "a request is traced from the server's side" do

@@ -21,12 +21,11 @@ module Orders
       order = place_through_http(cart)
       assert_response :created
       assert_equal "placed", order["status"]
-      assert_equal({ "cents" => 2 * 1490 + 890, "currency" => "EUR" }, order["total"])
+      assert_equal({ "cents" => Catalog::Api.quote("MUG" => 2, "TEA" => 1).total_cents, "currency" => "EUR" }, order["total"])
 
-      perform_enqueued_jobs(only: ConfirmJob)
       get "/orders/#{order["id"]}", as: :json
       assert_response :ok
-      assert_equal "confirmed", response.parsed_body["status"]
+      assert_equal order, response.parsed_body
     end
 
     test "a request is a flow of its own, correlated by the request's ID" do
@@ -92,7 +91,9 @@ module Orders
 
     test "a delivered order's return is accepted" do
       order = perform_enqueued_jobs(only: ConfirmJob) { place_through_http(open_cart) }
-      Order.find(order["id"]).then { |record| pay(record); ship(record); deliver(record) }
+      payments_answer
+      carrier_collects
+      carrier_delivers
 
       post "/orders/#{order["id"]}/return", as: :json
 

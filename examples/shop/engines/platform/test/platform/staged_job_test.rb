@@ -85,6 +85,16 @@ module Platform
       assert_equal [ [ "staged", job.job_id, "checkout-k" ] ], ProbeJob.runs, "the relayed job keeps its ID and its flow"
     end
 
+    test "the relay leaves a job staged moments ago to its own hand-over" do
+      refusing_enqueue { stage }
+
+      StagedJobRelayJob.perform_now
+      assert_equal 1, StagedJob.count, "within the grace period the commit's own hand-over may still be running"
+
+      relay_staged_jobs
+      assert_equal 0, StagedJob.count
+    end
+
     test "a job left for the relay is counted every time, and reported once it has stopped healing" do
       held = assert_event_reported("platform.staged_job_held", payload: { job_class: ProbeJob.name, error_class: "ActiveJob::EnqueueError", correlation_id: "checkout-k" }) do
         assert_no_error_reported { refusing_enqueue { stage } }

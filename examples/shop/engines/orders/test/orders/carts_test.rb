@@ -56,11 +56,11 @@ module Orders
     end
 
     test "placing a cart records a placed order priced as the products are now, and holds nothing yet" do
-      order = checkout
+      order = checkout_order
 
       assert_equal "placed", order.state
-      assert_equal 2 * 1490 + 890, order.total_cents
-      assert_equal 10, available("MUG"), "nothing is reserved within the request"
+      assert_equal Catalog::Api.quote(TestSupport::ITEMS).total_cents, order.total_cents
+      assert_equal 0, held("MUG"), "nothing is reserved within the request"
       assert_nil Payments::TestSupport.money_status(order.reference)
       assert_enqueued_jobs 1, only: ConfirmJob
     end
@@ -101,7 +101,7 @@ module Orders
     end
 
     test "an order placed while the queue could not take its confirmation is confirmed without the caller retrying" do
-      order = refusing_enqueue { checkout }
+      order = refusing_enqueue { checkout_order }
       assert_no_enqueued_jobs
 
       relay_staged_jobs

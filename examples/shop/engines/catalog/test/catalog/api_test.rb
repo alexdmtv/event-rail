@@ -91,6 +91,23 @@ module Catalog
       assert_equal 3, Catalog::Product.find_by!(sku: "MUG").on_hand
     end
 
+    test "releasing a reservation that has shipped gives nothing back, so its restock still does" do
+      Api.reserve(reference: "r-1", items: { "MUG" => 2 })
+      Api.ship(reference: "r-1")
+
+      Api.release(reference: "r-1")
+      assert_equal 1, Catalog::Product.find_by!(sku: "MUG").on_hand
+
+      Api.restock(reference: "r-1")
+      assert_equal 3, Catalog::Product.find_by!(sku: "MUG").on_hand
+    end
+
+    test "an item out of stock is refused by its SKU, which Catalog names in its words" do
+      error = assert_raises(OutOfStock) { Api.reserve(reference: "r-1", items: { "MUG" => 4 }) }
+
+      assert_equal [ "MUG", "MUG is out of stock" ], [ error.sku, error.message ]
+    end
+
     test "a released reservation cannot ship" do
       Api.reserve(reference: "r-1", items: { "MUG" => 2 })
       Api.release(reference: "r-1")

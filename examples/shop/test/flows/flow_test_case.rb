@@ -1,29 +1,29 @@
 require "test_helper"
 
+# A flow test runs every module's jobs, as workers would, and checks what each module ended up
+# with through its test support.
 class FlowTestCase < ActiveSupport::TestCase
-  setup { instant_carrier }
+  setup do
+    Fulfillment::TestSupport.carrier_answers_at_once
+    @shelves = %w[ MUG TEA ].index_with { |sku| Catalog::TestSupport.on_hand(sku) }
+  end
 
   private
     def place_and_settle(**checkout_options)
       order = nil
       publications = record_publications do
-        order = checkout(**checkout_options)
+        order = Orders::TestSupport.checkout(**checkout_options)
         @job_failures = work_off_queue
       end
       [ Orders::TestSupport.order(order.id), publications ]
     end
 
-    def checkout(**) = Orders::TestSupport.checkout(**)
-    def place(**) = Orders::TestSupport.place_and_confirm(**)
-    def available(sku) = Catalog::TestSupport.available(sku)
-    def on_hand(sku) = Catalog::TestSupport.on_hand(sku)
-    def instant_carrier = Fulfillment::TestSupport.instant_carrier
-    def slow_carrier = Fulfillment::TestSupport.slow_carrier
+    def settle = record_publications { @job_failures = work_off_queue }
 
-    def settle
-      publications = record_publications { @job_failures = work_off_queue }
-      publications
-    end
+    # Units of the product that left the shelves since the test began, and units orders hold now,
+    # without knowing how many Catalog had.
+    def shipped(sku) = @shelves[sku] - Catalog::TestSupport.on_hand(sku)
+    def held(sku) = Catalog::TestSupport.on_hand(sku) - Catalog::TestSupport.available(sku)
 
     # A request and everything it caused share one correlation: the request's own.
     def assert_one_flow(publications)
@@ -36,6 +36,7 @@ class FlowTestCase < ActiveSupport::TestCase
 
     def notified_kinds(order) = Notifications::TestSupport.kinds(order.id)
     def points(order) = Loyalty::TestSupport.points(order.id)
+
     def retries_by_job(&block)
       retries = Hash.new(0)
       callback = ->(event) { retries[event.payload[:job].class.name] += 1 }

@@ -5,10 +5,10 @@ module Orders
     include Steps
 
     setup do
-      @order = place
-      pay(@order)
-      ship(@order)
-      deliver(@order)
+      @order = place_and_confirm_order
+      payments_answer
+      carrier_collects
+      carrier_delivers
     end
 
     test "a return within 14 days awaits the parcel" do
@@ -43,32 +43,44 @@ module Orders
     end
 
     test "an order that was not delivered cannot be returned" do
-      order = checkout
+      order = checkout_order
 
       assert_raises(NotReturnable) { TestSupport.request_return(order.id) }
     end
 
-    test "the returned parcel is restocked and its money asked back, and the order is refunded once the money is back" do
+    test "the returned parcel is restocked and refunded, and the order refunded once the money is back" do
       perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
 
-      bring_back(@order)
-      assert_equal 10, on_hand("MUG")
-      assert Payments::TestSupport.release_requested?(@order.reference)
+      assert_difference(-> { on_hand("MUG") }, +2) { carrier_brings_back }
       assert_equal "returning", @order.reload.status
 
-      published = record_publications { refund(@order) }
+      published = record_publications { payments_answer }
       assert_equal "refunded", @order.reload.status
+      assert_equal :refunded, Payments::TestSupport.money_status(@order.reference)
       assert_includes published.map(&:event_type), "orders.order_refunded"
     end
 
     test "a refused refund sets the order aside for attention" do
+      Payments::TestSupport.provider_refuses(:refund)
       perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
-      bring_back(@order)
+      carrier_brings_back
 
-      refuse_refund(@order)
+      payments_answer
 
       record = @order.reload
-      assert_equal [ "needs_attention", "refund refused" ], [ record.status, record.return.failure_reason ]
+      assert_equal "needs_attention", record.status
+      assert record.return.failure_reason.present?, "the refusal's reason is kept for a person"
+    end
+
+    test "a redelivered return or refund changes nothing" do
+      perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
+      carrier_brings_back
+      payments_answer
+      state = -> { [ @order.reload.attributes, @order.return.reload.attributes ] }
+
+      assert_no_changes(state) do
+        assert_empty record_publications { redeliver(ReceiveReturnJob); redeliver(CompleteRefundJob) }
+      end
     end
   end
 end

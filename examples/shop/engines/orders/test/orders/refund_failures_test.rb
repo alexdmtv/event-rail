@@ -7,42 +7,39 @@ module Orders
     include Steps
 
     test "a return's refused refund is recorded on the return, once, and the cancellation's subscriber ignores it" do
-      @order = place
-      pay(@order)
-      ship(@order)
-      deliver(@order)
-      perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
-      bring_back(@order)
-      refuse_refund(@order)
-      assert_equal "refund_failed", @order.reload.return.state
+      Payments::TestSupport.provider_refuses(:refund)
+      order = place_and_confirm_order
+      payments_answer
+      carrier_collects
+      carrier_delivers
+      perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(order.id) }
+      carrier_brings_back
+      payments_answer
+      assert_equal "refund_failed", order.reload.return.state
 
-      assert_no_changes -> { [ @order.reload.attributes, @order.return.reload.attributes ] } do
-        RecordReturnRefundFailureJob.perform_now(refusal(@order.reference, "again"))
-        RecordCancellationRefundFailureJob.perform_now(refusal(@order.reference, "again"))
+      assert_no_changes -> { [ order.reload.attributes, order.return.reload.attributes ] } do
+        redeliver(RecordReturnRefundFailureJob)
+        redeliver(RecordCancellationRefundFailureJob)
       end
     end
 
     test "a cancellation's refused refund is ignored by the return's subscriber" do
-      order = place
-      pay(order)
+      Payments::TestSupport.provider_refuses(:refund)
+      order = place_and_confirm_order
+      payments_answer
       perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
-      refuse_refund(order)
+      payments_answer
       assert order.reload.refund_refused_at
 
-      assert_no_changes -> { order.reload.attributes } do
-        RecordReturnRefundFailureJob.perform_now(refusal(order.reference, "again"))
-      end
+      assert_no_changes(-> { order.reload.attributes }) { redeliver(RecordReturnRefundFailureJob) }
       assert_nil order.return
     end
 
     test "a refusal for an unknown reference is ignored" do
-      assert_nothing_raised do
-        RecordReturnRefundFailureJob.perform_now(refusal("nobody", "stray"))
-        RecordCancellationRefundFailureJob.perform_now(refusal("nobody", "stray"))
-      end
-    end
+      stray = EventRail.publish(Payments::Events::RefundFailed.new(reference: "nobody", reason: "stray")).event
 
-    private
-      def refusal(reference, reason) = EventRail.publish(Payments::Events::RefundFailed.new(reference:, reason:)).event
+      perform_once(RecordReturnRefundFailureJob, stray)
+      perform_once(RecordCancellationRefundFailureJob, stray)
+    end
   end
 end

@@ -43,6 +43,8 @@ module Payments
 
       published = record_publications { perform_enqueued_jobs(only: CallProviderJob) }
       assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
+      assert_equal({ reference: "ref-1", amount_cents: 4990, currency: "EUR" }, published.sole.payload.slice(:reference, :amount_cents, :currency))
+      assert_equal 4990, gateway.requests.assoc(:capture).last[:amount_cents], "the provider captures what was held"
       assert_equal "captured", payment("ref-1").state
     end
 
@@ -114,26 +116,29 @@ module Payments
       published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") } }
 
       assert_equal [ "payments.capture_failed" ], published.map(&:event_type)
+      assert_equal({ reference: "ref-1", reason: "refused by the script" }, published.sole.payload.slice(:reference, :reason), "the requester hears why")
       assert_equal "authorized", payment("ref-1").state, "the hold is still there, to be voided"
       assert_equal [ "refused", "refused by the script" ], call("ref-1", "capture").values_at(:state, :failure_reason)
     end
 
     test "a provider that never answers leaves the capture pending, retrying, and then in the failed jobs" do
       authorize
-      Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout ] * 10)
+      Gateway.adapter = gateway = ScriptedGateway.new
+      gateway.stop_answering(:capture)
       Api.request_capture(reference: "ref-1")
 
       failures = nil
       published = record_publications { failures = work_off_queue(only: CallProviderJob) }
 
-      assert_equal 10, gateway.calls[:capture]
+      assert_operator gateway.calls[:capture], :>, 1, "retried"
       assert_equal [ "Payments::CallProviderJob" ], failures.map(&:job_class)
       assert_empty published, "no outcome is reported: nobody knows whether the capture was taken"
       assert_equal "authorized", payment("ref-1").state
       assert_equal "sent", call("ref-1", "capture").state
       sent_at = call("ref-1", "capture").sent_at
 
-      replay(failures) # the provider is back
+      gateway.answer_again(:capture)
+      replay(failures)
       work_off_queue(only: CallProviderJob)
 
       assert_equal [ "captured", "succeeded" ], [ payment("ref-1").state, call("ref-1", "capture").state ]
@@ -147,6 +152,17 @@ module Payments
 
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
       assert_equal "voided", payment("ref-1").state
+    end
+
+    test "a capture asked for after the release does nothing, even when the provider refused the void" do
+      authorize
+      Gateway.adapter = gateway = ScriptedGateway.new(void: [ :refuse ])
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") }
+
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") }
+
+      assert_equal 0, gateway.calls[:capture]
+      assert_equal "authorized", payment("ref-1").state, "the hold stands, for a person to settle; no money was taken"
     end
 
     test "a capture asked for after the release does nothing" do
@@ -163,11 +179,14 @@ module Payments
 
     test "release refunds captured money and reports it" do
       authorize
+      Gateway.adapter = gateway = ScriptedGateway.new
       perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") }
 
       published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_issued" ], published.map(&:event_type)
+      assert_equal({ reference: "ref-1", amount_cents: 4990, currency: "EUR" }, published.sole.payload.slice(:reference, :amount_cents, :currency))
+      assert_equal 4990, gateway.requests.assoc(:refund).last[:amount_cents], "the provider gives back what was captured"
       assert_equal "refunded", payment("ref-1").state
     end
 
@@ -179,6 +198,7 @@ module Payments
       published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_failed" ], published.map(&:event_type)
+      assert_equal({ reference: "ref-1", reason: "refused by the script" }, published.sole.payload.slice(:reference, :reason), "the requester hears why")
       assert_equal [ "captured", nil ], payment("ref-1").values_at(:state, :refunded_at), "the money is still taken, and owed back"
       assert_equal [ "refused", "refused by the script" ], call("ref-1", "refund").values_at(:state, :failure_reason)
     end

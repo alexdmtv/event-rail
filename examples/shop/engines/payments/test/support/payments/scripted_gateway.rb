@@ -4,8 +4,9 @@ module Payments
   # answer on the way back. A method can also stop answering altogether until it answers again.
   # Like a real provider, a key it has answered gets the same answer again without acting twice.
   class ScriptedGateway
-    # calls counts requests, applied counts what the provider actually did.
-    attr_reader :calls, :applied
+    # calls counts requests, applied counts what the provider actually did; requests lists each
+    # one with its arguments, as [ method, { amount_cents: … } ].
+    attr_reader :calls, :applied, :requests
 
     def initialize(**script)
       @script = script.transform_values(&:dup)
@@ -13,6 +14,8 @@ module Payments
       @applied = Hash.new(0)
       @answers = {}
       @unanswering = {}
+      @silences_unmet = []
+      @requests = []
     end
 
     # Adds steps to a method's script.
@@ -20,18 +23,19 @@ module Payments
 
     # Every call to the method times out, without the provider acting, until it answers again.
     def stop_answering(method_name) = @unanswering[method_name] = 0
-    def answer_again(method_name) = @unanswering.delete(method_name)
+    def answer_again(method_name) = @unanswering.delete(method_name).then { |timed_out| @silences_unmet << method_name if timed_out&.zero? }
 
     # What was set up and never happened: steps no call used, and a method set to stop answering
     # that nobody called. A test that sets a fault and never meets it proves nothing.
     def unused
-      @script.reject { |_, steps| steps.empty? }.transform_values(&:dup)
-        .merge(@unanswering.select { |_, timed_out| timed_out.zero? }.transform_values { [ :stop_answering ] })
+      silences = @unanswering.select { |_, timed_out| timed_out.zero? }.keys + @silences_unmet
+      @script.reject { |_, steps| steps.empty? }.transform_values(&:dup).merge(silences.index_with { [ :stop_answering ] })
     end
 
     %i[ authorize capture void refund ].each do |method_name|
-      define_method(method_name) do |idempotency_key:, **|
+      define_method(method_name) do |idempotency_key:, **arguments|
         @calls[method_name] += 1
+        @requests << [ method_name, arguments ]
         if @unanswering.key?(method_name)
           @unanswering[method_name] += 1
           raise Gateway::TemporaryFailure, "not answering, by the script"

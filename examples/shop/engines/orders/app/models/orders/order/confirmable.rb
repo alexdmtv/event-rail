@@ -10,7 +10,7 @@ module Orders
           hold_and_authorize if placed?
           request_payment
         rescue Catalog::OutOfStock => out_of_stock
-          request_cancellation(reason: out_of_stock.message)
+          request_cancellation(reason: "out of stock: #{out_of_stock.sku}")
         rescue Payments::Declined => declined
           request_cancellation(reason: "payment declined: #{declined.message}")
         end

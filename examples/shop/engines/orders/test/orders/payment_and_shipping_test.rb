@@ -4,22 +4,25 @@ module Orders
   class PaymentAndShippingTest < ActiveSupport::TestCase
     include Steps
 
-    test "a paid order is shipped, then delivered, and announces each" do
-      order = place
+    test "a paid order is shipped what it holds, then delivered, and announces each" do
+      order = place_and_confirm_order
       published = record_publications do
-        pay(order)
+        payments_answer
         assert_equal :requested, Fulfillment::TestSupport.shipment_status(order.reference)
-        ship(order)
-        deliver(order)
+        assert_equal order.line_items.to_h { |line| [ line.sku, line.quantity ] }, Fulfillment::TestSupport.shipment_items(order.reference)
+        assert_difference(-> { on_hand("MUG") }, -2, "the stock leaves with the parcel") { carrier_collects }
+        carrier_delivers
       end
 
       assert_equal "delivered", order.reload.status
+      assert_equal order.total_cents, Payments::TestSupport.money_amount(order.reference), "the card was held for the order's total"
       assert_equal %w[ orders.order_delivered orders.order_shipped ], published.map(&:event_type).select { |type| type.start_with?("orders.") }.sort
-      assert_equal 8, on_hand("MUG"), "the stock left with the parcel"
+      shipped = published.find { |publication| publication.event_type == "orders.order_shipped" }
+      assert_equal published.find { |publication| publication.event_type == "fulfillment.shipment_dispatched" }.payload[:tracking_code], shipped.payload[:tracking_code]
     end
 
     test "an order is paid for only once confirmed" do
-      order = checkout
+      order = checkout_order
       clear_enqueued_jobs # placed, its confirmation not run
 
       assert_nothing_raised do
@@ -28,7 +31,7 @@ module Orders
     end
 
     test "an order is shipped only once paid" do
-      order = place
+      order = place_and_confirm_order
       clear_enqueued_jobs # confirmed, its capture not run
 
       order.request_shipment
@@ -37,84 +40,89 @@ module Orders
     end
 
     test "no shipment is requested before the payment is captured" do
-      order = place
+      order = place_and_confirm_order
 
       assert_nil Fulfillment::TestSupport.shipment_status(order.reference)
     end
 
-    test "a redelivered capture does not pay or ship the order twice" do
-      order = place
-      event = Payments::Events::PaymentCaptured.new(reference: order.reference, amount_cents: order.total_cents, currency: "EUR")
+    test "a refused capture cancels the order, says why, and gives back what it holds" do
+      Payments::TestSupport.provider_refuses(:capture)
+      order = place_and_confirm_order
 
-      assert_redelivery_changes_nothing(MarkPaidJob, event)
-      assert_equal :requested, Fulfillment::TestSupport.shipment_status(order.reference)
+      assert_difference(-> { available("MUG") }, +2) do
+        payments_answer
+        perform_enqueued_jobs(only: CancelJob)
+      end
+
+      assert_equal :payment_refused, TestSupport.order(order.id).cancel_cause
+      assert_equal :cancelled, Fulfillment::TestSupport.shipment_status(order.reference), "nothing was asked of the carrier, and nothing can be now"
+    end
+
+    test "a redelivered capture does not pay or ship the order twice" do
+      place_and_confirm_order
+      payments_answer
+
+      assert_redelivery_changes_nothing(MarkPaidJob)
+      assert_equal :requested, Fulfillment::TestSupport.shipment_status(Order.sole.reference)
     end
 
     test "a redelivered dispatch does not ship the stock twice" do
-      order = place
-      pay(order)
-      event = Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")
+      place_and_confirm_order
+      payments_answer
+      carrier_collects
 
-      assert_redelivery_changes_nothing(MarkShippedJob, event)
-      assert_equal 8, on_hand("MUG")
+      assert_no_difference(-> { on_hand("MUG") }) { assert_redelivery_changes_nothing(MarkShippedJob) }
     end
 
     test "a redelivered delivery does not deliver twice" do
-      order = place
-      pay(order)
-      ship(order)
-      event = Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)
+      place_and_confirm_order
+      payments_answer
+      carrier_collects
+      carrier_delivers
 
-      assert_redelivery_changes_nothing(MarkDeliveredJob, event)
+      assert_redelivery_changes_nothing(MarkDeliveredJob)
     end
 
     test "a dispatch recorded before the stock could be shipped ships it on retry" do
-      order = place
-      pay(order)
-      dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
-      clear_enqueued_jobs
+      order = place_and_confirm_order
+      payments_answer
+      Fulfillment::TestSupport.carrier_collects_parcels
       failing(Catalog::Api, :ship, "warehouse system down") do
-        MarkShippedJob.perform_now(dispatched) # the order is shipped; shipping the stock failed
+        assert_no_difference(-> { on_hand("MUG") }) { hear_announcements } # the order is shipped; shipping the stock failed
       end
-      assert_equal [ "shipped", 10 ], [ order.reload.status, on_hand("MUG") ]
+      assert_equal "shipped", order.reload.status
 
-      perform_enqueued_jobs(only: MarkShippedJob)
-
-      assert_equal 8, on_hand("MUG")
-      assert_equal 8, available("MUG")
+      assert_difference(-> { on_hand("MUG") }, -2) { perform_enqueued_jobs(only: MarkShippedJob) }
+      assert_equal on_hand("MUG"), available("MUG"), "nothing is held any more"
     end
 
     test "a delivery heard before its dispatch waits for it and is not lost" do
-      order = place
-      pay(order)
-      delivered = EventRail.publish(Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)).event
-      dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
-      clear_enqueued_jobs
+      order = place_and_confirm_order
+      payments_answer
+      Fulfillment::TestSupport.carrier_collects_parcels
+      Fulfillment::TestSupport.carrier_delivers_parcels
 
       published = record_publications do
-        MarkDeliveredJob.perform_now(delivered) # too early: retried later
+        hear_announcements(only: ->(job_class) { job_class == MarkDeliveredJob }) # too early: retried later
         assert_equal "paid", order.reload.status
-        MarkShippedJob.perform_now(dispatched)
-        perform_enqueued_jobs(only: MarkDeliveredJob)
+        hear_announcements
       end
 
       assert_equal "delivered", order.reload.status
       assert_equal %w[ orders.order_delivered orders.order_shipped ], published.map(&:event_type).sort
-      assert_equal 8, on_hand("MUG")
     end
 
     private
-      # Delivers the event twice; the second delivery must change nothing and stage nothing.
-      def assert_redelivery_changes_nothing(subscriber, event)
-        stamped = EventRail.publish(event).event
-        clear_enqueued_jobs
+      # Delivers again the event the subscriber last heard; the redelivery must change nothing and
+      # stage nothing.
+      def assert_redelivery_changes_nothing(subscriber)
+        state = -> { Order.sole.attributes.except("updated_at") }
+        before = state.call
 
-        subscriber.perform_now(stamped)
-        state_after_first = Orders::Order.sole.attributes.except("updated_at")
-        second = record_publications { subscriber.perform_now(stamped) }
+        again = record_publications { redeliver(subscriber) }
 
-        assert_equal state_after_first, Orders::Order.sole.attributes.except("updated_at")
-        assert_empty second, "the first delivery staged its event with the change; a redelivery stages nothing"
+        assert_equal before, state.call
+        assert_empty again, "the first delivery staged its event with the change; a redelivery stages nothing"
       end
   end
 end

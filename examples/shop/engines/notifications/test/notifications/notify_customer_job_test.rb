@@ -22,7 +22,7 @@ module Notifications
     def sent = Notification.where(order_id: "7").order(:created_at)
 
     test "a placed order is confirmed to its customer" do
-      NotifyCustomerJob.perform_now(publish(placed_v2))
+      perform_once(NotifyCustomerJob, publish(placed_v2))
 
       notification = sent.sole
       assert_equal "placed", notification.kind
@@ -40,7 +40,7 @@ module Notifications
     end
 
     test "a version 1 event is still handled when published" do
-      NotifyCustomerJob.perform_now(publish(placed_v1))
+      perform_once(NotifyCustomerJob, publish(placed_v1))
 
       assert_includes sent.sole.body, "€38.70"
     end
@@ -57,7 +57,7 @@ module Notifications
       ).to_event(Orders::Events::OrderCancelled)
       assert_not_equal current.id, earlier.id
 
-      [ current, earlier ].each { |event| NotifyCustomerJob.perform_now(event) }
+      [ current, earlier ].each { |event| perform_once(NotifyCustomerJob, event) }
 
       assert_equal [ "cancelled" ], sent.map(&:kind)
     end
@@ -65,7 +65,7 @@ module Notifications
     test "a redelivered event records nothing new" do
       event = publish(placed_v2)
 
-      2.times { NotifyCustomerJob.perform_now(event) }
+      2.times { perform_once(NotifyCustomerJob, event) }
 
       assert_equal 1, sent.size
     end
@@ -77,7 +77,7 @@ module Notifications
         Orders::Events::OrderDelivered.new(order_id: "7", **CUSTOMER, total: { amount_cents: 3870, currency: "EUR" }),
         Orders::Events::OrderRefunded.new(order_id: "7", **CUSTOMER, total: { amount_cents: 3870, currency: "EUR" }),
         Orders::Events::OrderCancelled.new(order_id: "7", **CUSTOMER, reason: "customer")
-      ].each { |event| NotifyCustomerJob.perform_now(publish(event)) }
+      ].each { |event| perform_once(NotifyCustomerJob, publish(event)) }
 
       assert_equal %w[ cancelled delivered placed refunded shipped ], sent.map(&:kind).sort
     end
@@ -86,7 +86,7 @@ module Notifications
       event = travel(-2.hours) { publish(placed_v2) }
       clear_enqueued_jobs
 
-      NotifyCustomerJob.perform_now(event)
+      perform_once(NotifyCustomerJob, event)
 
       assert_empty sent
     end

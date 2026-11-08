@@ -1,30 +1,37 @@
 module Orders
-  # For Orders' own tests, which work with its records and run only Orders' jobs. What other
-  # modules do reaches Orders as their events, which a step publishes and Orders' subscriber hears;
-  # their state is set and read through their test support.
+  # For Orders' own tests, which work with its records and run only Orders' jobs. Another module
+  # moves only through its own test support, whose verbs run its jobs; what it then announces
+  # reaches Orders' subscribers, which a step runs. Its state is read through its test support.
   module Steps
     CUSTOMER = TestSupport::CUSTOMER
 
-    def checkout(**) = Order.find(TestSupport.checkout(**).id)
-    def place(**) = Order.find(TestSupport.place_and_confirm(**).id)
+    def checkout_order(**) = Order.find(TestSupport.checkout(**).id)
+    def place_and_confirm_order(**) = Order.find(TestSupport.place_and_confirm(**).id)
 
     def available(sku) = Catalog::TestSupport.available(sku)
     def on_hand(sku) = Catalog::TestSupport.on_hand(sku)
+    # Units of the product orders hold, without knowing how many Catalog has.
+    def held(sku) = on_hand(sku) - available(sku)
 
-    # Payments captured the order's money, or refused to.
-    def pay(order) = hear(Payments::Events::PaymentCaptured.new(reference: order.reference, amount_cents: order.total_cents, currency: "EUR"), by: MarkPaidJob)
-    def refuse_capture(order, reason: "card refused") = hear(Payments::Events::CaptureFailed.new(reference: order.reference, reason:), by: CancelRefusedPaymentJob)
+    # Payments hears back from the provider on what it asked, captured, refunded or refused as the
+    # test set the provider, and Orders hears what Payments announced.
+    def payments_answer = Payments::TestSupport.provider_answers.then { hear_announcements }
 
-    # Payments gave the money back, or couldn't.
-    def refund(order) = hear(Payments::Events::RefundIssued.new(reference: order.reference, amount_cents: order.total_cents, currency: "EUR"), by: CompleteRefundJob)
-    def refuse_refund(order, reason: "refund refused") = hear(Payments::Events::RefundFailed.new(reference: order.reference, reason:), by: [ RecordCancellationRefundFailureJob, RecordReturnRefundFailureJob ])
+    # The carrier collects, delivers or brings back the parcel, and Orders hears what Fulfillment
+    # announced.
+    def carrier_collects = Fulfillment::TestSupport.carrier_collects_parcels.then { hear_announcements }
+    def carrier_delivers = Fulfillment::TestSupport.carrier_delivers_parcels.then { hear_announcements }
+    def carrier_brings_back = Fulfillment::TestSupport.carrier_brings_back_parcels.then { hear_announcements }
 
-    # The carrier picked the parcel up, delivered it, or brought it back.
-    def ship(order) = hear(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1"), by: MarkShippedJob)
-    def deliver(order) = hear(Fulfillment::Events::ShipmentDelivered.new(reference: order.reference), by: MarkDeliveredJob)
-    def bring_back(order) = hear(Fulfillment::Events::ReturnReceived.new(reference: order.reference), by: ReceiveReturnJob)
+    # Runs Orders' subscribers to what other modules announced, and nothing else.
+    def hear_announcements(only: SUBSCRIBERS) = perform_enqueued_jobs(only: ->(job) { only.call(job.fetch(:job)) })
+    SUBSCRIBERS = ->(job_class) { job_class < ApplicationJob && job_class.event_rail_subscriber? }
 
-    # Publishes the event and runs only Orders' subscribers to it, as delivery would.
-    def hear(event, by:) = perform_enqueued_jobs(only: by) { EventRail.publish(event) }
+    # Delivers again the event a subscriber last heard, as a redelivery would, and fails if the
+    # subscriber raised.
+    def redeliver(subscriber)
+      delivery = performed_jobs.reverse.find { |job| job[:job] == subscriber } or flunk "#{subscriber.name} heard nothing"
+      perform_once(subscriber, *ActiveJob::Arguments.deserialize(delivery[:args]))
+    end
   end
 end

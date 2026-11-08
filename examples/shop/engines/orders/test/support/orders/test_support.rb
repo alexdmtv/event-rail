@@ -1,7 +1,8 @@
 module Orders
   # What other modules' tests and the host's may use of Orders: the customer's actions, and what
   # an order looks like from outside, as values, never records, so Orders can change inside without
-  # breaking anyone else's tests. Readers return symbols.
+  # breaking anyone else's tests. Actions answer what they acted on (a cart ID, a snapshot); readers
+  # answer mapped symbols.
   module TestSupport
     Customer = Data.define(:id, :name, :email, :address)
     CUSTOMER = Customer.new(id: "cus_ada", name: "Ada Lovelace", email: "ada@example.com", address: "12 St James's Square, London")
@@ -11,12 +12,15 @@ module Orders
     STATUSES = STATES.merge("paid" => :paid, "shipped" => :shipped, "delivered" => :delivered, "returning" => :returning,
       "refunded" => :refunded, "needs_attention" => :needs_attention).freeze
     RETURNS = { "requested" => :requested, "received" => :received, "refunded" => :refunded, "refund_failed" => :refund_failed }.freeze
+    # Why an order was cancelled, from the reason Orders recorded; anything else is the customer's.
+    CAUSES = { /\Aout of stock/ => :out_of_stock, /\Apayment declined/ => :payment_declined, /\Apayment refused/ => :payment_refused,
+      /\Anot confirmed in time\z/ => :not_confirmed_in_time, /\Anot paid in time\z/ => :not_paid_in_time }.freeze
 
     # An order as anyone outside Orders sees it. status is the one a customer sees: it follows the
-    # order through payment, shipping and any return; return_status is nil until a return is asked for.
-    Snapshot = Data.define(:id, :reference, :state, :status, :cancel_reason, :refund_failure_reason, :cancellation_refused, :return_status) do
-      def cancellation_refused? = cancellation_refused
-    end
+    # order through payment, shipping and any return. cancel_cause is nil unless a cancellation was
+    # asked for; cancellation is nil, :requested, :refused or :done; return_status is nil until a
+    # return is asked for.
+    Snapshot = Data.define(:id, :reference, :state, :status, :cancel_cause, :cancellation, :return_status)
 
     class << self
       # items: { "sku" => quantity }. Answers the cart's ID.
@@ -46,8 +50,15 @@ module Orders
         def snapshot(id)
           order = Order.includes(:return).find(id)
           Snapshot.new(id: order.id, reference: order.reference, state: STATES.fetch(order.state), status: STATUSES.fetch(order.status),
-            cancel_reason: order.cancel_reason, refund_failure_reason: order.refund_failure_reason, cancellation_refused: order.cancellation_refused_at?,
-            return_status: order.return&.state&.then { RETURNS.fetch(_1) })
+            cancel_cause: order.cancel_reason&.then { |reason| CAUSES.find { |pattern, _| reason.match?(pattern) }&.last || :customer },
+            cancellation: cancellation(order), return_status: order.return&.state&.then { |state| RETURNS.fetch(state) })
+        end
+
+        def cancellation(order)
+          if order.cancelled? then :done
+          elsif order.cancellation_refused_at? then :refused
+          elsif order.cancellation_requested_at? then :requested
+          end
         end
 
         # A flow of its own, as each web request is (Platform::ApplicationController).

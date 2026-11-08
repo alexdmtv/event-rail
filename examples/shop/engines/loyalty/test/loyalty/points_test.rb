@@ -10,14 +10,14 @@ module Loyalty
     def balance = Entry.where(customer_id: "cus_ada").sum(:points)
 
     test "a delivered order earns one point per whole euro" do
-      AwardPointsJob.perform_now(delivered)
+      perform_once(AwardPointsJob, delivered)
 
       assert_equal 49, balance
     end
 
     test "a refunded order gives its points back" do
-      AwardPointsJob.perform_now(delivered)
-      RevokePointsJob.perform_now(refunded)
+      perform_once(AwardPointsJob, delivered)
+      perform_once(RevokePointsJob, refunded)
 
       assert_equal 0, balance
       assert_equal 0, Entry.where(order_id: "7").sum(:points)
@@ -26,14 +26,14 @@ module Loyalty
     test "a redelivered event changes no balance" do
       event = delivered
 
-      2.times { AwardPointsJob.perform_now(event) }
+      2.times { perform_once(AwardPointsJob, event) }
 
       assert_equal 49, balance
     end
 
     test "the same fact republished under a new identity changes no balance" do
-      AwardPointsJob.perform_now(delivered)
-      AwardPointsJob.perform_now(delivered)
+      perform_once(AwardPointsJob, delivered)
+      perform_once(AwardPointsJob, delivered)
 
       assert_equal 49, balance
     end

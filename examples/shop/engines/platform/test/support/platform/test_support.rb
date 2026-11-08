@@ -4,24 +4,26 @@ require_relative "worker"
 
 module Platform
   # Included into every test case: running jobs as a worker would, recording what EventRail
-  # published, the recurring schedule, and faults. Each fault lasts for its block and is undone
-  # after it, whatever the block does.
+  # published, the recurring schedule, faults, and watching calls to a public Api. Each fault
+  # lasts for its block and is undone after it, whatever the block does.
   module TestSupport
     include PublicationRecorder
     include Schedule
     include Worker
 
-    # The runs failing_runs has still to fail, by job class name.
+    # The runs failing_runs has still to fail, and how many it did, by job class name.
     module FailingRuns
       class Failure < StandardError; end
 
       mattr_accessor :remaining, default: {}
+      mattr_accessor :failed, default: Hash.new(0)
 
       Platform::ApplicationJob.around_perform do |job, block|
-        left = FailingRuns.remaining[job.class.name]
-        if left&.positive?
-          FailingRuns.remaining[job.class.name] = left - 1
-          raise Failure, "#{job.class.name} failed on purpose"
+        name = job.class.name
+        if FailingRuns.remaining[name]&.positive?
+          FailingRuns.remaining[name] -= 1
+          FailingRuns.failed[name] += 1
+          raise Failure, "#{name} failed on purpose"
         end
         block.call
       end
@@ -51,14 +53,20 @@ module Platform
       end
     end
 
-    # Fails the named job's next `times` runs, before its work starts, with an unclassified error.
-    # By name, because a module's jobs are private to it. The block is given a lambda answering
-    # how many runs are still to fail.
-    def failing_runs(job_class, times)
-      FailingRuns.remaining[job_class] = times
-      yield -> { FailingRuns.remaining.fetch(job_class) }
+    # Fails the job's next `times` runs, or :every run, before its work starts, with an
+    # unclassified error. A flow test names the job, as a module's jobs are private to it. The block
+    # is given a lambda answering how many runs are still to fail. A fault no run met fails the
+    # test: such a test proves nothing.
+    def failing_runs(job, times)
+      name = job.to_s
+      FailingRuns.remaining[name] = times == :every ? Float::INFINITY : times
+      FailingRuns.failed[name] = 0
+      result = yield -> { FailingRuns.remaining.fetch(name) }
+      flunk "no run of #{name} was made to fail" if FailingRuns.failed[name].zero?
+      result
     ensure
-      FailingRuns.remaining.delete(job_class)
+      FailingRuns.remaining.delete(name)
+      FailingRuns.failed.delete(name)
     end
 
     def relay_staged_jobs = travel(StagedJob::GRACE + 1.second) { StagedJobRelayJob.perform_now }

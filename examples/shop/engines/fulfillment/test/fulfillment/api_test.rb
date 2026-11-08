@@ -15,6 +15,8 @@ module Fulfillment
       assert_equal [ "fulfillment.shipment_dispatched", "fulfillment.shipment_delivered" ], published.map(&:event_type)
       assert_equal "delivered", shipment.state
       assert_match(/\ATRK-/, shipment.tracking_code)
+      assert_equal({ reference: "ref-1", tracking_code: shipment.tracking_code }, published.first.payload.slice(:reference, :tracking_code))
+      assert_equal [ { "MUG" => 1 }, "Ada Lovelace", "12 St James's Square, London" ], [ shipment.items, shipment.recipient_name, shipment.address ]
     end
 
     test "the carrier works on its own schedule" do
