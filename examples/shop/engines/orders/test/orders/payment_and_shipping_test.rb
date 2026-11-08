@@ -10,6 +10,7 @@ module Orders
         payments_answer
         assert_equal :requested, Fulfillment::TestSupport.shipment_status(order.reference)
         assert_equal order.line_items.to_h { |line| [ line.sku, line.quantity ] }, Fulfillment::TestSupport.shipment_items(order.reference)
+        assert_equal({ name: CUSTOMER.name, address: CUSTOMER.address }, Fulfillment::TestSupport.shipment_recipient(order.reference))
         assert_difference(-> { on_hand("MUG") }, -2, "the stock leaves with the parcel") { carrier_collects }
         carrier_delivers
       end
@@ -49,13 +50,28 @@ module Orders
       Payments::TestSupport.provider_refuses(:capture)
       order = place_and_confirm_order
 
+      published = nil
       assert_difference(-> { available("MUG") }, +2) do
-        payments_answer
+        published = record_publications { payments_answer }
         perform_enqueued_jobs(only: CancelJob)
       end
 
       assert_equal :payment_refused, TestSupport.order(order.id).cancel_cause
+      refusal = published.find { |publication| publication.event_type == "payments.capture_failed" }.payload[:reason]
+      assert_equal "payment refused: #{refusal}", order.reload.cancel_reason, "Payments' reason is kept for a person"
       assert_equal :cancelled, Fulfillment::TestSupport.shipment_status(order.reference), "nothing was asked of the carrier, and nothing can be now"
+    end
+
+    test "a capture heard after the order was cancelled doesn't make it paid" do
+      order = place_and_confirm_order
+      Payments::TestSupport.provider_answers # captured; Orders hasn't heard yet
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
+
+      hear_announcements
+
+      assert_nil order.reload.paid_at
+      assert_equal "cancelled", order.status
+      assert_equal :cancelled, Fulfillment::TestSupport.shipment_status(order.reference), "nothing can be shipped"
     end
 
     test "a redelivered capture does not pay or ship the order twice" do

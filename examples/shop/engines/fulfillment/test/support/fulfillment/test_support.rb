@@ -30,8 +30,10 @@ module Fulfillment
       # Whether the parcel left the warehouse, whatever happened to it after.
       def dispatched?(reference) = shipment(reference)&.dispatched_at.present?
 
-      # What Fulfillment was asked to ship, as { "sku" => quantity }; nil when nothing was asked.
+      # What Fulfillment was asked to ship, as { "sku" => quantity }, and to whom, as { name:,
+      # address: }; nil when nothing was asked.
       def shipment_items(reference) = shipment(reference)&.items&.transform_values(&:to_i)
+      def shipment_recipient(reference) = shipment(reference)&.then { |found| { name: found.recipient_name, address: found.address } }
 
       # Where a parcel coming back stands: nil (none), :expected or :received.
       def parcel_return_status(reference) = parcel_return(reference)&.state&.then { |state| PARCEL_RETURNS.fetch(state) }

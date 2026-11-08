@@ -80,6 +80,7 @@ module Notifications
       ].each { |event| perform_once(NotifyCustomerJob, publish(event)) }
 
       assert_equal %w[ cancelled delivered placed refunded shipped ], sent.map(&:kind).sort
+      assert_includes sent.find { |notice| notice.kind == "shipped" }.body, "TRK-1", "the customer can track the parcel"
     end
 
     test "a notice about something that happened over an hour ago is not sent" do
