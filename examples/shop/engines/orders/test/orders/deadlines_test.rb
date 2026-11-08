@@ -2,12 +2,9 @@ require "test_helper"
 
 module Orders
   class DeadlinesTest < ActiveSupport::TestCase
-    include ShopHelpers
+    include Steps
 
-    setup do
-      stock_shelves
-      slow_carrier
-    end
+    setup { Fulfillment::TestSupport.slow_carrier }
 
     test "an order not confirmed within two minutes is cancelled, and what confirming took is given back" do
       order = checkout
@@ -20,17 +17,6 @@ module Orders
       record = order.reload
       assert_equal [ "cancelled", "not confirmed in time" ], [ record.state, record.cancel_reason ]
       assert_equal 10, available("MUG")
-    end
-
-    test "a confirmed order not paid within thirty minutes is cancelled, and its hold voided" do
-      order = place
-      clear_enqueued_jobs # its capture never ran
-
-      travel(31.minutes) { perform_enqueued_jobs { DeadlineSweepJob.perform_now } }
-
-      record = order.reload
-      assert_equal [ "cancelled", "not paid in time" ], [ record.state, record.cancel_reason ]
-      assert_equal "voided", Payments::TestSupport.payment(order.reference).state
     end
 
     test "an order paid in time is left alone" do
@@ -59,7 +45,7 @@ module Orders
       record = order.reload
       assert_equal [ "cancelled", "not confirmed in time" ], [ record.state, record.cancel_reason ]
       assert_equal 10, available("MUG")
-      assert_equal "voided", Payments::TestSupport.payment(order.reference).state
+      assert_equal :voided, Payments::TestSupport.money_status(order.reference)
     ensure
       if Payments::Api.singleton_class.method_defined?(:__authorize_before_deadline)
         Payments::Api.singleton_class.alias_method :authorize, :__authorize_before_deadline

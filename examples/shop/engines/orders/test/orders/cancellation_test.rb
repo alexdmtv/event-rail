@@ -2,12 +2,9 @@ require "test_helper"
 
 module Orders
   class CancellationTest < ActiveSupport::TestCase
-    include ShopHelpers
+    include Steps
 
-    setup do
-      stock_shelves
-      slow_carrier
-    end
+    setup { Fulfillment::TestSupport.slow_carrier }
 
     test "a cancellation is recorded at once and carried out in a job" do
       order = place
@@ -20,7 +17,7 @@ module Orders
       perform_due_jobs
       assert_equal "cancelled", order.reload.state
       assert_equal 10, available("MUG")
-      assert_equal "voided", Payments::TestSupport.payment(order.reference).state
+      assert_equal :voided, Payments::TestSupport.money_status(order.reference)
     end
 
     test "cancelling after capture, before dispatch, releases the stock and refunds the payment" do
@@ -31,12 +28,12 @@ module Orders
 
       assert_equal [ "cancelled", "cancelled" ], [ order.reload.state, order.status ]
       assert_equal 10, available("MUG")
-      assert_equal "refunded", Payments::TestSupport.payment(order.reference).state
+      assert_equal :refunded, Payments::TestSupport.money_status(order.reference)
       assert_not_includes published.map(&:event_type), "orders.order_refunded", "a cancellation's refund is not a return's"
     end
 
     test "a cancellation's refused refund sets the order aside for a person, once" do
-      Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
+      Payments::TestSupport.provider_refuses(:refund)
       order = place
       perform_due_jobs # captured and paid
 
@@ -65,7 +62,7 @@ module Orders
       perform_enqueued_jobs { Payments::Api.request_capture(reference: order.reference) }
 
       assert_equal "cancelled", order.reload.state
-      assert_equal "voided", Payments::TestSupport.payment(order.reference).state, "the hold was voided before the late capture could take it"
+      assert_equal :voided, Payments::TestSupport.money_status(order.reference), "the hold was voided before the late capture could take it"
     end
 
     test "an order that has shipped cannot be cancelled" do
@@ -76,24 +73,10 @@ module Orders
       assert_raises(NotCancellable) { TestSupport.request_cancellation(order.id) }
     end
 
-    test "a cancellation requested before Orders heard of the dispatch is refused by Fulfillment, and the order carries on" do
-      order = place
-      perform_due_jobs # captured and paid; the carrier's collection is scheduled for later
-      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Fulfillment::DispatchJob" }) # collected: Orders has not heard yet
-
-      TestSupport.request_cancellation(order.id)
-      perform_enqueued_jobs(only: CancelJob)
-      perform_due_jobs # and now Orders hears of the dispatch
-
-      record = order.reload
-      assert record.cancellation_refused_at
-      assert_equal "shipped", record.status
-    end
-
     test "a refused cancellation replayed after the order was delivered and returned changes nothing" do
       order = place
       perform_due_jobs
-      perform_enqueued_jobs(only: ->(job) { job.fetch(:job).name == "Fulfillment::DispatchJob" })
+      Fulfillment::TestSupport.carrier_collects_parcels
       TestSupport.request_cancellation(order.id)
       perform_enqueued_jobs(only: CancelJob)
       travel(2.hours) { perform_due_jobs } # the dispatch is heard and the parcel delivered

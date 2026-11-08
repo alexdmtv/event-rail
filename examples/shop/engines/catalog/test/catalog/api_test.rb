@@ -2,10 +2,7 @@ require "test_helper"
 
 module Catalog
   class ApiTest < ActiveSupport::TestCase
-    setup do
-      Catalog::Product.create!(sku: "MUG", name: "Mug", price_cents: 1490, on_hand: 3)
-      Catalog::Product.create!(sku: "TEA", name: "Tea", price_cents: 890, on_hand: 10)
-    end
+    setup { catalog_products(:mug).update!(on_hand: 3) } # a few mugs left
 
     def available(sku) = Product.find_by_sku!(sku).available
 

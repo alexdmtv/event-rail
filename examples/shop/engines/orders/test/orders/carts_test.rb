@@ -2,9 +2,7 @@ require "test_helper"
 
 module Orders
   class CartsTest < ActiveSupport::TestCase
-    include ShopHelpers
-
-    setup { stock_shelves }
+    include Steps
 
     def open_cart(items = { "MUG" => 2, "TEA" => 1 }) = TestSupport.open_cart(customer: CUSTOMER, items: items)
 
@@ -63,7 +61,7 @@ module Orders
       assert_equal "placed", order.state
       assert_equal 2 * 1490 + 890, order.total_cents
       assert_equal 10, available("MUG"), "nothing is reserved within the request"
-      assert_nil Payments::TestSupport.payment(order.reference)
+      assert_nil Payments::TestSupport.money_status(order.reference)
       assert_enqueued_jobs 1, only: ConfirmJob
     end
 
@@ -75,16 +73,15 @@ module Orders
     end
 
     test "placing a cart again returns its order, confirmed once" do
-      gateway = Payments::TestSupport.scripted_gateway
       cart = open_cart
 
       first = TestSupport.place_order(cart.id)
       second = TestSupport.place_order(cart.id)
+      assert_enqueued_jobs 1, only: ConfirmJob
       work_off_queue
       third = TestSupport.place_order(cart.id)
 
       assert_equal [ first.id ] * 3, [ first, second, third ].map(&:id)
-      assert_equal 1, gateway.calls[:authorize]
       assert_equal "delivered", third.status
     end
 

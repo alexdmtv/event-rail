@@ -2,11 +2,7 @@ require "test_helper"
 
 module Orders
   class HttpApiTest < ActionDispatch::IntegrationTest
-    include ShopHelpers
-
     CUSTOMER_PARAMS = { customer_id: "cus_ada", customer_name: "Ada Lovelace", customer_email: "ada@example.com", shipping_address: "12 St James's Square, London" }.freeze
-
-    setup { stock_shelves }
 
     def open_cart(items = [ { sku: "MUG", quantity: 2 }, { sku: "TEA", quantity: 1 } ])
       post "/carts", params: { **CUSTOMER_PARAMS, items: items }, as: :json
@@ -93,7 +89,7 @@ module Orders
     end
 
     test "a delivered order's return is accepted" do
-      instant_carrier
+      Fulfillment::TestSupport.instant_carrier
       order = perform_enqueued_jobs { place(open_cart) }
 
       post "/orders/#{order["id"]}/return", as: :json

@@ -14,6 +14,10 @@ module ActiveSupport
     include ActiveJob::TestHelper
     include Platform::TestSupport
 
+    # Each module's fixtures, for its own tables: the baseline every test starts from.
+    self.fixture_paths = Dir[Rails.root.join("engines/*/test/fixtures")]
+    fixtures :all
+
     parallelize(workers: :number_of_processors)
 
     setup { Platform::Traces.exporter.reset }

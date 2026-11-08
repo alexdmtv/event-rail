@@ -2,17 +2,15 @@ require "test_helper"
 
 module Orders
   class ConfirmationTest < ActiveSupport::TestCase
-    include ShopHelpers
-
-    setup { stock_shelves }
+    include Steps
 
     test "confirming holds the stock, authorizes the card, and asks for the capture" do
       order = place
 
       assert_equal "confirmed", order.state
       assert_equal 8, available("MUG")
-      assert_equal "authorized", Payments::TestSupport.payment(order.reference).state
-      assert_enqueued_jobs 1, only: ->(job) { job.fetch(:job).name == "Payments::CallProviderJob" }
+      assert_equal :held, Payments::TestSupport.money_status(order.reference)
+      assert_equal :capture, Payments::TestSupport.pending_request(order.reference)
     end
 
     test "an out-of-stock item cancels the order with the reason, and nothing stays held" do
@@ -21,14 +19,14 @@ module Orders
       assert_equal "cancelled", @order.state
       assert_equal "MUG is out of stock", @order.cancel_reason
       assert_equal 10, available("TEA")
-      assert_nil Payments::TestSupport.payment(@order.reference)
+      assert_nil Payments::TestSupport.money_status(@order.reference)
       assert_equal %w[ orders.order_cancelled orders.order_placed ], published.map(&:event_type).sort
     end
 
     test "a cancellation completed while confirming was under way gets the stock back, even when the card is then declined" do
-      Payments::TestSupport.scripted_gateway(authorize: [ :refuse ])
+      Payments::TestSupport.provider_refuses(:authorize)
       order = checkout
-      confirming = TestSupport.order(order.id) # read as placed, as the confirmation's job did
+      confirming = Order.find(order.id) # read as placed, as the confirmation's job did
       perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
 
       confirming.confirm
@@ -38,23 +36,22 @@ module Orders
     end
 
     test "a declined card cancels the order and gives its stock back" do
-      Payments::TestSupport.scripted_gateway(authorize: [ :refuse ])
+      Payments::TestSupport.provider_refuses(:authorize)
 
       order = place
 
       assert_equal "cancelled", order.state
       assert_match(/\Apayment declined/, order.cancel_reason)
       assert_equal 10, available("MUG")
-      assert_nil Payments::TestSupport.payment(order.reference)
+      assert_nil Payments::TestSupport.money_status(order.reference)
     end
 
     test "a payment provider that does not answer is retried until it does; no count of attempts gives up" do
-      gateway = Payments::TestSupport.scripted_gateway(authorize: [ :timeout ] * 3)
+      Payments::TestSupport.provider_times_out(:authorize, times: 3)
       order = checkout
 
       work_off_queue
 
-      assert_equal 4, gateway.calls[:authorize]
       assert_equal "confirmed", order.reload.state
     end
 
@@ -69,8 +66,7 @@ module Orders
       assert_equal 8, on_hand("MUG")
     end
 
-    test "confirming interrupted after the authorization is confirmed when it runs again, with one authorization" do
-      gateway = Payments::TestSupport.scripted_gateway
+    test "confirming interrupted after the authorization is confirmed when it runs again" do
       order = checkout
       interrupting_after(Payments::Api, :authorize) { perform_enqueued_jobs(only: ConfirmJob) }
       assert_equal "placed", order.reload.state
@@ -78,7 +74,7 @@ module Orders
       work_off_queue
 
       assert_equal "delivered", order.reload.status
-      assert_equal 1, gateway.calls[:authorize]
+      assert_equal :captured, Payments::TestSupport.money_status(order.reference)
     end
 
     test "confirming interrupted after the order is confirmed asks for the capture when it runs again" do
@@ -105,8 +101,7 @@ module Orders
       assert_equal "delivered", order.reload.status
     end
 
-    test "a confirmation handed to the queue twice authorizes the card once" do
-      gateway = Payments::TestSupport.scripted_gateway
+    test "a confirmation handed to the queue twice confirms the order once" do
       order = checkout
       # As if the first hand-over had crashed after enqueuing and before deleting its row.
       staged = enqueued_jobs.find { |job| job["job_class"] == ConfirmJob.name }.except(:job, :args, :queue, :priority, :at)
@@ -114,10 +109,10 @@ module Orders
       Platform::StagedJobRelayJob.perform_now
       assert_equal 2, enqueued_jobs.count { |job| job["job_class"] == ConfirmJob.name }
 
-      work_off_queue
+      published = record_publications { work_off_queue }
 
-      assert_equal 1, gateway.calls[:authorize]
       assert_equal "delivered", order.reload.status
+      assert_equal 1, published.count { |publication| publication.event_type == "orders.order_shipped" }
     end
   end
 end

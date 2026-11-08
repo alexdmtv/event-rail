@@ -2,36 +2,35 @@ require "test_helper"
 
 module Orders
   class ReturnsTest < ActiveSupport::TestCase
-    include ShopHelpers
+    include Steps
 
     setup do
-      stock_shelves
-      instant_carrier
+      Fulfillment::TestSupport.instant_carrier
       perform_enqueued_jobs { @order = checkout }
     end
 
     test "a return within 14 days awaits the parcel" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
 
       perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
 
       assert_equal "returning", @order.reload.status
-      assert_equal "expected", Fulfillment::TestSupport.parcel_return(@order.reference).state
+      assert_equal :expected, Fulfillment::TestSupport.return_status(@order.reference)
     end
 
     test "a return requested while the queue is unavailable reaches the carrier once it recovers" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       refusing_enqueue { TestSupport.request_return(@order.id) }
-      assert_nil Fulfillment::TestSupport.parcel_return(@order.reference)
+      assert_nil Fulfillment::TestSupport.return_status(@order.reference)
 
       relay_staged_jobs
       perform_enqueued_jobs(only: RequestReturnPickupJob)
 
-      assert_equal "expected", Fulfillment::TestSupport.parcel_return(@order.reference).state
+      assert_equal :expected, Fulfillment::TestSupport.return_status(@order.reference)
     end
 
     test "a return requested again after the 14 days returns the return already under way" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       TestSupport.request_return(@order.id)
 
       travel 15.days do
@@ -56,12 +55,12 @@ module Orders
 
       assert_equal "refunded", @order.reload.status
       assert_equal 10, on_hand("MUG")
-      assert_equal "refunded", Payments::TestSupport.payment(@order.reference).state
+      assert_equal :refunded, Payments::TestSupport.money_status(@order.reference)
       assert_includes published.map(&:event_type), "orders.order_refunded"
     end
 
     test "a refused refund sets the order aside for attention" do
-      Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
+      Payments::TestSupport.provider_refuses(:refund)
 
       perform_enqueued_jobs { TestSupport.request_return(@order.id) }
 

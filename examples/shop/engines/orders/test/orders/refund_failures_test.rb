@@ -4,15 +4,12 @@ module Orders
   # Payments answers a release with the order's reference only; each requester's subscriber
   # looks for its own record, and leaves everyone else's alone.
   class RefundFailuresTest < ActiveSupport::TestCase
-    include ShopHelpers
+    include Steps
 
-    setup do
-      stock_shelves
-      Payments::TestSupport.scripted_gateway(refund: [ :refuse ])
-    end
+    setup { Payments::TestSupport.provider_refuses(:refund) }
 
     test "a return's refused refund is recorded on the return, once, and the cancellation's subscriber ignores it" do
-      instant_carrier
+      Fulfillment::TestSupport.instant_carrier
       perform_enqueued_jobs { @order = checkout }
       perform_enqueued_jobs { TestSupport.request_return(@order.id) }
       assert_equal "refund_failed", @order.reload.return.state
@@ -24,7 +21,7 @@ module Orders
     end
 
     test "a cancellation's refused refund is ignored by the return's subscriber" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
       perform_due_jobs # captured and paid
       perform_enqueued_jobs { TestSupport.request_cancellation(order.id) }

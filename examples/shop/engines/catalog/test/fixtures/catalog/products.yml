@@ -1,0 +1,12 @@
+# The shop's shelves in every test: two products, ten of each.
+mug:
+  sku: MUG
+  name: Stoneware mug
+  price_cents: 1490
+  on_hand: 10
+
+tea:
+  sku: TEA
+  name: Green tea
+  price_cents: 890
+  on_hand: 10

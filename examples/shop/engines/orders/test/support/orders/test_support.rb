@@ -46,3 +46,5 @@ module Orders
     end
   end
 end
+
+require_relative "steps"

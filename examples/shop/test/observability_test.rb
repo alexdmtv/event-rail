@@ -4,8 +4,6 @@ require "test_helper"
 class ObservabilityTest < ActionDispatch::IntegrationTest
   include ShopHelpers
 
-  setup { stock_shelves }
-
   test "an error answered to a request is reported with the request's flow" do
     event = assert_event_reported("platform.error_reported", payload: { category: "InvalidArgument", expected: true }) do
       post "/carts", params: { items: [] }, as: :json

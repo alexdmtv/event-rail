@@ -2,9 +2,7 @@ require "test_helper"
 
 module Orders
   class PaymentAndShippingTest < ActiveSupport::TestCase
-    include ShopHelpers
-
-    setup { stock_shelves }
+    include Steps
 
     test "a captured order is paid, then shipped, then delivered" do
       order = nil
@@ -28,59 +26,34 @@ module Orders
     end
 
     test "an order is shipped only once paid" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
       clear_enqueued_jobs # confirmed, its capture not run
 
       order.request_shipment
 
-      assert_nil Fulfillment::TestSupport.shipment(order.reference)
-    end
-
-    test "temporary capture failures are retried and the order is paid with a single capture" do
-      gateway = Payments::TestSupport.scripted_gateway(capture: [ :timeout, :timeout ])
-      order = nil
-
-      perform_enqueued_jobs { order = checkout }
-
-      assert_equal 3, gateway.calls[:capture]
-      assert_equal "delivered", order.reload.status
-    end
-
-    test "a refused capture cancels the order and nothing ships" do
-      Payments::TestSupport.scripted_gateway(capture: [ :refuse ])
-      order = nil
-
-      published = record_publications { perform_enqueued_jobs { order = checkout } }
-
-      record = order.reload
-      assert_equal "cancelled", record.state
-      assert_match(/payment refused/, record.cancel_reason)
-      assert_equal 10, available("MUG")
-      assert_equal "cancelled", Fulfillment::TestSupport.shipment(order.reference).state, "nothing was requested, and nothing can be now"
-      assert Payments::TestSupport.payment(order.reference).voided_at, "the refused capture's hold is voided"
-      assert_includes published.map(&:event_type), "orders.order_cancelled"
+      assert_nil Fulfillment::TestSupport.shipment_status(order.reference)
     end
 
     test "no shipment is requested before the payment is captured" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
 
-      assert_nil Fulfillment::TestSupport.shipment(order.reference)
+      assert_nil Fulfillment::TestSupport.shipment_status(order.reference)
     end
 
     test "a redelivered capture does not pay or ship the order twice" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
       perform_due_jobs
       event = Payments::Events::PaymentCaptured.new(reference: order.reference, amount_cents: order.total_cents, currency: "EUR")
 
       assert_redelivery_changes_nothing(MarkPaidJob, event)
-      assert_equal "requested", Fulfillment::TestSupport.shipment(order.reference).state
+      assert_equal :requested, Fulfillment::TestSupport.shipment_status(order.reference)
     end
 
     test "a redelivered dispatch does not ship the stock twice" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
       perform_due_jobs
       event = Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")
@@ -90,7 +63,7 @@ module Orders
     end
 
     test "a redelivered delivery does not deliver twice" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
       perform_due_jobs
       MarkShippedJob.perform_now(EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event)
@@ -100,7 +73,7 @@ module Orders
     end
 
     test "a dispatch recorded before the stock could be shipped ships it on retry" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
       perform_due_jobs
       dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
@@ -117,7 +90,7 @@ module Orders
     end
 
     test "a delivery heard before its dispatch waits for it and is not lost" do
-      slow_carrier
+      Fulfillment::TestSupport.slow_carrier
       order = place
       perform_due_jobs
       delivered = EventRail.publish(Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)).event

@@ -2,9 +2,7 @@ require "test_helper"
 
 module Orders
   class AnnouncementsTest < ActiveSupport::TestCase
-    include ShopHelpers
-
-    setup { stock_shelves }
+    include Steps
 
     test "every event carries the order's customer, and the ones about money its total" do
       announcements = Order.find(checkout.id).announcements

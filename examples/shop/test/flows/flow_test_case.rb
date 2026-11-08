@@ -3,10 +3,7 @@ require "test_helper"
 class FlowTestCase < ActiveSupport::TestCase
   include ShopHelpers
 
-  setup do
-    stock_shelves
-    instant_carrier
-  end
+  setup { instant_carrier }
 
   private
     def place_and_settle(**checkout_options)
