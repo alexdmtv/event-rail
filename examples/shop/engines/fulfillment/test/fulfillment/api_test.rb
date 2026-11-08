@@ -2,13 +2,15 @@ require "test_helper"
 
 module Fulfillment
   class ApiTest < ActiveSupport::TestCase
+    # The fake carrier's jobs, standing in for its callbacks.
+    CARRIER_JOBS = [ DispatchJob, DeliveryJob, ReturnArrivalJob ].freeze
     RECIPIENT = Api::Recipient.new(name: "Ada Lovelace", address: "12 St James's Square, London")
 
     def request_shipment = Api.request_shipment(reference: "ref-1", recipient: RECIPIENT, items: { "MUG" => 1 })
     def shipment = Shipment.find_by!(reference: "ref-1")
 
     test "a requested shipment is dispatched and then delivered" do
-      published = record_publications { perform_enqueued_jobs { request_shipment } }
+      published = record_publications { perform_enqueued_jobs(only: CARRIER_JOBS) { request_shipment } }
 
       assert_equal [ "fulfillment.shipment_dispatched", "fulfillment.shipment_delivered" ], published.map(&:event_type)
       assert_equal "delivered", shipment.state
@@ -25,7 +27,7 @@ module Fulfillment
     end
 
     test "requesting the same shipment twice ships it once" do
-      published = record_publications { perform_enqueued_jobs { 2.times { request_shipment } } }
+      published = record_publications { perform_enqueued_jobs(only: CARRIER_JOBS) { 2.times { request_shipment } } }
 
       assert_equal 1, Fulfillment::Shipment.count
       dispatches = published.select { |publication| publication.event_type == "fulfillment.shipment_dispatched" }
@@ -39,7 +41,7 @@ module Fulfillment
       published = record_publications do
         Api.cancel_shipment(reference: "ref-1")
         Api.cancel_shipment(reference: "ref-1")
-        work_off_queue
+        work_off_queue(only: CARRIER_JOBS)
       end
 
       assert_empty published
@@ -58,7 +60,7 @@ module Fulfillment
     test "a request arriving after the cancellation does not revive the shipment" do
       Api.cancel_shipment(reference: "ref-1")
 
-      published = record_publications { perform_enqueued_jobs { request_shipment } }
+      published = record_publications { perform_enqueued_jobs(only: CARRIER_JOBS) { request_shipment } }
 
       assert_empty published
       assert_equal "cancelled", shipment.state
@@ -73,13 +75,13 @@ module Fulfillment
       assert_enqueued_jobs 1, only: DispatchJob
       assert_equal "dispatched", shipment.state
 
-      work_off_queue
+      work_off_queue(only: CARRIER_JOBS)
 
       assert_equal "delivered", shipment.state
     end
 
     test "an expected return is reported when the parcel arrives" do
-      published = record_publications { perform_enqueued_jobs { Api.request_return_pickup(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CARRIER_JOBS) { Api.request_return_pickup(reference: "ref-1") } }
 
       assert_equal [ "fulfillment.return_received" ], published.map(&:event_type).uniq
     end
