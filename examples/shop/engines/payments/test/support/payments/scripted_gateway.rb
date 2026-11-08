@@ -14,6 +14,9 @@ module Payments
       @answers = {}
     end
 
+    # Adds steps to a method's script.
+    def script(method_name, *steps) = (@script[method_name] ||= []).concat(steps)
+
     %i[ authorize capture void refund ].each do |method_name|
       define_method(method_name) do |idempotency_key:, **|
         @calls[method_name] += 1

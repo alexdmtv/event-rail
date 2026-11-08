@@ -1,7 +1,16 @@
+require_relative "publication_recorder"
+require_relative "schedule"
+require_relative "worker"
+
 module Platform
-  # Included into every test case. Each fault lasts for its block and is undone after it,
-  # whatever the block does.
+  # Included into every test case: running jobs as a worker would, recording what EventRail
+  # published, the recurring schedule, and faults. Each fault lasts for its block and is undone
+  # after it, whatever the block does.
   module TestSupport
+    include PublicationRecorder
+    include Schedule
+    include Worker
+
     # The runs failing_runs has still to fail, by job class name.
     module FailingRuns
       class Failure < StandardError; end

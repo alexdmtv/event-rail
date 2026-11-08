@@ -26,11 +26,6 @@ module ShopHelpers
   def available(sku) = Catalog::TestSupport.product(sku).available
   def on_hand(sku) = Catalog::TestSupport.product(sku).on_hand
 
-  # Repeats until no due job is left, since due jobs enqueue more; later jobs stay queued.
-  def perform_due_jobs
-    perform_enqueued_jobs(at: Time.current) while enqueued_jobs.any? { |job| job[:at].nil? || job[:at] <= Time.current.to_f }
-  end
-
   def slow_carrier = Fulfillment::TestSupport.carrier_answering_after(1.hour)
 
   def instant_carrier = Fulfillment::TestSupport.carrier_answering_after(0)
