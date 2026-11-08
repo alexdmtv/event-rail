@@ -76,22 +76,16 @@ class OrderLifecycleTest < FlowTestCase
     assert_one_flow(published)
   end
 
-  test "a cart placed twice runs exactly the jobs a cart placed once runs" do
-    placed_once = jobs_run { checkout }
+  test "a cart placed twice causes exactly what a cart placed once causes" do
+    placed_once = facts_announced { checkout }
     cart_id = Orders::TestSupport.open_cart(customer: Orders::TestSupport::CUSTOMER, items: Orders::TestSupport::ITEMS)
-    placed_twice = jobs_run { 2.times { Orders::TestSupport.place_order(cart_id) } }
+    placed_twice = facts_announced { 2.times { Orders::TestSupport.place_order(cart_id) } }
 
     assert_equal placed_once, placed_twice
+    assert_equal 1, placed_twice["orders.order_placed"]
   end
 
   private
-    def jobs_run
-      runs = Hash.new(0)
-      count = ->(event) { runs[event.payload[:job].class.name] += 1 }
-      ActiveSupport::Notifications.subscribed(count, "perform.active_job") do
-        yield
-        work_off_queue
-      end
-      runs
-    end
+    # How many times each fact was announced, by event type, once everything it caused has run.
+    def facts_announced(&block) = record_publications { block.call; work_off_queue }.map(&:event_type).tally
 end

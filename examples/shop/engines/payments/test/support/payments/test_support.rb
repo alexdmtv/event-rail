@@ -22,7 +22,7 @@ module Payments
       def provider_answers_again(operation) = provider.answer_again(operation).then { nil }
 
       # What a test set the provider to do and never happened, as { operation => steps }; empty
-      # when every fault it set was met.
+      # when every fault it set was met. The host's test helper checks it after every test.
       def unused_provider_faults = Gateway.current.is_a?(ScriptedGateway) ? Gateway.current.unused : {}
 
       # Back to the provider the environment chose.

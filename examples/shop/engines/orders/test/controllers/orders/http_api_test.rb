@@ -11,14 +11,14 @@ module Orders
       response.parsed_body
     end
 
-    def place(cart) = post("/carts/#{cart["id"]}/order", as: :json).then { response.parsed_body }
+    def place_through_http(cart) = post("/carts/#{cart["id"]}/order", as: :json).then { response.parsed_body }
 
     test "a cart is opened and placed, and the order read back" do
       cart = open_cart
       assert_response :created
       assert_equal [ { "sku" => "MUG", "quantity" => 2 }, { "sku" => "TEA", "quantity" => 1 } ], cart["items"].sort_by { |item| item["sku"] }
 
-      order = place(cart)
+      order = place_through_http(cart)
       assert_response :created
       assert_equal "placed", order["status"]
       assert_equal({ "cents" => 2 * 1490 + 890, "currency" => "EUR" }, order["total"])
@@ -31,7 +31,7 @@ module Orders
 
     test "a request is a flow of its own, correlated by the request's ID" do
       cart = open_cart
-      published = record_publications { perform_enqueued_jobs(only: ConfirmJob) { place(cart) } }
+      published = record_publications { perform_enqueued_jobs(only: ConfirmJob) { place_through_http(cart) } }
 
       assert_includes published.map(&:event_type), "orders.order_placed"
       assert_equal [ response.request.request_id ], published.map(&:correlation_id).uniq
@@ -40,7 +40,7 @@ module Orders
     test "placing a cart again answers with the same order" do
       cart = open_cart
 
-      first, second = 2.times.map { place(cart) }
+      first, second = 2.times.map { place_through_http(cart) }
 
       assert_equal first["id"], second["id"]
       assert_equal 1, Order.count
@@ -67,7 +67,7 @@ module Orders
     end
 
     test "a cancellation is accepted, and carried out a moment later" do
-      order = place(open_cart)
+      order = place_through_http(open_cart)
 
       post "/orders/#{order["id"]}/cancellation", as: :json
       assert_response :accepted
@@ -79,7 +79,7 @@ module Orders
     end
 
     test "a return of an order that was not delivered is refused" do
-      order = place(open_cart)
+      order = place_through_http(open_cart)
 
       post "/orders/#{order["id"]}/return", as: :json
 
@@ -91,7 +91,7 @@ module Orders
     end
 
     test "a delivered order's return is accepted" do
-      order = perform_enqueued_jobs(only: ConfirmJob) { place(open_cart) }
+      order = perform_enqueued_jobs(only: ConfirmJob) { place_through_http(open_cart) }
       Order.find(order["id"]).then { |record| pay(record); ship(record); deliver(record) }
 
       post "/orders/#{order["id"]}/return", as: :json
