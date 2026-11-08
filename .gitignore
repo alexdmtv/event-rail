@@ -9,7 +9,6 @@
 /gemfiles/rails_*.gemfile
 /gemfiles/*.lock
 /log/*.log
-/openspec/
 /pkg/
 /tmp/
 /test/dummy/log/*.log

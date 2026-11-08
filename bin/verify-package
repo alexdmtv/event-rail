@@ -23,7 +23,6 @@ abort "package is missing: #{missing.join(", ")}" unless missing.empty?
 forbidden_prefixes = %w[
   .github/
   gemfiles/
-  openspec/
   sig/
   spikes/
   test/
