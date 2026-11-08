@@ -9,7 +9,7 @@ class CancellationFlowTest < FlowTestCase
 
     published = record_publications do
       Orders::TestSupport.request_cancellation(order.id)
-      @job_failures = work_off_queue(due_only: true)
+      work_off_queue(due_only: true)
     end
 
     assert_equal :cancelled, Orders::TestSupport.order(order.id).state

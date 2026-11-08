@@ -17,7 +17,7 @@ shop: &shop
 development:
   <<: *shop
 
-# Nothing runs the schedule in tests; test/support/schedule.rb enqueues tasks by key.
+# Nothing runs the schedule in tests; Platform's test support enqueues a task by its key (enqueue_scheduled).
 test:
   <<: *shop
 
