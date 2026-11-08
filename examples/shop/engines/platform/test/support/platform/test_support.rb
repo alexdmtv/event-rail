@@ -73,6 +73,22 @@ module Platform
       replacing(receiver, method_name, ->(*arguments, **options) { original.call(*arguments, **options).then { raise message } }, &block)
     end
 
+    # How many times the block called the method, which still does its work: for a module's public
+    # Api, how often another module asks it something.
+    def counting_calls(receiver, method_name, &block)
+      calls = 0
+      original = receiver.method(method_name)
+      replacing(receiver, method_name, ->(*arguments, **options) { calls += 1; original.call(*arguments, **options) }, &block)
+      calls
+    end
+
+    # Runs the hook before each call to the method within the block, as if something else happened
+    # just then; the method then does its work.
+    def before_calling(receiver, method_name, hook, &block)
+      original = receiver.method(method_name)
+      replacing(receiver, method_name, ->(*arguments, **options) { hook.call; original.call(*arguments, **options) }, &block)
+    end
+
     private
       def replacing(receiver, method_name, replacement)
         singleton = receiver.singleton_class

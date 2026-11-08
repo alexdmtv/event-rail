@@ -43,7 +43,7 @@ module Orders
     end
 
     test "a cart asks Catalog once about all its products" do
-      assert_queries_match(/FROM "catalog_products"/, count: 1) { open_cart("MUG" => 1, "TEA" => 1) }
+      assert_equal 1, counting_calls(Catalog::Api, :products) { open_cart("MUG" => 1, "TEA" => 1) }
     end
 
     test "a product listed twice is refused" do
@@ -82,7 +82,7 @@ module Orders
       third = TestSupport.place_order(cart.id)
 
       assert_equal [ first.id ] * 3, [ first, second, third ].map(&:id)
-      assert_equal "delivered", third.status
+      assert_equal :delivered, third.status
     end
 
     test "two placements of one cart racing each other make one order, and the loser stages nothing" do

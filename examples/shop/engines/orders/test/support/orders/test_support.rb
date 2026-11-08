@@ -1,15 +1,22 @@
 module Orders
   # What other modules' tests and the host's may use of Orders: the customer's actions, and what
   # an order looks like from outside, as values, never records, so Orders can change inside without
-  # breaking anyone else's tests.
+  # breaking anyone else's tests. Readers return symbols.
   module TestSupport
     Customer = Data.define(:id, :name, :email, :address)
     CUSTOMER = Customer.new(id: "cus_ada", name: "Ada Lovelace", email: "ada@example.com", address: "12 St James's Square, London")
     ITEMS = { "MUG" => 2, "TEA" => 1 }.freeze
 
+    STATES = { "placed" => :placed, "confirmed" => :confirmed, "cancelled" => :cancelled }.freeze
+    STATUSES = STATES.merge("paid" => :paid, "shipped" => :shipped, "delivered" => :delivered, "returning" => :returning,
+      "refunded" => :refunded, "needs_attention" => :needs_attention).freeze
+    RETURNS = { "requested" => :requested, "received" => :received, "refunded" => :refunded, "refund_failed" => :refund_failed }.freeze
+
     # An order as anyone outside Orders sees it. status is the one a customer sees: it follows the
-    # order through payment, shipping and any return.
-    Snapshot = Data.define(:id, :reference, :state, :status, :cancel_reason, :refund_failure_reason, :cancellation_refused, :return_status)
+    # order through payment, shipping and any return; return_status is nil until a return is asked for.
+    Snapshot = Data.define(:id, :reference, :state, :status, :cancel_reason, :refund_failure_reason, :cancellation_refused, :return_status) do
+      def cancellation_refused? = cancellation_refused
+    end
 
     class << self
       # items: { "sku" => quantity }. Answers the cart's ID.
@@ -38,8 +45,9 @@ module Orders
       private
         def snapshot(id)
           order = Order.includes(:return).find(id)
-          Snapshot.new(id: order.id, reference: order.reference, state: order.state, status: order.status, cancel_reason: order.cancel_reason,
-            refund_failure_reason: order.refund_failure_reason, cancellation_refused: order.cancellation_refused_at?, return_status: order.return&.state)
+          Snapshot.new(id: order.id, reference: order.reference, state: STATES.fetch(order.state), status: STATUSES.fetch(order.status),
+            cancel_reason: order.cancel_reason, refund_failure_reason: order.refund_failure_reason, cancellation_refused: order.cancellation_refused_at?,
+            return_status: order.return&.state&.then { RETURNS.fetch(_1) })
         end
 
         # A flow of its own, as each web request is (Platform::ApplicationController).

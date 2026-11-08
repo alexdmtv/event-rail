@@ -12,17 +12,17 @@ class CancellationFlowTest < FlowTestCase
       @job_failures = work_off_queue(due_only: true)
     end
 
-    assert_equal "cancelled", Orders::TestSupport.order(order.id).state
+    assert_equal :cancelled, Orders::TestSupport.order(order.id).state
     assert_equal :voided, Payments::TestSupport.money_status(order.reference)
     assert_equal 10, available("MUG")
-    assert_includes notified_kinds(order), "cancelled"
+    assert_includes notified_kinds(order), :cancelled
     assert_one_flow(published)
   end
 
   test "cancelling a paid order before dispatch refunds it" do
     order = place
     work_off_queue(due_only: true)
-    assert_equal "paid", Orders::TestSupport.order(order.id).status
+    assert_equal :paid, Orders::TestSupport.order(order.id).status
 
     published = record_publications do
       Orders::TestSupport.request_cancellation(order.id)
@@ -30,7 +30,7 @@ class CancellationFlowTest < FlowTestCase
       work_off_queue # and then every job, the carrier's too: nothing may leave
     end
 
-    assert_equal "cancelled", Orders::TestSupport.order(order.id).state
+    assert_equal :cancelled, Orders::TestSupport.order(order.id).state
     assert_equal :refunded, Payments::TestSupport.money_status(order.reference)
     assert_equal :cancelled, Fulfillment::TestSupport.shipment_status(order.reference)
     assert_not Fulfillment::TestSupport.dispatched?(order.reference)
@@ -45,18 +45,18 @@ class CancellationFlowTest < FlowTestCase
     failing_runs("Orders::MarkPaidJob", 1) do
       work_off_queue(due_only: true) # captured; recording it on the order failed and waits to retry
     end
-    assert_equal [ "confirmed", :captured ], [ Orders::TestSupport.order(order.id).state, Payments::TestSupport.money_status(order.reference) ]
+    assert_equal [ :confirmed, :captured ], [ Orders::TestSupport.order(order.id).state, Payments::TestSupport.money_status(order.reference) ]
 
     published = record_publications do
       Orders::TestSupport.request_cancellation(order.id)
       work_off_queue
     end
 
-    assert_equal "cancelled", Orders::TestSupport.order(order.id).state
+    assert_equal :cancelled, Orders::TestSupport.order(order.id).state
     assert_equal :refunded, Payments::TestSupport.money_status(order.reference)
     assert_not Fulfillment::TestSupport.dispatched?(order.reference)
     assert_equal 10, on_hand("MUG")
-    assert_equal %w[ cancelled placed ], notified_kinds(order)
+    assert_equal %i[ cancelled placed ], notified_kinds(order)
     assert_one_flow(published)
   end
 
@@ -73,7 +73,7 @@ class CancellationFlowTest < FlowTestCase
     end
 
     reloaded = Orders::TestSupport.order(order.id)
-    assert_equal [ "cancelled", "not paid in time" ], [ reloaded.state, reloaded.cancel_reason ]
+    assert_equal [ :cancelled, "not paid in time" ], [ reloaded.state, reloaded.cancel_reason ]
     assert_equal :refunded, Payments::TestSupport.money_status(order.reference)
   end
 
@@ -83,14 +83,14 @@ class CancellationFlowTest < FlowTestCase
     failing_runs("Orders::MarkShippedJob", 1) do
       work_off_queue(due_only: true) # dispatched and delivered; the order still thinks it is paid
     end
-    assert_equal "paid", Orders::TestSupport.order(order.id).status
+    assert_equal :paid, Orders::TestSupport.order(order.id).status
 
     Orders::TestSupport.request_cancellation(order.id)
     work_off_queue
 
     reloaded = Orders::TestSupport.order(order.id)
-    assert reloaded.cancellation_refused, "Fulfillment refused it: the parcel had left"
-    assert_equal "delivered", reloaded.status
+    assert reloaded.cancellation_refused?, "Fulfillment refused it: the parcel had left"
+    assert_equal :delivered, reloaded.status
     assert_equal :captured, Payments::TestSupport.money_status(order.reference)
     assert_equal 8, on_hand("MUG")
   end
@@ -100,7 +100,7 @@ class CancellationFlowTest < FlowTestCase
     order, = place_and_settle
 
     assert_raises(Orders::NotCancellable) { Orders::TestSupport.request_cancellation(order.id) }
-    assert_equal "delivered", Orders::TestSupport.order(order.id).status
+    assert_equal :delivered, Orders::TestSupport.order(order.id).status
   end
 
   test "a confirmed order not paid within 30 minutes is cancelled and gives everything back" do
@@ -115,11 +115,11 @@ class CancellationFlowTest < FlowTestCase
     end
 
     reloaded = Orders::TestSupport.order(order.id)
-    assert_equal "cancelled", reloaded.state
+    assert_equal :cancelled, reloaded.state
     assert_equal "not paid in time", reloaded.cancel_reason
     assert_equal :voided, Payments::TestSupport.money_status(order.reference)
     assert_equal 10, available("MUG")
-    assert_equal %w[ cancelled ], notified_kinds(order)
+    assert_equal %i[ cancelled ], notified_kinds(order)
     assert_one_flow(published)
   end
 end

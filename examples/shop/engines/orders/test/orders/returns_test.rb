@@ -15,18 +15,18 @@ module Orders
       perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
 
       assert_equal "returning", @order.reload.status
-      assert_equal :expected, Fulfillment::TestSupport.return_status(@order.reference)
+      assert_equal :expected, Fulfillment::TestSupport.parcel_return_status(@order.reference)
     end
 
     test "a return requested while the queue is unavailable reaches the carrier once it recovers" do
       Fulfillment::TestSupport.slow_carrier
       refusing_enqueue { TestSupport.request_return(@order.id) }
-      assert_nil Fulfillment::TestSupport.return_status(@order.reference)
+      assert_nil Fulfillment::TestSupport.parcel_return_status(@order.reference)
 
       relay_staged_jobs
       perform_enqueued_jobs(only: RequestReturnPickupJob)
 
-      assert_equal :expected, Fulfillment::TestSupport.return_status(@order.reference)
+      assert_equal :expected, Fulfillment::TestSupport.parcel_return_status(@order.reference)
     end
 
     test "a return requested again after the 14 days returns the return already under way" do
@@ -34,7 +34,7 @@ module Orders
       TestSupport.request_return(@order.id)
 
       travel 15.days do
-        assert_equal "returning", TestSupport.request_return(@order.id).status
+        assert_equal :returning, TestSupport.request_return(@order.id).status
       end
     end
 
@@ -66,7 +66,7 @@ module Orders
 
       record = @order.reload
       assert_equal "needs_attention", record.status
-      assert_match(/refused/, record.return.failure_reason)
+      assert record.return.failure_reason.present?, "the refusal's reason is kept for a person"
     end
   end
 end

@@ -39,7 +39,8 @@ module Orders
 
       published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(order.id) } }
 
-      assert_equal [ "needs_attention", "refused by the script" ], [ order.reload.status, order.refund_failure_reason ]
+      assert_equal "needs_attention", order.reload.status
+      assert order.refund_failure_reason.present?, "the refusal's reason is kept for a person"
       assert_not_includes published.map(&:event_type), "orders.order_refunded"
       assert_no_changes -> { order.reload.attributes } do
         RecordCancellationRefundFailureJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "again")).event)

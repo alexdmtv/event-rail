@@ -21,8 +21,11 @@ module ActiveSupport
 
     setup { Platform::Traces.exporter.reset }
 
+    # A fault a test set and never met proves nothing: the test fails.
     teardown do
-      Payments::TestSupport.reset_gateway
+      assert_empty Payments::TestSupport.unused_provider_faults, "the provider was set to fail and never asked"
+    ensure
+      Payments::TestSupport.reset_provider
       Fulfillment::TestSupport.reset_carrier
     end
   end

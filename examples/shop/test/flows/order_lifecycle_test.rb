@@ -4,11 +4,11 @@ class OrderLifecycleTest < FlowTestCase
   test "an order is placed, paid, shipped and delivered, and every module agrees" do
     order, published = place_and_settle
 
-    assert_equal "delivered", order.status
+    assert_equal :delivered, order.status
     assert_equal :captured, Payments::TestSupport.money_status(order.reference)
     assert_equal :delivered, Fulfillment::TestSupport.shipment_status(order.reference)
     assert_equal 8, on_hand("MUG")
-    assert_equal %w[ delivered placed shipped ], notified_kinds(order)
+    assert_equal %i[ delivered placed shipped ], notified_kinds(order)
     assert_equal 38, points(order)
     assert_empty @job_failures
     assert_one_flow(published)
@@ -19,8 +19,8 @@ class OrderLifecycleTest < FlowTestCase
 
     order, published = place_and_settle
 
-    assert_equal "delivered", order.status
-    assert_equal %w[ delivered placed shipped ], notified_kinds(order)
+    assert_equal :delivered, order.status
+    assert_equal %i[ delivered placed shipped ], notified_kinds(order)
     assert_one_flow(published)
   end
 
@@ -29,17 +29,18 @@ class OrderLifecycleTest < FlowTestCase
 
     order, published = place_and_settle
 
-    assert_equal "cancelled", order.state
+    assert_equal :cancelled, order.state
+    assert_match(/\Apayment refused/, order.cancel_reason)
     assert_equal :voided, Payments::TestSupport.money_status(order.reference), "the refused capture's hold is voided"
-    assert_not Fulfillment::TestSupport.dispatched?(order.reference)
+    assert_equal :cancelled, Fulfillment::TestSupport.shipment_status(order.reference), "nothing was asked of the carrier, and nothing can be now"
     assert_equal 10, available("MUG")
-    assert_equal %w[ cancelled placed ], notified_kinds(order)
+    assert_equal %i[ cancelled placed ], notified_kinds(order)
     assert_equal 0, points(order)
     assert_one_flow(published)
   end
 
   test "a capture that never answers leaves the order to its payment deadline, and its payment to the capture's replay" do
-    Payments::TestSupport.provider_times_out(:capture, times: 10)
+    Payments::TestSupport.provider_stops_answering(:capture)
 
     order, placed = place_and_settle
     capture_failures = @job_failures
@@ -47,16 +48,17 @@ class OrderLifecycleTest < FlowTestCase
     swept = travel(31.minutes) { record_publications { enqueue_scheduled(:enforce_order_deadlines); settle } }
 
     order = Orders::TestSupport.order(order.id)
-    assert_equal [ "cancelled", "not paid in time" ], [ order.state, order.cancel_reason ]
+    assert_equal [ :cancelled, "not paid in time" ], [ order.state, order.cancel_reason ]
     assert_equal :capture, Payments::TestSupport.pending_request(order.reference), "nobody knows whether the capture was taken"
     assert Payments::TestSupport.release_requested?(order.reference), "the release waits for the capture's answer"
     assert_empty @job_failures, "nothing else fails while it waits"
 
-    replayed = travel(32.minutes) { record_publications { replay(capture_failures); settle } } # the provider is back
+    Payments::TestSupport.provider_answers_again(:capture)
+    replayed = travel(32.minutes) { record_publications { replay(capture_failures); settle } }
 
     assert_equal :refunded, Payments::TestSupport.money_status(order.reference)
     assert_nil Payments::TestSupport.pending_request(order.reference)
-    assert_equal %w[ cancelled placed ], notified_kinds(order)
+    assert_equal %i[ cancelled placed ], notified_kinds(order)
     assert_not_equal assert_one_flow(placed), assert_one_flow(swept), "the sweep's run is a flow of its own"
     assert_equal flow_of(placed), assert_one_flow(replayed), "a replayed job stays in the flow it was started in"
   end
@@ -69,7 +71,7 @@ class OrderLifecycleTest < FlowTestCase
       work_off_queue
     end
 
-    assert_equal "delivered", Orders::TestSupport.order(order.id).status
+    assert_equal :delivered, Orders::TestSupport.order(order.id).status
     assert_equal 1, published.count { |publication| publication.event_type == "orders.order_placed" }
     assert_one_flow(published)
   end

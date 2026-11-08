@@ -30,27 +30,15 @@ module Orders
 
     test "a deadline passing while the confirmation is running leaves the order cancelled and gives back what the run took" do
       order = checkout
-      test = self
       # The sweep runs while confirming is between the reservation and the authorization.
-      Payments::Api.singleton_class.alias_method :__authorize_before_deadline, :authorize
-      Payments::Api.define_singleton_method(:authorize) do |**options|
-        test.travel(3.minutes) { DeadlineSweepJob.perform_now; test.perform_enqueued_jobs(only: CancelJob) }
-        __authorize_before_deadline(**options)
-      end
-
-      perform_enqueued_jobs(only: ConfirmJob)
-      Payments::Api.singleton_class.alias_method :authorize, :__authorize_before_deadline
+      sweep = -> { travel(3.minutes) { DeadlineSweepJob.perform_now; perform_enqueued_jobs(only: CancelJob) } }
+      before_calling(Payments::Api, :authorize, sweep) { perform_enqueued_jobs(only: ConfirmJob) }
       perform_due_jobs
 
       record = order.reload
       assert_equal [ "cancelled", "not confirmed in time" ], [ record.state, record.cancel_reason ]
       assert_equal 10, available("MUG")
       assert_equal :voided, Payments::TestSupport.money_status(order.reference)
-    ensure
-      if Payments::Api.singleton_class.method_defined?(:__authorize_before_deadline)
-        Payments::Api.singleton_class.alias_method :authorize, :__authorize_before_deadline
-        Payments::Api.singleton_class.remove_method :__authorize_before_deadline
-      end
     end
 
     test "a sweep's cancellations share the sweep's run as their flow" do

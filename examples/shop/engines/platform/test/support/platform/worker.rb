@@ -39,7 +39,7 @@ module Platform
           index = queued.index { |job| names.include?(job["job_class"]) } or return
           ActiveJob::Base.execute(queued.delete_at(index).stringify_keys.except("job", "args", "at", "queue", "priority"))
         end
-        raise "#{names.join(", ")} still queued after #{max_jobs} jobs"
+        raise "#{names.join(", ")} still queued after #{max_jobs} jobs" if queued.any? { |job| names.include?(job["job_class"]) }
       end
     end
   end
