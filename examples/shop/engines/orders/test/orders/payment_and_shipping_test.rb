@@ -4,16 +4,18 @@ module Orders
   class PaymentAndShippingTest < ActiveSupport::TestCase
     include Steps
 
-    test "a captured order is paid, then shipped, then delivered" do
-      order = nil
-      published = record_publications { perform_enqueued_jobs { order = checkout } }
+    test "a paid order is shipped, then delivered, and announces each" do
+      order = place
+      published = record_publications do
+        pay(order)
+        assert_equal :requested, Fulfillment::TestSupport.shipment_status(order.reference)
+        ship(order)
+        deliver(order)
+      end
 
       assert_equal "delivered", order.reload.status
-      # EventRail promises no ordering, and inline test jobs finish nested publications first.
-      assert_equal %w[ fulfillment.shipment_delivered fulfillment.shipment_dispatched orders.order_delivered orders.order_placed
-        orders.order_shipped payments.payment_captured ], published.map(&:event_type).sort
-      assert_equal 2, published.find { |publication| publication.event_type == "orders.order_placed" }.event_version
-      assert_equal 8, on_hand("MUG")
+      assert_equal %w[ orders.order_delivered orders.order_shipped ], published.map(&:event_type).select { |type| type.start_with?("orders.") }.sort
+      assert_equal 8, on_hand("MUG"), "the stock left with the parcel"
     end
 
     test "an order is paid for only once confirmed" do
@@ -26,7 +28,6 @@ module Orders
     end
 
     test "an order is shipped only once paid" do
-      Fulfillment::TestSupport.slow_carrier
       order = place
       clear_enqueued_jobs # confirmed, its capture not run
 
@@ -36,16 +37,13 @@ module Orders
     end
 
     test "no shipment is requested before the payment is captured" do
-      Fulfillment::TestSupport.slow_carrier
       order = place
 
       assert_nil Fulfillment::TestSupport.shipment_status(order.reference)
     end
 
     test "a redelivered capture does not pay or ship the order twice" do
-      Fulfillment::TestSupport.slow_carrier
       order = place
-      perform_due_jobs
       event = Payments::Events::PaymentCaptured.new(reference: order.reference, amount_cents: order.total_cents, currency: "EUR")
 
       assert_redelivery_changes_nothing(MarkPaidJob, event)
@@ -53,9 +51,8 @@ module Orders
     end
 
     test "a redelivered dispatch does not ship the stock twice" do
-      Fulfillment::TestSupport.slow_carrier
       order = place
-      perform_due_jobs
+      pay(order)
       event = Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")
 
       assert_redelivery_changes_nothing(MarkShippedJob, event)
@@ -63,19 +60,17 @@ module Orders
     end
 
     test "a redelivered delivery does not deliver twice" do
-      Fulfillment::TestSupport.slow_carrier
       order = place
-      perform_due_jobs
-      MarkShippedJob.perform_now(EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event)
+      pay(order)
+      ship(order)
       event = Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)
 
       assert_redelivery_changes_nothing(MarkDeliveredJob, event)
     end
 
     test "a dispatch recorded before the stock could be shipped ships it on retry" do
-      Fulfillment::TestSupport.slow_carrier
       order = place
-      perform_due_jobs
+      pay(order)
       dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
       clear_enqueued_jobs
       failing(Catalog::Api, :ship, "warehouse system down") do
@@ -90,9 +85,8 @@ module Orders
     end
 
     test "a delivery heard before its dispatch waits for it and is not lost" do
-      Fulfillment::TestSupport.slow_carrier
       order = place
-      perform_due_jobs
+      pay(order)
       delivered = EventRail.publish(Fulfillment::Events::ShipmentDelivered.new(reference: order.reference)).event
       dispatched = EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event
       clear_enqueued_jobs

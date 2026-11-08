@@ -7,10 +7,13 @@ module Orders
     include Steps
 
     test "a return's refused refund is recorded on the return, once, and the cancellation's subscriber ignores it" do
-      Payments::TestSupport.provider_refuses(:refund)
-      Fulfillment::TestSupport.instant_carrier
-      perform_enqueued_jobs { @order = checkout }
-      perform_enqueued_jobs { TestSupport.request_return(@order.id) }
+      @order = place
+      pay(@order)
+      ship(@order)
+      deliver(@order)
+      perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
+      bring_back(@order)
+      refuse_refund(@order)
       assert_equal "refund_failed", @order.reload.return.state
 
       assert_no_changes -> { [ @order.reload.attributes, @order.return.reload.attributes ] } do
@@ -20,11 +23,10 @@ module Orders
     end
 
     test "a cancellation's refused refund is ignored by the return's subscriber" do
-      Payments::TestSupport.provider_refuses(:refund)
-      Fulfillment::TestSupport.slow_carrier
       order = place
-      perform_due_jobs # captured and paid
-      perform_enqueued_jobs { TestSupport.request_cancellation(order.id) }
+      pay(order)
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
+      refuse_refund(order)
       assert order.reload.refund_refused_at
 
       assert_no_changes -> { order.reload.attributes } do

@@ -5,13 +5,13 @@ module Orders
     include Steps
 
     setup do
-      Fulfillment::TestSupport.instant_carrier
-      perform_enqueued_jobs { @order = checkout }
+      @order = place
+      pay(@order)
+      ship(@order)
+      deliver(@order)
     end
 
     test "a return within 14 days awaits the parcel" do
-      Fulfillment::TestSupport.slow_carrier
-
       perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
 
       assert_equal "returning", @order.reload.status
@@ -19,7 +19,6 @@ module Orders
     end
 
     test "a return requested while the queue is unavailable reaches the carrier once it recovers" do
-      Fulfillment::TestSupport.slow_carrier
       refusing_enqueue { TestSupport.request_return(@order.id) }
       assert_nil Fulfillment::TestSupport.parcel_return_status(@order.reference)
 
@@ -30,7 +29,6 @@ module Orders
     end
 
     test "a return requested again after the 14 days returns the return already under way" do
-      Fulfillment::TestSupport.slow_carrier
       TestSupport.request_return(@order.id)
 
       travel 15.days do
@@ -50,23 +48,27 @@ module Orders
       assert_raises(NotReturnable) { TestSupport.request_return(order.id) }
     end
 
-    test "the returned parcel is restocked, refunded, and the order refunded" do
-      published = record_publications { perform_enqueued_jobs { TestSupport.request_return(@order.id) } }
+    test "the returned parcel is restocked and its money asked back, and the order is refunded once the money is back" do
+      perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
 
-      assert_equal "refunded", @order.reload.status
+      bring_back(@order)
       assert_equal 10, on_hand("MUG")
-      assert_equal :refunded, Payments::TestSupport.money_status(@order.reference)
+      assert Payments::TestSupport.release_requested?(@order.reference)
+      assert_equal "returning", @order.reload.status
+
+      published = record_publications { refund(@order) }
+      assert_equal "refunded", @order.reload.status
       assert_includes published.map(&:event_type), "orders.order_refunded"
     end
 
     test "a refused refund sets the order aside for attention" do
-      Payments::TestSupport.provider_refuses(:refund)
+      perform_enqueued_jobs(only: RequestReturnPickupJob) { TestSupport.request_return(@order.id) }
+      bring_back(@order)
 
-      perform_enqueued_jobs { TestSupport.request_return(@order.id) }
+      refuse_refund(@order)
 
       record = @order.reload
-      assert_equal "needs_attention", record.status
-      assert record.return.failure_reason.present?, "the refusal's reason is kept for a person"
+      assert_equal [ "needs_attention", "refund refused" ], [ record.status, record.return.failure_reason ]
     end
   end
 end

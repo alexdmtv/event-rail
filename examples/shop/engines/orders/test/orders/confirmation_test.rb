@@ -48,11 +48,10 @@ module Orders
 
     test "a payment provider that does not answer is retried until it does; no count of attempts gives up" do
       Payments::TestSupport.provider_times_out(:authorize, times: 3)
-      order = checkout
 
-      work_off_queue
+      order = place
 
-      assert_equal "confirmed", order.reload.state
+      assert_equal "confirmed", order.state
     end
 
     test "confirming interrupted after the reservation reserves once when it runs again" do
@@ -60,10 +59,10 @@ module Orders
       failing(Payments::Api, :authorize) { perform_enqueued_jobs(only: ConfirmJob) }
       assert_equal "placed", order.reload.state
 
-      work_off_queue
+      perform_enqueued_jobs(only: ConfirmJob)
 
-      assert_equal "delivered", order.reload.status
-      assert_equal 8, on_hand("MUG")
+      assert_equal "confirmed", order.reload.state
+      assert_equal 8, available("MUG")
     end
 
     test "confirming interrupted after the authorization is confirmed when it runs again" do
@@ -71,20 +70,21 @@ module Orders
       interrupting_after(Payments::Api, :authorize) { perform_enqueued_jobs(only: ConfirmJob) }
       assert_equal "placed", order.reload.state
 
-      work_off_queue
+      perform_enqueued_jobs(only: ConfirmJob)
 
-      assert_equal "delivered", order.reload.status
-      assert_equal :captured, Payments::TestSupport.money_status(order.reference)
+      assert_equal "confirmed", order.reload.state
+      assert_equal [ :held, :capture ], [ Payments::TestSupport.money_status(order.reference), Payments::TestSupport.pending_request(order.reference) ]
     end
 
     test "confirming interrupted after the order is confirmed asks for the capture when it runs again" do
       order = checkout
       failing(Payments::Api, :request_capture) { perform_enqueued_jobs(only: ConfirmJob) }
       assert_equal "confirmed", order.reload.state
+      assert_nil Payments::TestSupport.pending_request(order.reference)
 
-      work_off_queue
+      perform_enqueued_jobs(only: ConfirmJob)
 
-      assert_equal "delivered", order.reload.status
+      assert_equal :capture, Payments::TestSupport.pending_request(order.reference)
     end
 
     test "the placement is announced once, in the transaction that records the order" do
@@ -92,13 +92,13 @@ module Orders
       placed = record_publications { order = checkout }
       later = record_publications do
         failing(Payments::Api, :request_capture) { perform_enqueued_jobs(only: ConfirmJob) }
-        work_off_queue
+        perform_enqueued_jobs(only: ConfirmJob)
       end
 
       assert_equal [ "orders.order_placed" ], placed.map(&:event_type)
       assert_equal 2, placed.sole.event_version
       assert_not later.any? { |publication| publication.event_type == "orders.order_placed" }, "confirming, however often it runs, announces nothing again"
-      assert_equal "delivered", order.reload.status
+      assert_equal "confirmed", order.reload.state
     end
 
     test "a confirmation handed to the queue twice confirms the order once" do
@@ -109,10 +109,10 @@ module Orders
       Platform::StagedJobRelayJob.perform_now
       assert_equal 2, enqueued_jobs.count { |job| job["job_class"] == ConfirmJob.name }
 
-      published = record_publications { work_off_queue }
+      perform_enqueued_jobs(only: ConfirmJob)
 
-      assert_equal "delivered", order.reload.status
-      assert_equal 1, published.count { |publication| publication.event_type == "orders.order_shipped" }
+      assert_equal "confirmed", order.reload.state
+      assert_equal 8, available("MUG"), "the stock is held once"
     end
   end
 end

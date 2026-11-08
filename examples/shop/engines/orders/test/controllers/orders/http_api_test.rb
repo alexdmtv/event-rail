@@ -2,6 +2,8 @@ require "test_helper"
 
 module Orders
   class HttpApiTest < ActionDispatch::IntegrationTest
+    include Steps
+
     CUSTOMER_PARAMS = { customer_id: "cus_ada", customer_name: "Ada Lovelace", customer_email: "ada@example.com", shipping_address: "12 St James's Square, London" }.freeze
 
     def open_cart(items = [ { sku: "MUG", quantity: 2 }, { sku: "TEA", quantity: 1 } ])
@@ -29,9 +31,9 @@ module Orders
 
     test "a request is a flow of its own, correlated by the request's ID" do
       cart = open_cart
-      published = record_publications { perform_enqueued_jobs { place(cart) } }
+      published = record_publications { perform_enqueued_jobs(only: ConfirmJob) { place(cart) } }
 
-      assert_includes published.map(&:event_type), "orders.order_delivered"
+      assert_includes published.map(&:event_type), "orders.order_placed"
       assert_equal [ response.request.request_id ], published.map(&:correlation_id).uniq
     end
 
@@ -71,7 +73,7 @@ module Orders
       assert_response :accepted
       assert response.parsed_body["cancellation_requested_at"]
 
-      perform_enqueued_jobs
+      perform_enqueued_jobs(only: CancelJob)
       get "/orders/#{order["id"]}", as: :json
       assert_equal "cancelled", response.parsed_body["status"]
     end
@@ -89,8 +91,8 @@ module Orders
     end
 
     test "a delivered order's return is accepted" do
-      Fulfillment::TestSupport.instant_carrier
-      order = perform_enqueued_jobs { place(open_cart) }
+      order = perform_enqueued_jobs(only: ConfirmJob) { place(open_cart) }
+      Order.find(order["id"]).then { |record| pay(record); ship(record); deliver(record) }
 
       post "/orders/#{order["id"]}/return", as: :json
 

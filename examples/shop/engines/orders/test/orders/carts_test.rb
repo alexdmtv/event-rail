@@ -78,11 +78,12 @@ module Orders
       first = TestSupport.place_order(cart.id)
       second = TestSupport.place_order(cart.id)
       assert_enqueued_jobs 1, only: ConfirmJob
-      work_off_queue
+      perform_enqueued_jobs(only: ConfirmJob)
       third = TestSupport.place_order(cart.id)
 
       assert_equal [ first.id ] * 3, [ first, second, third ].map(&:id)
-      assert_equal :delivered, third.status
+      assert_equal :confirmed, third.status
+      assert_no_enqueued_jobs only: ConfirmJob
     end
 
     test "two placements of one cart racing each other make one order, and the loser stages nothing" do
@@ -104,17 +105,9 @@ module Orders
       assert_no_enqueued_jobs
 
       relay_staged_jobs
-      work_off_queue
+      perform_enqueued_jobs(only: ConfirmJob)
 
-      assert_equal "delivered", order.reload.status
-    end
-
-    test "placing an order and everything it causes share one flow" do
-      cart = open_cart
-      published = record_publications { perform_enqueued_jobs { TestSupport.place_order(cart.id) } }
-
-      assert_includes published.map(&:event_type), "orders.order_delivered"
-      assert_equal 1, published.map(&:correlation_id).uniq.size
+      assert_equal "confirmed", order.reload.state
     end
   end
 end

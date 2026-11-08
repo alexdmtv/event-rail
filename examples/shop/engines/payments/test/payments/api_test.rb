@@ -41,7 +41,7 @@ module Payments
       Api.request_capture(reference: "ref-1")
       assert_equal 0, gateway.calls[:capture]
 
-      published = record_publications { perform_enqueued_jobs }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) }
       assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
       assert_equal "captured", payment("ref-1").state
     end
@@ -50,8 +50,8 @@ module Payments
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new
 
-      first = record_publications { Api.request_capture(reference: "ref-1"); perform_enqueued_jobs }
-      second = record_publications { Api.request_capture(reference: "ref-1"); perform_enqueued_jobs }
+      first = record_publications { Api.request_capture(reference: "ref-1"); perform_enqueued_jobs(only: CallProviderJob) }
+      second = record_publications { Api.request_capture(reference: "ref-1"); perform_enqueued_jobs(only: CallProviderJob) }
 
       assert_equal 1, gateway.calls[:capture]
       assert_equal [ "payments.payment_captured" ], first.map(&:event_type)
@@ -64,7 +64,7 @@ module Payments
       Api.request_capture(reference: "ref-1")
       enqueued_jobs << enqueued_jobs.sole.dup # the relay handed it over twice
 
-      published = record_publications { work_off_queue }
+      published = record_publications { work_off_queue(only: CallProviderJob) }
 
       assert_equal 1, gateway.calls[:capture]
       assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
@@ -75,11 +75,11 @@ module Payments
       Gateway.adapter = gateway = ScriptedGateway.new
       Api.request_capture(reference: "ref-1")
       late = enqueued_jobs.sole.dup
-      work_off_queue
-      perform_enqueued_jobs { Api.request_release(reference: "ref-1") }
+      work_off_queue(only: CallProviderJob)
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") }
       assert_equal "refunded", payment("ref-1").state
 
-      published = record_publications { enqueued_jobs << late; work_off_queue }
+      published = record_publications { enqueued_jobs << late; work_off_queue(only: CallProviderJob) }
 
       assert_empty published
       assert_equal 1, gateway.calls[:capture]
@@ -90,7 +90,7 @@ module Payments
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :timeout, :timeout, :ok ])
 
-      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") } }
 
       assert_equal 3, gateway.calls[:capture]
       assert_equal [ "payments.payment_captured" ], published.map(&:event_type)
@@ -100,7 +100,7 @@ module Payments
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :lost ])
 
-      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") } }
 
       assert_equal [ 2, 1 ], [ gateway.calls[:capture], gateway.applied[:capture] ], "asked twice, captured once"
       assert_equal [ "captured", "succeeded" ], [ payment("ref-1").state, call("ref-1", "capture").state ]
@@ -111,7 +111,7 @@ module Payments
       authorize
       Gateway.adapter = ScriptedGateway.new(capture: [ :refuse ])
 
-      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") } }
 
       assert_equal [ "payments.capture_failed" ], published.map(&:event_type)
       assert_equal "authorized", payment("ref-1").state, "the hold is still there, to be voided"
@@ -124,7 +124,7 @@ module Payments
       Api.request_capture(reference: "ref-1")
 
       failures = nil
-      published = record_publications { failures = work_off_queue }
+      published = record_publications { failures = work_off_queue(only: CallProviderJob) }
 
       assert_equal 10, gateway.calls[:capture]
       assert_equal [ "Payments::CallProviderJob" ], failures.map(&:job_class)
@@ -134,7 +134,7 @@ module Payments
       sent_at = call("ref-1", "capture").sent_at
 
       replay(failures) # the provider is back
-      work_off_queue
+      work_off_queue(only: CallProviderJob)
 
       assert_equal [ "captured", "succeeded" ], [ payment("ref-1").state, call("ref-1", "capture").state ]
       assert_equal sent_at, call("ref-1", "capture").sent_at, "sending again keeps the first time it was sent"
@@ -143,7 +143,7 @@ module Payments
     test "release voids an uncaptured authorization" do
       authorize
 
-      published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
       assert_equal "voided", payment("ref-1").state
@@ -152,9 +152,9 @@ module Payments
     test "a capture asked for after the release does nothing" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new
-      perform_enqueued_jobs { Api.request_release(reference: "ref-1") }
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") }
 
-      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") } }
 
       assert_empty published
       assert_equal 0, gateway.calls[:capture]
@@ -163,9 +163,9 @@ module Payments
 
     test "release refunds captured money and reports it" do
       authorize
-      perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") }
 
-      published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_issued" ], published.map(&:event_type)
       assert_equal "refunded", payment("ref-1").state
@@ -173,10 +173,10 @@ module Payments
 
     test "a refused refund is reported as a failed refund" do
       authorize
-      perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") }
       Gateway.adapter = ScriptedGateway.new(refund: [ :refuse ])
 
-      published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") } }
 
       assert_equal [ "payments.refund_failed" ], published.map(&:event_type)
       assert_equal [ "captured", nil ], payment("ref-1").values_at(:state, :refunded_at), "the money is still taken, and owed back"
@@ -186,9 +186,9 @@ module Payments
     test "a refused capture is not asked again while its hold stands" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :refuse ])
-      perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") }
 
-      published = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+      published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") } }
 
       assert_empty published
       assert_equal [ 1, "authorized" ], [ gateway.calls[:capture], payment("ref-1").state ]
@@ -199,7 +199,7 @@ module Payments
       Gateway.adapter = gateway = ScriptedGateway.new
       2.times { Api.request_release(reference: "ref-1") }
 
-      published = record_publications { work_off_queue }
+      published = record_publications { work_off_queue(only: CallProviderJob) }
 
       assert_equal 1, gateway.calls[:void]
       assert_equal [ "payments.authorization_voided" ], published.map(&:event_type)
@@ -208,10 +208,10 @@ module Payments
     test "a refused capture's hold is voided by the release, and repeating the capture reports nothing new" do
       authorize
       Gateway.adapter = gateway = ScriptedGateway.new(capture: [ :refuse ])
-      perform_enqueued_jobs { Api.request_capture(reference: "ref-1") }
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") }
 
-      voided = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
-      again = record_publications { perform_enqueued_jobs { Api.request_capture(reference: "ref-1") } }
+      voided = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") } }
+      again = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "ref-1") } }
 
       assert_equal 1, gateway.calls[:void]
       assert_equal [ "payments.authorization_voided" ], voided.map(&:event_type)
@@ -223,10 +223,10 @@ module Payments
     test "release refunds a captured payment and voids an uncaptured one" do
       authorize("captured")
       authorize("uncaptured")
-      perform_enqueued_jobs { Api.request_capture(reference: "captured") }
+      perform_enqueued_jobs(only: CallProviderJob) { Api.request_capture(reference: "captured") }
 
       published = record_publications do
-        perform_enqueued_jobs { Api.request_release(reference: "captured"); Api.request_release(reference: "uncaptured") }
+        perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "captured"); Api.request_release(reference: "uncaptured") }
       end
 
       assert_equal "refunded", payment("captured").state
@@ -243,7 +243,7 @@ module Payments
       end
       Api.request_capture(reference: "ref-1")
 
-      published = record_publications { work_off_queue }
+      published = record_publications { work_off_queue(only: CallProviderJob) }
 
       assert_equal [ 1, 0, 1 ], gateway.calls.values_at(:capture, :void, :refund)
       assert_equal "refunded", payment("ref-1").state
@@ -259,7 +259,7 @@ module Payments
       end
       Api.request_capture(reference: "ref-1")
 
-      published = record_publications { work_off_queue }
+      published = record_publications { work_off_queue(only: CallProviderJob) }
 
       assert_equal [ 1, 1 ], gateway.calls.values_at(:capture, :void)
       assert_equal %w[ payments.capture_failed payments.authorization_voided ], published.map(&:event_type)
@@ -272,7 +272,7 @@ module Payments
 
       published = record_publications do
         Api.request_release(reference: "ref-1")
-        work_off_queue
+        work_off_queue(only: CallProviderJob)
       end
 
       assert_equal [ 0, 1 ], gateway.calls.values_at(:capture, :void)
@@ -286,7 +286,7 @@ module Payments
 
       published = nil
       assert_error_reported(Gateway::Refused) do
-        published = record_publications { perform_enqueued_jobs { Api.request_release(reference: "ref-1") } }
+        published = record_publications { perform_enqueued_jobs(only: CallProviderJob) { Api.request_release(reference: "ref-1") } }
       end
 
       assert_empty published
@@ -308,7 +308,7 @@ module Payments
 
       EventRail.with_context(message_id: "checkout-flow-1") { Api.request_capture(reference: "ref-1") }
       capture_job_id = enqueued_jobs.sole["job_id"]
-      published = record_publications { work_off_queue }
+      published = record_publications { work_off_queue(only: CallProviderJob) }
 
       failure = published.sole
       assert_equal "payments.capture_failed", failure.event_type
@@ -336,7 +336,7 @@ module Payments
       published = record_publications do
         Api.request_release(reference: "never-authorized")
         Api.request_capture(reference: "never-authorized")
-        perform_enqueued_jobs
+        perform_enqueued_jobs(only: CallProviderJob)
       end
 
       assert_empty published
@@ -350,7 +350,7 @@ module Payments
       assert_no_enqueued_jobs
 
       relay_staged_jobs
-      work_off_queue
+      work_off_queue(only: CallProviderJob)
 
       assert_equal "captured", payment("ref-1").state
     end

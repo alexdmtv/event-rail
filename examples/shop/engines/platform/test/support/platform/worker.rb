@@ -5,11 +5,15 @@ module Platform
     module Worker
       Failure = Data.define(:job_class, :error, :job)
 
-      # Runs retries without waiting for them, as if time had passed, unless due_only.
-      def work_off_queue(max_jobs: 1_000, due_only: false)
+      # Runs retries without waiting for them, as if time had passed, unless due_only. A module's
+      # tests name their own jobs (only:); the host's flow tests run everything.
+      def work_off_queue(max_jobs: 1_000, due_only: false, only: nil)
+        names = Array(only).map(&:name)
         failures = []
         max_jobs.times do
-          index = queue_adapter.enqueued_jobs.index { |queued| !due_only || queued[:at].nil? || queued[:at] <= Time.current.to_f }
+          index = queue_adapter.enqueued_jobs.index do |queued|
+            (names.empty? || names.include?(queued["job_class"])) && (!due_only || queued[:at].nil? || queued[:at] <= Time.current.to_f)
+          end
           job = index && queue_adapter.enqueued_jobs.delete_at(index) or return failures
           begin
             ActiveJob::Base.execute(job.stringify_keys.except("job", "args", "at", "queue", "priority"))

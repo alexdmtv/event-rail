@@ -4,8 +4,6 @@ module Orders
   class CancellationTest < ActiveSupport::TestCase
     include Steps
 
-    setup { Fulfillment::TestSupport.slow_carrier }
-
     test "a cancellation is recorded at once and carried out in a job" do
       order = place
       clear_enqueued_jobs # its capture has not run
@@ -14,73 +12,85 @@ module Orders
       assert_equal [ "confirmed", "customer" ], [ order.reload.state, order.reload.cancel_reason ]
       assert_enqueued_jobs 1, only: CancelJob
 
-      perform_due_jobs
+      perform_enqueued_jobs(only: CancelJob)
       assert_equal "cancelled", order.reload.state
       assert_equal 10, available("MUG")
-      assert_equal :voided, Payments::TestSupport.money_status(order.reference)
+      assert Payments::TestSupport.release_requested?(order.reference), "the money is to be given back"
     end
 
-    test "cancelling after capture, before dispatch, releases the stock and refunds the payment" do
+    test "cancelling a paid order before dispatch releases the stock, calls off the shipment and asks for the money back" do
       order = place
-      perform_due_jobs # captured and paid; the carrier has not collected the parcel
+      pay(order)
+      assert_equal :requested, Fulfillment::TestSupport.shipment_status(order.reference)
 
-      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(order.id) } }
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
 
       assert_equal [ "cancelled", "cancelled" ], [ order.reload.state, order.status ]
       assert_equal 10, available("MUG")
-      assert_equal :refunded, Payments::TestSupport.money_status(order.reference)
-      assert_not_includes published.map(&:event_type), "orders.order_refunded", "a cancellation's refund is not a return's"
+      assert_equal :cancelled, Fulfillment::TestSupport.shipment_status(order.reference)
+      assert Payments::TestSupport.release_requested?(order.reference)
+    end
+
+    test "a cancellation's refund is not announced as a return's" do
+      order = place
+      pay(order)
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
+
+      published = record_publications { refund(order) }
+
+      assert_equal "cancelled", order.reload.status
+      assert_not_includes published.map(&:event_type), "orders.order_refunded"
     end
 
     test "a cancellation's refused refund sets the order aside for a person, once" do
-      Payments::TestSupport.provider_refuses(:refund)
       order = place
-      perform_due_jobs # captured and paid
+      pay(order)
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
 
-      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(order.id) } }
+      published = record_publications { refuse_refund(order) }
 
-      assert_equal "needs_attention", order.reload.status
-      assert order.refund_failure_reason.present?, "the refusal's reason is kept for a person"
+      assert_equal [ "needs_attention", "refund refused" ], [ order.reload.status, order.refund_failure_reason ]
       assert_not_includes published.map(&:event_type), "orders.order_refunded"
-      assert_no_changes -> { order.reload.attributes } do
-        RecordCancellationRefundFailureJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "again")).event)
-      end
+      assert_no_changes(-> { order.reload.attributes }) { refuse_refund(order, reason: "again") }
     end
 
     test "a refused refund for an order neither cancelled nor returning changes nothing" do
       order = place
-      perform_due_jobs
+      pay(order)
 
-      assert_no_changes -> { order.reload.attributes } do
-        RecordCancellationRefundFailureJob.perform_now(EventRail.publish(Payments::Events::RefundFailed.new(reference: order.reference, reason: "stray")).event)
-      end
-    end
-
-    test "a capture that lands after the cancellation is refunded" do
-      order = place
-      perform_enqueued_jobs { TestSupport.request_cancellation(order.id) }
-
-      perform_enqueued_jobs { Payments::Api.request_capture(reference: order.reference) }
-
-      assert_equal "cancelled", order.reload.state
-      assert_equal :voided, Payments::TestSupport.money_status(order.reference), "the hold was voided before the late capture could take it"
+      assert_no_changes(-> { order.reload.attributes }) { refuse_refund(order, reason: "stray") }
     end
 
     test "an order that has shipped cannot be cancelled" do
       order = place
-      perform_due_jobs
-      MarkShippedJob.perform_now(EventRail.publish(Fulfillment::Events::ShipmentDispatched.new(reference: order.reference, tracking_code: "TRK-1")).event)
+      pay(order)
+      ship(order)
 
       assert_raises(NotCancellable) { TestSupport.request_cancellation(order.id) }
     end
 
-    test "a refused cancellation replayed after the order was delivered and returned changes nothing" do
+    test "a cancellation requested once the parcel left, before Orders heard, is refused, and the order carries on" do
+      Fulfillment::TestSupport.slow_carrier
       order = place
-      perform_due_jobs
+      pay(order)
+      Fulfillment::TestSupport.carrier_collects_parcels # Orders has not heard yet
+
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
+
+      assert order.reload.cancellation_refused_at, "Fulfillment refused: the parcel had left"
+      assert_equal "paid", order.status
+      ship(order)
+      assert_equal "shipped", order.reload.status
+    end
+
+    test "a refused cancellation replayed after the order was delivered and returned changes nothing" do
+      Fulfillment::TestSupport.slow_carrier
+      order = place
+      pay(order)
       Fulfillment::TestSupport.carrier_collects_parcels
-      TestSupport.request_cancellation(order.id)
-      perform_enqueued_jobs(only: CancelJob)
-      travel(2.hours) { perform_due_jobs } # the dispatch is heard and the parcel delivered
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
+      ship(order)
+      deliver(order)
       TestSupport.request_return(order.id)
 
       assert_no_changes -> { order.reload.attributes } do
@@ -91,9 +101,9 @@ module Orders
 
     test "cancelling twice changes nothing and announces nothing further" do
       order = place
-      perform_enqueued_jobs { TestSupport.request_cancellation(order.id) }
+      perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id) }
 
-      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(order.id, reason: "again") } }
+      published = record_publications { perform_enqueued_jobs(only: CancelJob) { TestSupport.request_cancellation(order.id, reason: "again") } }
 
       assert_equal "customer", order.reload.cancel_reason
       assert_empty published
@@ -106,7 +116,7 @@ module Orders
 
       published = record_publications do
         relay_staged_jobs
-        perform_due_jobs
+        perform_enqueued_jobs(only: CancelJob)
       end
 
       assert_equal "cancelled", order.reload.state
@@ -123,16 +133,6 @@ module Orders
       cancelled = (first + again).select { |publication| publication.event_type == "orders.order_cancelled" }
       assert_equal 1, cancelled.size, "the first run failed before announcing"
       assert_equal 10, available("MUG")
-    end
-
-    test "a cancellation and everything it causes share one flow, not the placement's" do
-      placed = record_publications { @order = place }
-      clear_enqueued_jobs
-
-      published = record_publications { perform_enqueued_jobs { TestSupport.request_cancellation(@order.id) } }
-
-      assert_equal 1, published.map(&:correlation_id).uniq.size
-      assert_not_includes placed.map(&:correlation_id), published.first.correlation_id
     end
   end
 end

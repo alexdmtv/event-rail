@@ -122,4 +122,16 @@ class CancellationFlowTest < FlowTestCase
     assert_equal %i[ cancelled ], notified_kinds(order)
     assert_one_flow(published)
   end
+
+  test "a cancellation and everything it causes share one flow, not the placement's" do
+    placed = record_publications { @order = place }
+    clear_enqueued_jobs # its capture has not run
+
+    published = record_publications do
+      Orders::TestSupport.request_cancellation(@order.id)
+      work_off_queue(due_only: true)
+    end
+
+    assert_not_equal assert_one_flow(placed), assert_one_flow(published)
+  end
 end
